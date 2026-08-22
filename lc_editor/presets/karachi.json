@@ -1,0 +1,12 @@
+{
+  "id": "karachi",
+  "brand": "Sites to visit in Karachi",
+  "grade": "motovlog",
+  "no_selfies": true,
+  "structure": ["hook", "series_card", "journey", "site", "closer"],
+  "series_card": "Sites to visit in Karachi, Ep {n}",
+  "episode_1": {
+    "title": "Makli / Thatta",
+    "beats": ["series title", "100 km / ~2 hours on the N-5", "Cafe Imran, Gharo", "the site"]
+  }
+}

@@ -23,7 +23,18 @@ Preview / export proxy is 540x960, `-preset veryfast`, `-crf 30`. Size target **
 
 ## SPEC-EXPORT-04: review_report
 
-`review_report` returns duration, clip count, caption lint summary, mix lint summary, transition count, grade name, and whether length is in 15-28s. Calling it records `reviewed_version = timeline.version`.
+`review_report` returns duration, clip count, caption lint summary, mix lint summary, transition count, grade name, whether length is in 15-28s, plus structured `errors` and `warnings`.
+
+`ok` is false and `reviewed_version` is **not** set when any of these hold:
+
+- a still has `motion=none` and duration greater than 1.40s
+- a caption center is outside 22-50%
+- a caption hold is shorter than required
+- `allow_music` is true
+- any SFX is less than 6 dB under the bed
+- duration exceeds 45.00s
+
+A duration between 28s and 45s is a warning, not a failure.
 
 ## SPEC-EXPORT-05: export writes two files
 
@@ -32,3 +43,7 @@ A successful `export` writes the hero reel and a proxy alongside it.
 ## SPEC-EXPORT-06: same call twice
 
 `export` with the same `op_id` does not spawn a second hero file (returns the original paths).
+
+## SPEC-EXPORT-07: sidecar
+
+A successful `export` writes `reel.json` next to the hero. The sidecar lists shots (source, in, out, duration, motion, crop), captions, SFX (kind, at, gain), total duration, grade, preset, timeline version, and the hero/proxy paths. Replay of the same `op_id` returns the same sidecar path.

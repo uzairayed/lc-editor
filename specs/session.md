@@ -26,6 +26,8 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 `import_file` registers one file (copy or hardlink into project media). `import_folder` registers every video/image in a folder (Drive stays outside; this is a local folder). Both probe and can request thumbnails.
 
+Pixel bursts named `PXL_*BURST*` are an exception: see SPEC-SES-06.
+
 ## SPEC-SES-05: media_list / media_remove / probe / thumbnail / contact_sheet / proxy_build
 
 - `media_list` returns imported items with duration, size, kind, burst_cover hint
@@ -37,7 +39,9 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 ## SPEC-SES-06: burst-COVER
 
-Sequential stills or near-timestamp bursts mark the sharpest (or first, when no analysis extra) as `burst_cover: true`.
+Pixel files matching `PXL_*BURST*` are one burst. `import_folder` keeps the `COVER` frame only and skips the siblings. The response includes `imported`, `skipped`, `deduped`, and source names. Non-burst files are imported as usual.
+
+Older `IMG_####` sequences still mark a cover hint but do not drop siblings.
 
 ## SPEC-SES-07: unimplemented stubs
 
@@ -62,3 +66,23 @@ A real session, in order:
 ## SPEC-SES-09: web is read-only
 
 Optional localhost page reads timeline JSON and stills. It has no POST that mutates the store.
+
+## SPEC-SES-10: typed MCP schemas
+
+Each MCP tool is bound to the real `Editor` method. The input schema lists named fields (`media_id`, `in_s`, `text`, `op_id`). A wrapper of `**kwargs` only is illegal.
+
+## SPEC-SES-11: Python 3.11
+
+The package installs and the unit suite runs on Python 3.11 and 3.12.
+
+## SPEC-SES-12: optional series preset
+
+`project_create(preset="karachi")` and `project_set(preset="karachi")` attach the Karachi series file. `project_get` exposes `preset`. Default is `null`. A preset cannot set `allow_music` true or weaken SPEC-CRAFT rules.
+
+## SPEC-SES-13: preview files are paths
+
+`preview_stills` and `contact_sheet` write JPEGs under the project directory and return absolute paths. The payload has no base64 image blob.
+
+## SPEC-SES-14: Unexpected Murree acceptance
+
+When `LC_EDITOR_MURREE_DIR` points at a folder of exactly 117 readable stills, `pytest -m murree` imports that folder (COVER-only for bursts), builds a contact sheet, cuts a winter reel, writes preview stills, reviews, and exports. Proxy must be `<= 14 MB`. Target wall time for a cold proxy is about 30s on the machine that set the variable. Private stills are never committed.

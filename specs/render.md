@@ -46,7 +46,15 @@ An intermediate file is named by a content hash of that clip's render parameters
 
 ## SPEC-RND-11: preview stills
 
-`preview_stills` writes one still per clip (midpoint frame) under the project cache. Does not require a hero encode.
+`preview_stills` writes one still per clip (midpoint frame) under the project directory and returns absolute paths. The files must open as real JPEGs. No base64. Does not require a hero encode.
+
+## SPEC-RND-13: packaged fonts
+
+The wheel ships `Anton-Regular.ttf` and static `SpaceGrotesk-Bold.ttf` (OFL). Clash Display and Satoshi remain optional user overrides. The Space Grotesk file is a 700-weight static face, not a variable `[wght]` file renamed Bold.
+
+## SPEC-RND-14: grade cubes
+
+`neutral`, `winter_trip`, and `motovlog` are 17x17x17 `.cube` files. Neutral stays near identity. Winter cools shadows and slightly warms highlights. Motovlog adds teal shadows and warm mids/highlights. A still rendered through each preset must differ in sampled pixels.
 
 ## SPEC-RND-12: one-clip preview
 

@@ -7,7 +7,7 @@ name = "lc-editor"
 version = "0.1.0"
 description = "Local MCP video editor. ffmpeg renders 9:16 reels."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "LC Reel Craft" }]
 dependencies = [
@@ -31,5 +31,6 @@ packages = ["lc_editor"]
 testpaths = ["tests"]
 markers = [
     "integration: requires ffmpeg on PATH",
+    "murree: external 117-still Unexpected Murree folder via LC_EDITOR_MURREE_DIR",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]

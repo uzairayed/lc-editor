@@ -7,6 +7,8 @@ from pathlib import Path
 
 from lc_editor.models import FPS, MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT
 
+PXL_BURST = re.compile(r"^(PXL_.+?)[\._-]BURST", re.IGNORECASE)
+
 
 def probe_args(ffprobe: str, path: Path) -> list[str]:
     return [
@@ -66,13 +68,43 @@ def burst_groups(paths: list[Path]) -> dict[str, list[Path]]:
     return {k: sorted(v) for k, v in groups.items() if len(v) >= 3}
 
 
+def pxl_burst_id(path: Path) -> str | None:
+    match = PXL_BURST.match(path.name)
+    if match:
+        return match.group(1)
+    return None
+
+
+def select_import_paths(paths: list[Path]) -> tuple[list[Path], list[Path], list[str]]:
+    bursts: dict[str, list[Path]] = defaultdict(list)
+    others: list[Path] = []
+    for path in paths:
+        burst_id = pxl_burst_id(path)
+        if burst_id:
+            bursts[burst_id].append(path)
+        else:
+            others.append(path)
+    kept: list[Path] = []
+    skipped: list[Path] = []
+    for burst_id, members in bursts.items():
+        cover = next((m for m in members if "COVER" in m.name.upper()), None)
+        if cover is None:
+            cover = sorted(members)[0]
+        kept.append(cover)
+        skipped.extend(m for m in members if m != cover)
+    return sorted(kept + others), skipped, sorted(bursts.keys())
+
+
 def mark_burst_covers(items: list[dict]) -> None:
     by_burst: dict[str, list[dict]] = defaultdict(list)
     for item in items:
         if item.get("burst_id"):
             by_burst[item["burst_id"]].append(item)
     for group in by_burst.values():
-        if len(group) < 3:
+        if not group:
             continue
-        cover = group[0]
-        cover["burst_cover"] = True
+        cover = next((item for item in group if item.get("burst_cover")), group[0])
+        for item in group:
+            item["burst_cover"] = item is cover or item.get("original_path", "").upper().find("COVER") >= 0
+        if not any(item.get("burst_cover") for item in group):
+            group[0]["burst_cover"] = True

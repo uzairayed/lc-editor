@@ -14,6 +14,8 @@ Bundled kinds: `tick`, `pop`, `whoosh`, `impact`, `riser` (300ms noise riser), `
 
 `sfx_list` returns bundled items plus any files in the project user-sfx folder. No melody, no drum loop in the bundled manifest.
 
+`steps_snow` and `steps_gravel` are different waveforms (different SHA-256). Snow is a soft crunch. Gravel is a sharper multi-grain impact.
+
 ## SPEC-SND-03: auto tick on caption in
 
 `sfx_caption_auto` places a `tick` (or `pop`) at each caption start that does not already have an auto tick. Same call twice does not duplicate (idempotent, or no-op when already placed).

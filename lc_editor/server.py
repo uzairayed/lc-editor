@@ -62,22 +62,15 @@ TOOLS = [
 
 
 def build_mcp(editor: Editor):
-    from mcp.server.fastmcp import FastMCP
+    try:
+        from mcp.server import MCPServer as Server
+    except ImportError:
+        from mcp.server.fastmcp import FastMCP as Server
 
-    mcp = FastMCP("lc-editor")
-
-    def bind(name: str):
-        fn = getattr(editor, name)
-
-        def tool(**kwargs):
-            return fn(**kwargs)
-
-        tool.__name__ = name
-        tool.__doc__ = fn.__doc__ or name
-        return mcp.tool(name=name)(tool)
-
+    mcp = Server("lc-editor")
     for name in TOOLS:
-        bind(name)
+        fn = getattr(editor, name)
+        mcp.tool(name=name)(fn)
     return mcp
 
 

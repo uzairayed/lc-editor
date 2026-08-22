@@ -121,3 +121,40 @@ def test_spec_ses_08_eleven_call_real_ffmpeg(tmp_path: Path) -> None:
     )
     assert "1080" in probe.stdout
     assert "1920" in probe.stdout
+    assert Path(exported["sidecar"]).exists()
+
+
+@skip_no_ffmpeg
+def test_spec_rnd_14_luts_shift_pixels(tmp_path: Path) -> None:
+    from lc_editor.assets.pack import cube_path
+    from lc_editor.render.paths import ffmpeg_path
+
+    src = tmp_path / "plate.png"
+    subprocess.run(
+        [ffmpeg, "-nostdin", "-y", "-f", "lavfi", "-i", "color=c=0x806040:s=64x64", "-frames:v", "1", str(src)],
+        check=True,
+        capture_output=True,
+    )
+    samples = {}
+    for name in ("neutral", "winter_trip", "motovlog"):
+        dest = tmp_path / f"{name}.png"
+        cube = cube_path(name)
+        proc = subprocess.run(
+            [
+                ffmpeg,
+                "-nostdin",
+                "-y",
+                "-i",
+                str(src),
+                "-vf",
+                f"lut3d=file='{ffmpeg_path(cube)}'",
+                str(dest),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        samples[name] = dest.read_bytes()
+    assert samples["neutral"] != samples["winter_trip"]
+    assert samples["neutral"] != samples["motovlog"]
+    assert samples["winter_trip"] != samples["motovlog"]

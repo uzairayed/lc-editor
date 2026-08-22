@@ -1,6 +1,8 @@
 # LC Reel Craft
 
-Editing spec for the **Sites to visit in Karachi** motovlog series. Vertical reels, ffmpeg pipeline, no talking head. The reel should feel like a ride you were taken along on, not a slideshow with captions.
+Engine craft (no music, no caption box, hold formula, 15-28s target, 45s cap) lives in `specs/craft.md` and applies to every project.
+
+This file is the **Sites to visit in Karachi** series preset: optional branding, not the editor default. Apply it with `project_create(..., preset="karachi")`. A Murree cut, or any other reel, does not need this structure.
 
 ## Structure (every episode)
 

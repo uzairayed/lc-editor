@@ -11,6 +11,7 @@ FPS = 30
 DURATION_CAP_S = 45.0
 DURATION_SOFT_MAX_S = 28.0
 DURATION_SOFT_MIN_S = 15.0
+LOCKED_STILL_MAX_S = 1.4
 DEFAULT_CLIP_S = 2.0
 DEFAULT_STILL_S = 2.5
 CAPTION_WRAP = 26
@@ -139,6 +140,7 @@ class Project(BaseModel):
     cube_path: str | None = None
     overlays: OverlayFlags = Field(default_factory=OverlayFlags)
     reviewed_version: int | None = None
+    preset: str | None = None
     root: str = ""
 
 

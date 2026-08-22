@@ -89,4 +89,12 @@ def test_spec_rnd_11_preview_stills(editor: Editor, media_file: Path) -> None:
     stills = editor.preview_stills()
     assert stills["ok"] is True
     assert stills["paths"]
-    assert Path(stills["paths"][0]).exists()
+    path = Path(stills["paths"][0])
+    assert path.is_absolute()
+    assert path.exists()
+    assert path.stat().st_size > 0
+    assert "base64" not in stills
+    sheet = editor.contact_sheet()
+    assert Path(sheet["path"]).is_absolute()
+    assert Path(sheet["path"]).exists()
+    assert "base64" not in sheet

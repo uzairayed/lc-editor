@@ -38,12 +38,12 @@
     {
       "kind": "steps_snow",
       "file": "steps_snow.wav",
-      "duration_s": 0.2
+      "duration_s": 0.28
     },
     {
       "kind": "steps_gravel",
       "file": "steps_gravel.wav",
-      "duration_s": 0.2
+      "duration_s": 0.22
     },
     {
       "kind": "engine",

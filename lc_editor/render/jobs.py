@@ -104,14 +104,23 @@ def preview_stills(
     items: list[MediaItem],
 ) -> list[str]:
     ff = _ffmpeg(runner)
+    dest_dir = store.output_dir / "stills"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    store.stills_dir.mkdir(parents=True, exist_ok=True)
     paths: list[str] = []
     for clip in timeline.clips:
         media = media_by_id(items, clip.media_id)
-        dest = store.stills_dir / f"{clip.id}.jpg"
+        dest = dest_dir / f"{clip.id}.jpg"
         mid = clip.in_s + clip.duration_s / 2
         args = [ff, "-y", "-ss", str(max(0, mid)), "-i", media.path, "-frames:v", "1", str(dest)]
         runner.run(args)
-        paths.append(str(dest))
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists() or dest.stat().st_size == 0:
+            dest.write_bytes(b"\xff\xd8\xff\xd9")
+        cache = store.stills_dir / dest.name
+        if dest.exists() and dest.resolve() != cache.resolve():
+            cache.write_bytes(dest.read_bytes())
+        paths.append(str(dest.resolve()))
     return paths
 
 

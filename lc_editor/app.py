@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lc_editor.analysis.media import burst_groups, kind_for, mark_burst_covers, parse_probe, probe_args
-from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest, sfx_path
+from lc_editor.analysis.media import kind_for, pxl_burst_id, parse_probe, probe_args, select_import_paths
+from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest
 from lc_editor.ids import new_id
 from lc_editor.lint.captions import caption_issues, hold_s, timeline_caption_issues, wrap_text
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import estimate_true_peak_db, mix_issues, sfx_too_hot
+from lc_editor.lint.review import review_blockers, review_warnings
+from lc_editor.presets import load_preset
 from lc_editor.models import (
     CAPTION_Y_DEFAULT,
     DEFAULT_CLIP_S,
@@ -17,7 +19,6 @@ from lc_editor.models import (
     Caption,
     Clip,
     MediaItem,
-    OverlayFlags,
     Project,
     Timeline,
     envelope,
@@ -121,7 +122,14 @@ class Editor:
 
     # --- session ---
 
-    def project_create(self, name: str = "reel", aspect: str = "9:16", project_dir: str | None = None, op_id: str | None = None) -> dict:
+    def project_create(
+        self,
+        name: str = "reel",
+        aspect: str = "9:16",
+        project_dir: str | None = None,
+        preset: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
         if aspect != "9:16":
             return {
                 "ok": False,
@@ -131,12 +139,35 @@ class Editor:
         root = Path(project_dir) if project_dir else self.workspace / name
         root.mkdir(parents=True, exist_ok=True)
         store = Store(root)
-        project = Project(id=new_id("p"), name=name, aspect="9:16", root=str(root), allow_music=False)
+        applied = None
+        grade = "neutral"
+        if preset:
+            try:
+                applied = load_preset(preset)
+            except KeyError:
+                return {
+                    "ok": False,
+                    "timeline_summary": self._summary(),
+                    "warnings": [f"unknown preset {preset}"],
+                }
+            grade = applied.get("grade") or "neutral"
+        project = Project(
+            id=new_id("p"),
+            name=name,
+            aspect="9:16",
+            root=str(root),
+            allow_music=False,
+            preset=preset,
+            grade_preset=grade if grade in ("motovlog", "winter_trip", "neutral") else "neutral",
+        )
         store.init_project(project)
         self.store = store
         self.media = []
         self._save_media()
-        return envelope(True, store.timeline, [])
+        result = envelope(True, store.timeline, [])
+        if applied:
+            result["preset"] = applied
+        return result
 
     def project_open(self, project_dir: str, op_id: str | None = None) -> dict:
         store = Store(Path(project_dir))
@@ -151,12 +182,34 @@ class Editor:
         result["project"] = store.project.model_dump() if store.project else None
         return result
 
-    def project_set(self, *, allow_music: bool | None = None, name: str | None = None, op_id: str | None = None, **_k) -> dict:
+    def project_set(
+        self,
+        *,
+        allow_music: bool | None = None,
+        name: str | None = None,
+        preset: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
         store = self._need()
         if allow_music is True:
             return envelope(False, store.timeline, ["SPEC-SND-01: allow_music is always false"])
+        update: dict = {}
         if name:
-            store.project = store.project.model_copy(update={"name": name})
+            update["name"] = name
+        if preset is not None:
+            if preset == "":
+                update["preset"] = None
+            else:
+                try:
+                    data = load_preset(preset)
+                except KeyError:
+                    return envelope(False, store.timeline, [f"unknown preset {preset}"])
+                update["preset"] = preset
+                grade = data.get("grade")
+                if grade in ("motovlog", "winter_trip", "neutral"):
+                    update["grade_preset"] = grade
+        if update:
+            store.project = store.project.model_copy(update=update)
             store.persist()
         return envelope(True, store.timeline, [])
 
@@ -257,23 +310,32 @@ class Editor:
             return replay
         folder = Path(path)
         files = sorted(p for p in folder.iterdir() if p.is_file() and kind_for(p))
-        groups = burst_groups(files)
-        stem_to_burst = {}
-        for burst_id, members in groups.items():
-            for member in members:
-                stem_to_burst[member] = burst_id
+        keep, skipped, burst_ids = select_import_paths(files)
         imported = []
-        for file in files:
-            imported.append(self._import_path(file, burst_id=stem_to_burst.get(file, "")))
-        dumped = [m.model_dump() for m in imported]
-        mark_burst_covers(dumped)
-        by_id = {d["id"]: d for d in dumped}
-        for item in self.media:
-            if item.id in by_id:
-                item.burst_cover = by_id[item.id]["burst_cover"]
+        for file in keep:
+            burst_id = pxl_burst_id(file) or ""
+            item = self._import_path(file, burst_id=burst_id)
+            if burst_id or "COVER" in file.name.upper():
+                item.burst_cover = True
+            imported.append(item)
+        from lc_editor.analysis.media import burst_groups
+
+        groups = burst_groups([Path(m.original_path) for m in imported])
+        for prefix, members in groups.items():
+            if any(pxl_burst_id(p) for p in members):
+                continue
+            cover_name = members[0].name
+            for item in imported:
+                if Path(item.original_path).name == cover_name:
+                    item.burst_cover = True
+                    item.burst_id = prefix
+                    break
         self._save_media()
         result = envelope(True, store.timeline, [])
         result["media"] = [m.model_dump() for m in imported]
+        result["imported"] = [str(p) for p in keep]
+        result["skipped"] = [str(p) for p in skipped]
+        result["deduped"] = burst_ids
         if op_id:
             store.ledger[op_id] = result
             store.persist()
@@ -324,7 +386,8 @@ class Editor:
         for item in self.media:
             t = self.thumbnail(item.id)
             thumbs.append(Path(t["path"]))
-        dest = store.cache_dir / "contact_sheet.jpg"
+        dest = (store.output_dir / "contact_sheet.jpg").resolve()
+        dest.parent.mkdir(parents=True, exist_ok=True)
         contact_sheet(self.runner, thumbs, dest)
         result = envelope(True, store.timeline, [])
         result["path"] = str(dest)
@@ -692,7 +755,7 @@ class Editor:
         store = self._need()
         paths = preview_stills(self.runner, store, store.project, store.timeline, self.media)
         result = envelope(True, store.timeline, [])
-        result["paths"] = paths
+        result["paths"] = [str(Path(p).resolve()) for p in paths]
         return result
 
     def preview_proxy(self) -> dict:
@@ -716,21 +779,26 @@ class Editor:
 
     def review_report(self) -> dict:
         store = self._need()
-        cap = timeline_caption_issues(store.timeline)
-        mix = mix_issues(store.timeline)
+        errors = review_blockers(store.timeline, store.project)
+        warns = review_warnings(store.timeline)
         dur = timeline_duration(store.timeline)
+        ok = len(errors) == 0
+        if ok:
+            store.project = store.project.model_copy(update={"reviewed_version": store.timeline.version})
+            store.persist()
         report = {
             "duration_s": dur,
             "clip_count": len(store.timeline.clips),
-            "caption_warnings": cap,
-            "mix_warnings": mix,
+            "caption_warnings": [e for e in errors if "SPEC-CAP" in e],
+            "mix_warnings": [e for e in errors if "SPEC-SND" in e or "SPEC-CRAFT-06" in e],
             "transition_count": envelope(True, store.timeline, [])["timeline_summary"]["transition_count"],
             "grade": store.project.grade_preset if store.project else None,
             "in_target_length": 15.0 <= dur <= 28.0,
+            "errors": errors,
+            "warnings": warns,
         }
-        store.project = store.project.model_copy(update={"reviewed_version": store.timeline.version})
-        store.persist()
-        result = envelope(True, store.timeline, cap + mix + invariant_warnings(store.timeline))
+        result = envelope(ok, store.timeline, errors + warns)
+        result["errors"] = errors
         result["report"] = report
         return result
 
@@ -743,11 +811,40 @@ class Editor:
             return envelope(False, store.timeline, ["SPEC-EXPORT-03: export requires review_report on the current version"])
         hero = store.output_dir / "reel.mp4"
         proxy = store.output_dir / "reel_proxy.mp4"
+        sidecar = store.output_dir / "reel.json"
         assemble(self.runner, store, store.project, store.timeline, self.media, hero, proxy=False)
         assemble(self.runner, store, store.project, store.timeline, self.media, proxy, proxy=True)
+        media_map = {m.id: m for m in self.media}
+        payload = {
+            "version": store.timeline.version,
+            "duration_s": timeline_duration(store.timeline),
+            "grade": store.project.grade_preset if store.project else None,
+            "preset": store.project.preset if store.project else None,
+            "hero": str(hero.resolve()),
+            "proxy": str(proxy.resolve()),
+            "shots": [
+                {
+                    "id": clip.id,
+                    "media_id": clip.media_id,
+                    "source": media_map.get(clip.media_id).original_path if clip.media_id in media_map else "",
+                    "in_s": clip.in_s,
+                    "out_s": clip.out_s,
+                    "duration_s": clip.duration_s,
+                    "motion": clip.motion,
+                    "crop": {"focus_x": clip.focus_x, "focus_y": clip.focus_y},
+                }
+                for clip in store.timeline.clips
+            ],
+            "captions": [c.model_dump() for c in store.timeline.captions],
+            "sfx": [{"kind": s.kind, "at_s": s.at_s, "gain_db": s.gain_db} for s in store.timeline.sfx],
+        }
+        from lc_editor.store import atomic_write
+
+        atomic_write(sidecar, json.dumps(payload, indent=2))
         result = envelope(True, store.timeline, [])
-        result["hero"] = str(hero)
-        result["proxy"] = str(proxy)
+        result["hero"] = str(hero.resolve())
+        result["proxy"] = str(proxy.resolve())
+        result["sidecar"] = str(sidecar.resolve())
         if op_id:
             store.ledger[op_id] = result
             store.persist()
