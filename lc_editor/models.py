@@ -17,9 +17,19 @@ DEFAULT_STILL_S = 2.5
 CAPTION_WRAP = 26
 CAPTION_MAX_WORDS = 10
 CAPTION_MAX_LINES = 2
+CAPTION_LINE_MAX = 28
+CAPTION_HOLD_CAP_S = 5.0
 CAPTION_Y_MIN = 0.22
 CAPTION_Y_MAX = 0.50
 CAPTION_Y_DEFAULT = 0.36
+CAPTION_SAFE_X0 = 64
+CAPTION_SAFE_X1 = 853
+CAPTION_SAFE_Y0 = 270
+CAPTION_SAFE_Y1 = 1248
+CAPTION_PROTECT_PX = 80
+PHONE_PROOF_W = 270
+PHONE_PROOF_H = 480
+CaptionEnter = Literal["none", "fade", "punch"]
 SFX_UNDER_BED_DB = 6.0
 HIGHPASS_DEFAULT_HZ = 120.0
 TRUE_PEAK_LIMIT_DBTP = -1.0
@@ -94,6 +104,7 @@ class Caption(BaseModel):
     lines: list[str] = Field(default_factory=list)
     hold_s: float = 1.5
     textfile: str = ""
+    enter: CaptionEnter = "fade"
 
 
 class SfxPlacement(BaseModel):

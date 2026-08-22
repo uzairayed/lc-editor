@@ -6,7 +6,15 @@ from pathlib import Path
 from lc_editor.analysis.media import kind_for, pxl_burst_id, parse_probe, probe_args, select_import_paths
 from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest
 from lc_editor.ids import new_id
-from lc_editor.lint.captions import caption_issues, hold_s, timeline_caption_issues, wrap_text
+from lc_editor.lint.captions import (
+    caption_issues,
+    card_report,
+    density_warnings,
+    hold_s,
+    timeline_caption_issues,
+    wrap_text,
+    write_phone_proof,
+)
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import mix_issues, mix_preview_payload, sfx_too_hot
 from lc_editor.lint.review import review_blockers, review_warnings
@@ -576,11 +584,20 @@ class Editor:
         y_pct: float = CAPTION_Y_DEFAULT,
         box: bool = False,
         background: str | None = None,
+        enter: str | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
         clip = self._clip(clip_id)
-        issues = caption_issues(text, y_pct=y_pct, clip=clip, box=box or bool(background))
+        resolved_role = role if role in ("title", "body") else "body"
+        resolved_enter = enter if enter in ("none", "fade", "punch") else ("punch" if resolved_role == "title" else "fade")
+        issues = caption_issues(
+            text,
+            y_pct=y_pct,
+            clip=clip,
+            box=box or bool(background),
+            role=resolved_role,
+        )
         if issues:
             return envelope(False, store.timeline, issues)
         lines = wrap_text(text)
@@ -591,10 +608,11 @@ class Editor:
                 id=new_id("t"),
                 clip_id=clip_id,
                 text=text,
-                role=role if role in ("title", "body") else "body",
+                role=resolved_role,
                 y_pct=y_pct,
                 lines=lines,
                 hold_s=hold,
+                enter=resolved_enter,
             )
             return tl.model_copy(update={"captions": [*tl.captions, cap]})
 
@@ -651,8 +669,34 @@ class Editor:
 
     def caption_lint(self) -> dict:
         store = self._need()
-        warnings = timeline_caption_issues(store.timeline)
-        return envelope(len(warnings) == 0, store.timeline, warnings)
+        errors = timeline_caption_issues(store.timeline, media=self.media, project=store.project)
+        warns = density_warnings(store.timeline, store.project)
+        cards = []
+        media_map = {m.id: m for m in self.media}
+        clips = {c.id: c for c in store.timeline.clips}
+        proof_path = None
+        proof_issues: list[str] = []
+        if store.timeline.captions:
+            first = store.timeline.captions[0]
+            clip = clips.get(first.clip_id)
+            item = media_map.get(clip.media_id) if clip else None
+            dest = (store.output_dir / "phone_proof.jpg").resolve()
+            proof_path, proof_issues = write_phone_proof(dest, first, item.path if item else None)
+            errors.extend(proof_issues)
+            for cap in store.timeline.captions:
+                c = clips.get(cap.clip_id)
+                cards.append(card_report(cap, c, media_map.get(c.media_id) if c else None))
+        ok = len(errors) == 0
+        result = envelope(ok, store.timeline, errors + warns)
+        result["errors"] = errors
+        result["hold_s"] = cards[0]["hold_s"] if cards else None
+        result["lines"] = cards[0]["lines"] if cards else []
+        result["bbox"] = cards[0]["bbox"] if cards else None
+        result["contrast"] = cards[0]["contrast"] if cards else None
+        result["cards"] = cards
+        if proof_path:
+            result["phone_proof"] = str(proof_path)
+        return result
 
     # --- sound ---
 
@@ -829,8 +873,8 @@ class Editor:
 
     def review_report(self) -> dict:
         store = self._need()
-        errors = review_blockers(store.timeline, store.project)
-        warns = review_warnings(store.timeline)
+        errors = review_blockers(store.timeline, store.project, media=self.media)
+        warns = review_warnings(store.timeline, store.project)
         dur = timeline_duration(store.timeline)
         ok = len(errors) == 0
         if ok:

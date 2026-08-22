@@ -33,7 +33,7 @@ def test_review_fails_caption_safe_zone(editor: Editor, media_file: Path) -> Non
     editor.store.timeline = editor.store.timeline.model_copy(update={"captions": [cap]})
     result = editor.review_report()
     assert result["ok"] is False
-    assert any("SPEC-CAP-09" in w for w in result["warnings"])
+    assert any("SPEC-CAP-03" in w for w in result["warnings"])
 
 
 def test_review_fails_hold_too_short(editor: Editor, media_file: Path) -> None:
@@ -44,7 +44,7 @@ def test_review_fails_hold_too_short(editor: Editor, media_file: Path) -> None:
     editor.store.timeline = editor.store.timeline.model_copy(update={"captions": [cap]})
     result = editor.review_report()
     assert result["ok"] is False
-    assert any("SPEC-CAP-11" in w for w in result["warnings"])
+    assert any("SPEC-CAP-02" in w for w in result["warnings"])
 
 
 def test_review_fails_music_flag(editor: Editor, media_file: Path) -> None:

@@ -79,9 +79,12 @@ def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
 def overlay_filters(project: Project, for_preview: bool) -> list[str]:
     filters: list[str] = []
     if for_preview and project.overlays.preview_guides:
-        # 22% and 50% safe-zone lines plus IG/TikTok chrome hints
         filters.append("drawgrid=w=iw:h=ih*0.22:t=2:c=white@0.35")
         filters.append("drawgrid=w=iw:h=ih*0.50:t=2:c=white@0.20")
+        filters.append("drawbox=x=64:y=ih*0.22:w=789:h=ih*0.28:color=white@0.08:t=fill")
+        filters.append("drawbox=x=853:y=0:w=227:h=ih:color=red@0.18:t=fill")
+        filters.append("drawbox=x=0:y=0:w=iw:h=270:color=black@0.22:t=fill")
+        filters.append("drawbox=x=0:y=1248:w=iw:h=672:color=black@0.22:t=fill")
     if for_preview and project.overlays.preview_platform:
         filters.append("drawbox=x=0:y=0:w=iw:h=ih*0.08:color=black@0.25:t=fill")
         filters.append("drawbox=x=0:y=ih*0.88:w=iw:h=ih*0.12:color=black@0.25:t=fill")
@@ -165,6 +168,18 @@ def preview_stills(
         if dest.exists() and dest.resolve() != cache.resolve():
             cache.write_bytes(dest.read_bytes())
         paths.append(str(dest.resolve()))
+    if timeline.captions:
+        from lc_editor.lint.captions import write_phone_proof
+
+        cap = timeline.captions[0]
+        clip = next((c for c in timeline.clips if c.id == cap.clip_id), None)
+        underlay = None
+        if clip:
+            try:
+                underlay = media_by_id(items, clip.media_id).path
+            except KeyError:
+                underlay = None
+        write_phone_proof(store.output_dir / "phone_proof.jpg", cap, underlay)
     return paths
 
 

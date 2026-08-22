@@ -1,99 +1,102 @@
 # SPEC-CAP: Captions
 
-Source: `instructions.md` Timing, Captions; product spec Type tools.
+Primary goal: people can see and finish the text on a phone at arm's length. Graphics look designed. Not CapCut karaoke. Not a slideshow box.
+
+No caption boxes, banners, blur pads, or scrims (SPEC-CRAFT-02). No music. No word-by-word Hormozi as the default.
 
 Hold formula (authoritative):
 
 ```
-hold_s = max(floor_s, chars / 18 + 0.4)
-floor_s = 1.8 if line_count == 2 else 1.5
+hold_s = max(floor, len(visible_chars) / 18.0 + 0.4)
+floor = 1.80 if lines == 2 else 1.50
+hold_s = min(hold_s, 5.0)
 ```
 
-`chars` is the caption text length after stripping trailing whitespace, counting every character including spaces and punctuation. `hold_s` is rounded to two decimal places with standard half-up rounding (2.844... -> 2.84).
+`chars` counts every character including spaces and punctuation after stripping trailing whitespace. `hold_s` is rounded to two decimal places (2.844... -> 2.84). Cap a card at **5.0s**. Split the idea instead of holding longer.
 
-The same wrap + metrics path feeds `caption_lint` and render. They must never disagree.
+The same wrap + metrics path feeds `caption_lint` and render.
 
-## SPEC-CAP-01: one-line floor
+## SPEC-CAP-01: roles
 
-A readable one-line caption is never held under 1.50s.
+- `title` — hook / series / closer. Clash Display Semibold or packaged Anton.
+- `body` — facts. Satoshi Bold or packaged Space Grotesk Bold.
+- One role per card. Two lines max, one idea.
 
-Worked example: text `"100 km down the N-5"` is 19 characters, 1 line.
+## SPEC-CAP-02: attention / hold
 
-- `19 / 18 + 0.4 = 1.46` (1.055... + 0.4)
-- floor 1.50
-- expected hold: **1.50**
+Hold uses the formula above. Comfortable reading stays at **18 CPS + 0.4s land**. Do not chase TikTok 28 CPS.
 
-## SPEC-CAP-02: one-line readability target
+If the clip is shorter than `hold_s`, extend the clip (`clip_fit`) or reject the caption. Never speed-ramp. Never drop below the floor.
 
-When `chars / 18 + 0.4` exceeds the 1.50 floor, that value wins.
+`caption_lint` / `caption_add` fail when:
 
-Worked example: text `"2 hours, one fuel stop"` is 22 characters, 1 line.
+- hold is longer than the clip
+- more than 2 lines
+- more than 10 words
+- a wrapped line is longer than 28 characters
+- a line is empty
 
-- `22 / 18 + 0.4 = 1.62` (1.222... + 0.4)
-- floor 1.50
-- expected hold: **1.62**
+Worked examples (unchanged):
 
-## SPEC-CAP-03: two-line readability beats the 1.80 floor
+- `"100 km down the N-5"` (19 chars, 1 line): 19/18+0.4=1.46, floor 1.50 → **1.50**
+- `"2 hours, one fuel stop"` (22 chars, 1 line): **1.62**
+- 44-character two-line card: 44/18+0.4=2.84 → **2.84**
+- `"Cafe Imran, Gharo"` forced onto two lines (17 chars): floor **1.80**
+- `"600-year-old city of tombs, 2 hours from Karachi"` (48 chars) wraps past 2 lines → reject
+- `"600-year-old city of tombs"` (26 chars) is one line
+- 11 words → reject
 
-Worked example: a 44-character two-line caption.
+## SPEC-CAP-03: placement
 
-- `44 / 18 + 0.4 = 2.84` (2.444... + 0.4, rounded to two decimals)
-- floor 1.80
-- expected hold: **2.84**
+On 1080×1920:
 
-## SPEC-CAP-04: two-line floor
+- Text **center x**.
+- Anchor y in **22–50%** (422–960). Default **36%** (691).
+- Stay inside the cross-post safe rect: x 64–853, y 270–1248.
+- Hard fail if the glyph box hits y < 270, y > 1248, or the block sits in the right action column (x > 853 as placement), or overlaps a `protect` refocus point within 80px.
 
-Worked example: text `"Cafe Imran, Gharo"` forced onto two lines (or wrapped to two), 17 characters.
+`overlay_preview("ig"|"tt"|"shorts")` draws the 22–50% band, the right column, and chrome.
 
-- `17 / 18 + 0.4 = 1.34`
-- floor 1.80
-- expected hold: **1.80**
+## SPEC-CAP-04: graphic look
 
-## SPEC-CAP-05: wrap at ~26 characters, max 2 lines
+| | Title | Body |
+| --- | --- | --- |
+| Size | 70 (84 if ≤12 chars) | 64 |
+| Fill | `#F6EBD4` | `#F6EBD4` |
+| Stroke | 3–4px `#1A1410` | 3px `#1A1410` |
+| Shadow | 2,2 black@0.5 | same |
+| Box | never | never |
+| Case | sentence case | sentence case |
 
-Greedy word wrap at 26 characters per line. A caption that wraps to 3 or more lines is `ok: false`.
+ALL CAPS / Hormozi shouting is `ok: false` unless a future `caption_style="punch"` is set (out of scope). Never emit `box=1`.
 
-Worked example: `"600-year-old city of tombs, 2 hours from Karachi"` (48 characters) wraps to more than 2 lines and is rejected.
+## SPEC-CAP-05: motion
 
-Worked example that passes: `"600-year-old city of tombs"` (26 characters) is one line.
+On caption in, optional **2–4 frame** scale 100→102% (or opacity 0→1). Must finish inside the 0.4s land. No bounce, no per-word karaoke, no emoji rain.
 
-## SPEC-CAP-06: ~10 words
+`caption_add(..., enter="none"|"fade"|"punch")`. Default `punch` for titles, `fade` for body.
 
-A caption with 11 or more words is `ok: false`.
+## SPEC-CAP-06: contrast lint
 
-Worked example: `"one two three four five six seven eight nine ten eleven"` is rejected.
+After placing a card, sample the underlay in the text bbox on the midpoint still.
 
-Worked example: `"2 hours, one fuel stop"` (5 words) is accepted.
+Fail review / lint if mean underlay luminance is too close to `#F6EBD4` (both in 0.70–1.0). Suggested fix: `caption_move` to a darker band, or pick another frame. **Never suggest a box.**
 
-## SPEC-CAP-07: no background of any kind
+White / sand plates fail. Dark plates pass.
 
-Any request that would add a box, banner, bar, blur pad, or scrim behind text is `ok: false`. The editor never emits `box=1` or a background filter for captions.
+## SPEC-CAP-07: density
 
-## SPEC-CAP-08: look tokens
+Not every clip gets a card. Review **warns** if `caption_count / clip_count > 0.7` on a timeline with 8 or more clips. Warns if the first 1.5s has no title hook and the project preset is `karachi`. Other projects do not require a first-frame hook. If a title exists it must meet SPEC-CAP-02.
 
-Render params (locked):
+## SPEC-CAP-08: phone proof
 
-- fill: `#F6EBD4` (`fontcolor=0xF6EBD4`)
-- stroke: `bordercolor=0x1A1410`, `borderw=3`
-- shadow: `shadowcolor=black@0.5`, `shadowx=2`, `shadowy=2`
-- titles: Clash Display Semibold, else Anton
-- body: Satoshi Bold, else Space Grotesk Bold
-- size: 60 to 72px on 1080x1920; titles under 12 characters may use 84px
+`preview_stills` / `caption_lint` write a **phone proof** JPEG: the frame scaled to 270×480 (25% of 1080×1920). If stroke vanishes or text clips, lint fails. This is the arm's-length test.
 
-## SPEC-CAP-09: vertical safe zone
+## Tools
 
-Caption center Y is inside 22% to 50% of frame height. Default is 36%. Values outside that range are `ok: false`.
+- `caption_add(clip_id, text, role, enter?)`
+- `caption_edit` / `caption_move`
+- `caption_lint` → `{ ok, errors[], warnings[], hold_s, lines, bbox, contrast }`
+- `overlay_preview` shows IG/TT/Shorts chrome, the 22–50% band, and the right column
 
-On 1080x1920: Y in `[422, 960]` pixels (0.22 * 1920 = 422.4, 0.50 * 1920 = 960).
-
-## SPEC-CAP-10: textfile, never inline apostrophes
-
-Each caption writes one UTF-8 textfile with no trailing newline. `drawtext` uses `textfile=...:expansion=none`. Apostrophes in the text are allowed in the file; they are never interpolated into the filter string.
-
-## SPEC-CAP-11: hold vs clip duration
-
-If clip duration is shorter than required hold, `caption_add` / `caption_edit` is `ok: false` with a warning that the clip must be extended or the text dropped. The editor never speed-ramps to fit text.
-
-## SPEC-CAP-12: lint is a tool
-
-`caption_lint` returns `{ ok, timeline_summary, warnings[] }` and does not mutate. `ok` is true only when every caption on the timeline satisfies SPEC-CAP-01 through SPEC-CAP-11.
+`caption_lint` does not mutate the timeline.
