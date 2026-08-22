@@ -8,7 +8,7 @@ from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest
 from lc_editor.ids import new_id
 from lc_editor.lint.captions import caption_issues, hold_s, timeline_caption_issues, wrap_text
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
-from lc_editor.lint.mix import estimate_true_peak_db, mix_issues, sfx_too_hot
+from lc_editor.lint.mix import mix_issues, mix_preview_payload, sfx_too_hot
 from lc_editor.lint.review import review_blockers, review_warnings
 from lc_editor.presets import load_preset
 from lc_editor.models import (
@@ -36,9 +36,14 @@ from lc_editor.ops.timeline import (
     remove_clip,
     reorder_clip,
     ripple_trim_clip,
+    set_audio_xfade,
+    set_denoise,
     set_duration_clip,
+    set_gate,
     set_motion,
+    set_speed,
     set_transition,
+    set_wrap,
     split_clip,
     trim_clip,
 )
@@ -510,8 +515,8 @@ class Editor:
     def clip_mute(self, clip_id: str, muted: bool = True, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: mute_clip(tl, clip_id, muted))
 
-    def motion_kenburns(self, clip_id: str, op_id: str | None = None) -> dict:
-        return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "kenburns"))
+    def motion_kenburns(self, clip_id: str, amount: float | None = None, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "kenburns", amount))
 
     def motion_punch(self, clip_id: str, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "punch"))
@@ -519,10 +524,47 @@ class Editor:
     def motion_none(self, clip_id: str, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "none"))
 
-    def transition_set(self, clip_id: str, kind: str, op_id: str | None = None) -> dict:
+    def motion_hold(self, clip_id: str, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "hold"))
+
+    def motion_speed(self, clip_id: str, rate: float, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: set_speed(tl, clip_id, rate))
+
+    def transition_set(
+        self,
+        clip_id: str | None = None,
+        kind: str = "hard",
+        from_id: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        target = clip_id or from_id
+        if not target:
+            return envelope(False, self._need().timeline, ["SPEC-EDIT-13: clip_id required"])
         if banned_transition(kind):
             return envelope(False, self._need().timeline, ["SPEC-EDIT-13: illegal transition"])
-        return self._mutate(op_id, lambda tl: set_transition(tl, clip_id, kind))
+        return self._mutate(op_id, lambda tl: set_transition(tl, target, kind))
+
+    def transition_audio_xfade(self, ms: float = 10.0, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: set_audio_xfade(tl, ms))
+
+    def fx_grain(self, amount: float, op_id: str | None = None) -> dict:
+        store = self._need()
+        if amount < 0 or amount > 1:
+            return envelope(False, store.timeline, ["SPEC-FX: grain must be 0-1"])
+        store.project = store.project.model_copy(update={"grain": amount})
+        store.persist()
+        return envelope(True, store.timeline, [])
+
+    def fx_vignette(self, amount: float, op_id: str | None = None) -> dict:
+        store = self._need()
+        if amount < 0 or amount > 1:
+            return envelope(False, store.timeline, ["SPEC-FX: vignette must be 0-1"])
+        store.project = store.project.model_copy(update={"vignette": amount})
+        store.persist()
+        return envelope(True, store.timeline, [])
+
+    def fx_wrap(self, clip_id: str, mode: str = "off", op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: set_wrap(tl, clip_id, mode))
 
     # --- captions ---
 
@@ -701,16 +743,22 @@ class Editor:
     def audio_duck(self, enabled: bool = True, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: tl.model_copy(update={"duck": enabled}))
 
-    def audio_highpass(self, hz: float = 100.0, op_id: str | None = None) -> dict:
+    def audio_highpass(self, hz: float = 120.0, op_id: str | None = None) -> dict:
         if hz <= 0:
             return envelope(False, self._need().timeline, ["SPEC-SND-06: highpass hz must be > 0"])
         return self._mutate(op_id, lambda tl: tl.model_copy(update={"highpass_hz": hz}))
+
+    def audio_denoise(self, clip_id: str, profile: str, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: set_denoise(tl, clip_id, profile))
+
+    def audio_gate(self, clip_id: str, enabled: bool = True, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: set_gate(tl, clip_id, enabled))
 
     def mix_preview(self) -> dict:
         store = self._need()
         warnings = mix_issues(store.timeline)
         result = envelope(len(warnings) == 0, store.timeline, warnings)
-        result["true_peak_dbtp"] = estimate_true_peak_db(store.timeline)
+        result.update(mix_preview_payload(store.timeline))
         return result
 
     # --- look ---

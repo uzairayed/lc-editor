@@ -21,7 +21,12 @@ CAPTION_Y_MIN = 0.22
 CAPTION_Y_MAX = 0.50
 CAPTION_Y_DEFAULT = 0.36
 SFX_UNDER_BED_DB = 6.0
-HIGHPASS_DEFAULT_HZ = 100.0
+HIGHPASS_DEFAULT_HZ = 120.0
+TRUE_PEAK_LIMIT_DBTP = -1.0
+AUDIO_XFADE_MS_DEFAULT = 10.0
+JL_CUT_FRAMES = 10
+SPEED_MIN = 0.85
+SPEED_MAX = 1.15
 PROXY_W = 540
 PROXY_H = 960
 PUNCH_FRAMES = 4
@@ -34,7 +39,10 @@ STROKE = "0x1A1410"
 STROKE_W = 3
 
 MotionKind = Literal["none", "kenburns", "punch"]
-TransitionKind = Literal["hard", "whip", "punch", "close_fade"]
+TransitionKind = Literal["hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match"]
+DenoiseProfile = Literal["off", "outdoor", "indoor", "auto"]
+LEGAL_TRANSITIONS = ("hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
+DECORATED_TRANSITIONS = ("whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
 CaptionRole = Literal["title", "body"]
 BedKind = Literal["wind", "room", "none"]
 GradePreset = Literal["motovlog", "winter_trip", "neutral"]
@@ -70,6 +78,11 @@ class Clip(BaseModel):
     grade_intensity: float = 1.0
     protect: bool = False
     is_still: bool = False
+    denoise: DenoiseProfile = "auto"
+    gate: bool = True
+    speed: float = 1.0
+    wrap: Literal["off", "soft"] = "off"
+    kenburns_amount: float = KENBURNS_ZOOM
 
 
 class Caption(BaseModel):
@@ -111,6 +124,7 @@ class Timeline(BaseModel):
     bed_gain_db: float = -6.0
     duck: bool = False
     highpass_hz: float | None = None
+    audio_xfade_ms: float = AUDIO_XFADE_MS_DEFAULT
     version: int = 0
 
 
@@ -141,6 +155,8 @@ class Project(BaseModel):
     overlays: OverlayFlags = Field(default_factory=OverlayFlags)
     reviewed_version: int | None = None
     preset: str | None = None
+    grain: float = 0.0
+    vignette: float = 0.0
     root: str = ""
 
 
@@ -166,7 +182,7 @@ def recompute_starts(timeline: Timeline) -> Timeline:
 
 
 def decorated_transition_count(timeline: Timeline) -> int:
-    return sum(1 for kind in timeline.transitions.values() if kind not in ("hard",))
+    return sum(1 for kind in timeline.transitions.values() if kind in DECORATED_TRANSITIONS)
 
 
 def summary_of(timeline: Timeline) -> TimelineSummary:

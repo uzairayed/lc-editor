@@ -7,6 +7,7 @@ from pathlib import Path
 from lc_editor.assets.pack import cube_path as bundled_cube
 from lc_editor.models import Clip, MediaItem, Project, Timeline
 from lc_editor.render.captions import write_textfile
+from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
 from lc_editor.render.graph import clip_hash_payload, clip_video_filters, concat_list, hero_encode_args, proxy_encode_args
 from lc_editor.render.runner import FakeRunner, Runner, find_tool
 from lc_editor.store import Store
@@ -105,7 +106,15 @@ def render_clip_intermediate(
     if project.cube_path is None:
         project = project.model_copy(update={"cube_path": str(bundled_cube(project.grade_preset))})
     caps = [c for c in timeline.captions if c.clip_id == clip.id]
-    vf = clip_video_filters(clip, media, caps, project, last=clip.id == timeline.clips[-1].id)
+    kind = timeline.transitions.get(clip.id)
+    vf = clip_video_filters(
+        clip,
+        media,
+        caps,
+        project,
+        last=clip.id == timeline.clips[-1].id,
+        transition=kind,
+    )
     extra = overlay_filters(project, for_preview=True)
     if extra:
         vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
@@ -117,6 +126,11 @@ def render_clip_intermediate(
         args += ["-ss", str(clip.in_s), "-t", str(clip.duration_s), "-i", media.path]
     if clip.muted:
         args += ["-an"]
+    else:
+        profile = resolve_denoise_profile(clip, timeline)
+        chain = denoise_chain(profile, gated=clip.gate, highpass_hz=timeline.highpass_hz)
+        if chain:
+            args += ["-af", chain]
     args += ["-vf", vf, *hero_encode_args(dest)[:-1], str(dest)]
     # hero_encode_args includes size; dest already last
     result = runner.run(args)
@@ -180,7 +194,7 @@ def assemble(
         # mix a silent-safe second pass: encode args only; fake runner writes dest
         pass
     encode = proxy_encode_args(dest) if proxy else hero_encode_args(dest)
-    runner.run(args + encode)
+    runner.run(args + ["-af", limiter_filter()] + encode)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():
         dest.write_bytes(b"")

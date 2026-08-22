@@ -6,7 +6,7 @@ Filtergraph builders are pure: params in, filter string out. Golden strings are 
 
 ## SPEC-RND-01: kenburns
 
-Ken Burns is a slow zoom of about **106%** over the clip duration (scale 1.00 to 1.06). Applied via `zoompan` or equivalent scale/crop expressions. A still uses the same tool (looped frames + kenburns).
+Ken Burns is a slow zoom of about **106%** over the clip duration. The zoom uses a **smoothstep ease**, not a linear `1+0.06*on/N`. `motion_kenburns(..., amount=)` may change the end scale. A still uses the same tool (looped frames + kenburns).
 
 ## SPEC-RND-02: punch motion
 
@@ -59,3 +59,11 @@ The wheel ships `Anton-Regular.ttf` and static `SpaceGrotesk-Bold.ttf` (OFL). Cl
 ## SPEC-RND-12: one-clip preview
 
 `preview_clip(clip_id)` renders only that clip to a short proxy.
+
+## SPEC-FX: motion extras and look
+
+- `motion_hold` is an alias of `none`. Stills with `none`/`hold` over 1.40s still fail SPEC-CRAFT-05.
+- `motion_speed(clip_id, rate)` is video only. Rate must be in **0.85–1.15**. Reject on stills. Never used to fit a caption.
+- `fx_grain(amount)` and `fx_vignette(amount)` are 0–1 project-wide. Implemented as light ffmpeg `noise` / `vignette`, not a plugin pack.
+- `fx_wrap(clip_id, "off"|"soft")` is off by default. Soft is a highlight bloom on one or two hero shots.
+- No lens-dirt, film-burn, or FX marketplace. No heavy picture denoise by default.

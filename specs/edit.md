@@ -75,14 +75,14 @@ Worked example: one 6.00s clip (in 0, out 6). Split at 2.00. First: in 0 out 2 d
 
 Exactly one of `none`, `kenburns` (~106% over the clip), `punch` (100 to 108% over 3 to 4 frames at 30fps). Stills default to `kenburns`. A still left on `none` for 3.00s or longer warns: locked still is a slideshow.
 
-## SPEC-EDIT-13: transitions, only four
+## SPEC-EDIT-13: transitions
 
-Legal kinds: `hard`, `whip`, `punch`, `close_fade`.
+Legal kinds: `hard`, `whip`, `punch`, `close_fade`, `j_cut`, `l_cut`, `flash`, `match`. See `specs/transitions.md`.
 
-- `hard` is the default between clips.
-- `close_fade` is a 4-frame luma fade and is only legal on the last clip boundary (or as the closer on the last clip).
-- `whip` and `punch` count as decorated transitions.
-- More than 3 decorated transitions on one reel: mutation succeeds with a warning.
+- `hard` is the default between clips. Video stays concat. Audio may acrossfade 8–12 ms.
+- `close_fade` is a 4-frame luma fade and is only legal on the last clip.
+- Decorated: whip, punch, close_fade, j_cut, l_cut, flash, match.
+- More than 3 decorated transitions: mutation succeeds with a warning. `review_report` fails.
 - Wipes, spins, cross-dissolves, packs: `ok: false`.
 
 ## SPEC-EDIT-14: hard duration cap

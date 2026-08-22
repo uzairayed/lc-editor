@@ -34,7 +34,7 @@ When no bed is set, treat bed as `0.0` dB (clip/engine bed), so SFX must be `<= 
 
 ## SPEC-SND-06: highpass
 
-`audio_highpass(hz)` ducks rumble. Default useful value is **100** Hz. `hz <= 0` is `ok: false`.
+`audio_highpass(hz)` ducks rumble. Outdoor default **120** Hz, indoor **80** Hz. `hz <= 0` is `ok: false`.
 
 ## SPEC-SND-07: beds
 
@@ -46,4 +46,18 @@ When no bed is set, treat bed as `0.0` dB (clip/engine bed), so SFX must be `<= 
 
 ## SPEC-SND-09: mix lint true peak
 
-`mix_preview` reports estimated true peak. If true peak would exceed **0.0 dBTP**, `ok: false` with a warning. Unit tests use a deterministic estimator from gains (bed + sfx linear sum); integration tests may use ebur128 when ffmpeg is present.
+`mix_preview` reports pre and post true peak. Post must be **≤ −1.0 dBTP**. The mix ends with `alimiter`. Optional `loudnorm` I=−16, TP=−1.5, LRA=8 on the hero only.
+
+## SPEC-SND-10: denoise chain
+
+Every unmuted clip (and the bed) runs a denoise chain unless `audio_denoise(..., "off")`.
+
+Order: highpass, spectral `afftdn` (nr=12 outdoor / nr=6 indoor), `agate` attack 10 ms release 200 ms, then mix `alimiter` to −1.0 dBTP.
+
+Profiles: `off | outdoor | indoor | auto`. Auto is outdoor unless `bed_kind==room`. Muted clips skip the chain.
+
+Tools: `audio_denoise(clip_id|"all", profile)`, `audio_gate(clip_id|"all", enabled)`.
+
+`mix_preview` reports pre vs post peak and a wind-band estimate (80–400 Hz and 2–8 kHz). Review fails if post peak > −1.0 dBTP. Review warns if an outdoor/wind clip has denoise off.
+
+The denoise graph never contains a music bed.

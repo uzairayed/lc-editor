@@ -9,25 +9,22 @@ from lc_editor.render.motion import kenburns_filter, punch_filter
 from lc_editor.render.transitions import close_fade_filter, punch_in_filter, whip_filter
 
 
-WHIP_GOLDEN = (
-    "[0:v]scale=1080:1920,setsar=1,fps=30,format=yuv420p,"
-    "boxblur=8:1,crop=1080:1920:'min(1080*0.3,n*(1080*0.3/8))':0[wout];"
-    "[1:v]scale=1080:1920,setsar=1,fps=30,format=yuv420p,"
-    "boxblur=8:1,crop=1080:1920:'1080*0.3-min(1080*0.3,n*(1080*0.3/8))':0[win];"
-    "[wout][win]hstack=inputs=2,crop=1080:1920:'t/0.26666666666666666*1080':0"
-)
+def test_spec_rnd_03_whip_eased_not_wipe() -> None:
+    graph = whip_filter()
+    assert "wiperight" not in graph
+    assert "wipe" not in graph
+    assert "xfade" not in graph
+    assert "boxblur" in graph
+    assert "pow" in graph
+    assert "sin(PI" in graph
 
 
-def test_spec_rnd_03_whip_golden() -> None:
-    assert whip_filter() == WHIP_GOLDEN
-    assert "wiperight" not in whip_filter()
-    assert "wipe" not in whip_filter()
-
-
-def test_spec_rnd_01_kenburns_106() -> None:
+def test_spec_rnd_01_kenburns_eased() -> None:
     graph = kenburns_filter(60)
-    assert "1.06" in graph or "0.06" in graph
+    assert "0.06" in graph
     assert "zoompan" in graph
+    assert "pow" in graph
+    assert "1+0.06*on" not in graph
 
 
 def test_spec_rnd_02_punch_108_four_frames() -> None:

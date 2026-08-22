@@ -26,6 +26,10 @@ A still with `motion=none` and duration greater than **1.40s** fails `review_rep
 
 SFX must sit at least 6 dB under the bed (bed treated as 0 dB when none is set). Hot SFX fails review.
 
+## SPEC-CRAFT-08: outdoor audio is denoised
+
+Ride wind is not a highpass-only problem. Outdoor audio uses SPEC-SND-10. Still no music.
+
 ## SPEC-CRAFT-07: series is a preset
 
 A new project has `preset: null`. Karachi branding, episode cards, and no-selfie preference live in `lc_editor/presets/karachi.json` and apply only when `project_create` / `project_set` is given `preset="karachi"`. A Murree cut must pass craft rules without that preset.

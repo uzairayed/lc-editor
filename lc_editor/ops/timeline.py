@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from lc_editor.models import (
+    LEGAL_TRANSITIONS,
+    SPEED_MAX,
+    SPEED_MIN,
     Clip,
     MediaItem,
     Timeline,
-    TransitionKind,
     recompute_starts,
 )
 
@@ -136,17 +138,71 @@ def mute_clip(timeline: Timeline, clip_id: str, muted: bool) -> Timeline:
     return timeline.model_copy(update={"clips": clips})
 
 
-def set_motion(timeline: Timeline, clip_id: str, motion: str) -> Timeline:
+def set_motion(timeline: Timeline, clip_id: str, motion: str, amount: float | None = None) -> Timeline:
+    if motion == "hold":
+        motion = "none"
     if motion not in ("none", "kenburns", "punch"):
         raise Reject("SPEC-EDIT-12: motion must be none, kenburns, or punch")
     i = _clip_index(timeline, clip_id)
     clips = list(timeline.clips)
-    clips[i] = clips[i].model_copy(update={"motion": motion})
+    update: dict = {"motion": motion}
+    if amount is not None:
+        update["kenburns_amount"] = amount
+    clips[i] = clips[i].model_copy(update=update)
     return timeline.model_copy(update={"clips": clips})
 
 
+def set_speed(timeline: Timeline, clip_id: str, rate: float) -> Timeline:
+    i = _clip_index(timeline, clip_id)
+    clip = timeline.clips[i]
+    if clip.is_still:
+        raise Reject("SPEC-FX: motion_speed is video only")
+    if rate < SPEED_MIN or rate > SPEED_MAX:
+        raise Reject(f"SPEC-FX: speed must be in {SPEED_MIN}-{SPEED_MAX}")
+    clips = list(timeline.clips)
+    clips[i] = clip.model_copy(update={"speed": rate})
+    return timeline.model_copy(update={"clips": clips})
+
+
+def set_wrap(timeline: Timeline, clip_id: str, wrap: str) -> Timeline:
+    if wrap not in ("off", "soft"):
+        raise Reject("SPEC-FX: wrap must be off or soft")
+    i = _clip_index(timeline, clip_id)
+    clips = list(timeline.clips)
+    clips[i] = clips[i].model_copy(update={"wrap": wrap})
+    return timeline.model_copy(update={"clips": clips})
+
+
+def set_denoise(timeline: Timeline, clip_id: str, profile: str) -> Timeline:
+    if profile not in ("off", "outdoor", "indoor", "auto"):
+        raise Reject("SPEC-SND-10: profile must be off, outdoor, indoor, or auto")
+    if clip_id == "all":
+        clips = [c.model_copy(update={"denoise": profile}) for c in timeline.clips]
+        return timeline.model_copy(update={"clips": clips})
+    i = _clip_index(timeline, clip_id)
+    clips = list(timeline.clips)
+    clips[i] = clips[i].model_copy(update={"denoise": profile})
+    return timeline.model_copy(update={"clips": clips})
+
+
+def set_gate(timeline: Timeline, clip_id: str, enabled: bool) -> Timeline:
+    if clip_id == "all":
+        clips = [c.model_copy(update={"gate": enabled}) for c in timeline.clips]
+        return timeline.model_copy(update={"clips": clips})
+    i = _clip_index(timeline, clip_id)
+    clips = list(timeline.clips)
+    clips[i] = clips[i].model_copy(update={"gate": enabled})
+    return timeline.model_copy(update={"clips": clips})
+
+
+def set_audio_xfade(timeline: Timeline, ms: float) -> Timeline:
+    if ms < 0:
+        raise Reject("SPEC-TRN: audio xfade ms must be >= 0")
+    return timeline.model_copy(update={"audio_xfade_ms": ms})
+
+
 def set_transition(timeline: Timeline, clip_id: str, kind: str) -> Timeline:
-    if kind not in ("hard", "whip", "punch", "close_fade"):
+    if kind not in LEGAL_TRANSITIONS:
         raise Reject("SPEC-EDIT-13: illegal transition")
     i = _clip_index(timeline, clip_id)
     last = i == len(timeline.clips) - 1

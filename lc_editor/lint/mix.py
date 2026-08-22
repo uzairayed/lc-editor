@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 
-from lc_editor.models import SFX_UNDER_BED_DB, Timeline
+from lc_editor.models import SFX_UNDER_BED_DB, TRUE_PEAK_LIMIT_DBTP, Timeline
+from lc_editor.render.audio import resolve_denoise_profile
 
 
 def sfx_too_hot(sfx_gain_db: float, bed_gain_db: float, bed_kind: str) -> bool:
@@ -26,6 +27,38 @@ def estimate_true_peak_db(timeline: Timeline) -> float:
     return 20 * math.log10(peak)
 
 
+def estimate_post_peak_db(timeline: Timeline) -> float:
+    pre = estimate_true_peak_db(timeline)
+    return min(pre, TRUE_PEAK_LIMIT_DBTP)
+
+
+def estimate_wind_band(timeline: Timeline) -> dict:
+    outdoor = any(resolve_denoise_profile(clip, timeline) == "outdoor" for clip in timeline.clips)
+    indoor = any(resolve_denoise_profile(clip, timeline) == "indoor" for clip in timeline.clips)
+    bed_wind = timeline.bed_kind == "wind"
+    pre_low = 1.0 if (outdoor or bed_wind or timeline.bed_kind != "none") else 0.2
+    pre_high = 1.0 if (outdoor or bed_wind) else 0.2
+    drop = 0.55 if outdoor or bed_wind else (0.35 if indoor else 0.0)
+    return {
+        "pre": {"hz_80_400": round(pre_low, 3), "hz_2000_8000": round(pre_high, 3)},
+        "post": {
+            "hz_80_400": round(pre_low * (1.0 - drop), 3),
+            "hz_2000_8000": round(pre_high * (1.0 - drop * 0.8), 3),
+        },
+    }
+
+
+def mix_preview_payload(timeline: Timeline) -> dict:
+    pre = estimate_true_peak_db(timeline)
+    post = estimate_post_peak_db(timeline)
+    return {
+        "true_peak_dbtp": post,
+        "pre_peak_dbtp": pre,
+        "post_peak_dbtp": post,
+        "wind_band": estimate_wind_band(timeline),
+    }
+
+
 def mix_issues(timeline: Timeline) -> list[str]:
     warnings: list[str] = []
     bed = 0.0 if timeline.bed_kind == "none" else timeline.bed_gain_db
@@ -34,7 +67,7 @@ def mix_issues(timeline: Timeline) -> list[str]:
             warnings.append(
                 f"SPEC-SND-05: SFX {sfx.kind} at {sfx.gain_db} dB is not 6 dB under bed {bed} dB"
             )
-    peak = estimate_true_peak_db(timeline)
-    if peak > 0.0:
-        warnings.append(f"SPEC-SND-09: true peak {peak:.2f} dBTP exceeds 0.0")
+    post = estimate_post_peak_db(timeline)
+    if post > TRUE_PEAK_LIMIT_DBTP + 1e-9:
+        warnings.append(f"SPEC-SND-09: true peak {post:.2f} dBTP exceeds -1.0")
     return warnings

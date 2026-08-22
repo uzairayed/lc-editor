@@ -25,10 +25,13 @@ def crop_9_16(clip: Clip, src_w: int, src_h: int) -> str:
     return f"crop={crop_w}:{crop_h}:{x}:{y},scale={CANVAS_W}:{CANVAS_H}"
 
 
-def kenburns_filter(frames: int) -> str:
+def kenburns_filter(frames: int, amount: float = KENBURNS_ZOOM) -> str:
     n = max(frames, 1)
+    delta = amount - 1.0
+    # smoothstep t*t*(3-2*t) on on/n
+    z = f"1+{delta}*(3*pow(on/{n},2)-2*pow(on/{n},3))"
     return (
-        f"zoompan=z='min({KENBURNS_ZOOM},1+0.06*on/{n})':"
+        f"zoompan=z='{z}':"
         f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"d={n}:s={CANVAS_W}x{CANVAS_H}:fps={FPS}"
     )
@@ -44,7 +47,7 @@ def punch_filter() -> str:
 
 def motion_chain(clip: Clip, frames: int) -> str:
     if clip.motion == "kenburns":
-        return kenburns_filter(frames)
+        return kenburns_filter(frames, clip.kenburns_amount)
     if clip.motion == "punch":
         return punch_filter()
     return f"scale={CANVAS_W}:{CANVAS_H}"

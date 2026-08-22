@@ -3,7 +3,8 @@ from __future__ import annotations
 from lc_editor.lint.captions import timeline_caption_issues
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import mix_issues
-from lc_editor.models import LOCKED_STILL_MAX_S, MUSIC_KINDS, Project, Timeline
+from lc_editor.models import LOCKED_STILL_MAX_S, MUSIC_KINDS, Project, Timeline, decorated_transition_count
+from lc_editor.render.transitions import banned_transition, graph_has_wipe, transition_video
 
 
 def locked_still_issues(timeline: Timeline) -> list[str]:
@@ -28,17 +29,48 @@ def music_issues(timeline: Timeline, project: Project | None) -> list[str]:
     return errors
 
 
+def decorated_transition_issues(timeline: Timeline) -> list[str]:
+    count = decorated_transition_count(timeline)
+    if count > 3:
+        return [f"SPEC-EDIT-13: {count} decorated transitions (cap 3)"]
+    return []
+
+
+def wipe_graph_issues(timeline: Timeline) -> list[str]:
+    errors: list[str] = []
+    for kind in timeline.transitions.values():
+        if banned_transition(kind) or graph_has_wipe(transition_video(kind)):
+            errors.append("SPEC-RND-03: wipe in graph")
+            break
+    return errors
+
+
 def review_blockers(timeline: Timeline, project: Project | None) -> list[str]:
     errors: list[str] = []
     errors.extend(timeline_caption_issues(timeline))
     errors.extend(mix_issues(timeline))
     errors.extend(locked_still_issues(timeline))
     errors.extend(music_issues(timeline, project))
+    errors.extend(decorated_transition_issues(timeline))
+    errors.extend(wipe_graph_issues(timeline))
     cap = reject_duration(timeline)
     if cap:
         errors.append(cap)
     return errors
 
 
+def outdoor_denoise_warnings(timeline: Timeline) -> list[str]:
+    warnings: list[str] = []
+    audible_outdoor = timeline.bed_kind == "wind"
+    for clip in timeline.clips:
+        if clip.muted or clip.denoise != "off":
+            continue
+        if audible_outdoor:
+            warnings.append(f"SPEC-SND-10: clip {clip.id} has denoise=off on outdoor/wind audio")
+    return warnings
+
+
 def review_warnings(timeline: Timeline) -> list[str]:
-    return [w for w in invariant_warnings(timeline) if "locked still" not in w]
+    warns = [w for w in invariant_warnings(timeline) if "locked still" not in w]
+    warns.extend(outdoor_denoise_warnings(timeline))
+    return warns

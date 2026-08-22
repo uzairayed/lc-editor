@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lc_editor.models import CANVAS_H, CANVAS_W, FPS, Caption, Clip, MediaItem, Project, Timeline
+from lc_editor.models import CANVAS_H, CANVAS_W, FPS, Caption, Clip, MediaItem, Project
 from lc_editor.render.captions import drawtext_filter, fontfile_for
 from lc_editor.render.motion import crop_9_16, motion_chain
 from lc_editor.render.paths import ffmpeg_path
-from lc_editor.render.transitions import close_fade_filter, punch_in_filter, whip_filter
+from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter, whip_filter
 
 
 def clip_video_filters(
@@ -16,6 +16,7 @@ def clip_video_filters(
     project: Project,
     *,
     last: bool = False,
+    transition: str | None = None,
 ) -> str:
     frames = max(1, int(round(clip.duration_s * FPS)))
     parts = [crop_9_16(clip, media.width or CANVAS_W, media.height or CANVAS_H)]
@@ -34,9 +35,23 @@ def clip_video_filters(
             parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap)))
     if last and project.overlays.end_card:
         parts.append("drawtext=textfile='endcard.txt':expansion=none:fontsize=48:x=(w-text_w)/2:y=h*0.8")
-    if last:
-        trans = None
-        # closer fade applied at assemble; keep clip-local fade if marked
+    if clip.speed != 1.0:
+        parts.append(f"setpts=PTS/{clip.speed}")
+    if clip.wrap == "soft":
+        parts.append("unsharp=5:5:0.8:5:5:0.0")
+    if project.grain > 0:
+        strength = max(1, int(round(project.grain * 8)))
+        parts.append(f"noise=alls={strength}:allf=t")
+    if project.vignette > 0:
+        parts.append(f"vignette=angle=PI/5*{project.vignette}:mode=forward")
+    if transition == "close_fade" and last:
+        parts.append(close_fade_filter(frames))
+    if transition == "flash":
+        parts.append(flash_filter())
+    if transition == "match":
+        parts.append(match_filter())
+    if transition == "punch":
+        parts.append(punch_in_filter())
     return ",".join(parts)
 
 
@@ -95,6 +110,10 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project) -> 
         "motion": clip.motion,
         "focus": [clip.focus_x, clip.focus_y],
         "grade": [project.grade_preset, clip.grade_intensity, clip.protect],
+        "speed": clip.speed,
+        "wrap": clip.wrap,
+        "kenburns_amount": clip.kenburns_amount,
+        "look": [project.grain, project.vignette],
         "captions": [(c.text, c.y_pct, c.role) for c in captions if c.clip_id == clip.id],
     }
 
