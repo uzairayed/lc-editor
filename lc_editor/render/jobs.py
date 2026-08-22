@@ -12,6 +12,35 @@ from lc_editor.render.runner import FakeRunner, Runner, find_tool
 from lc_editor.store import Store
 
 
+THUMB_W = 270
+THUMB_H = 480
+
+
+def extract_frame_args(
+    ffmpeg: str,
+    src: str | Path,
+    dest: str | Path,
+    *,
+    kind: str,
+    seek_s: float | None = None,
+    scale: tuple[int, int] | None = (THUMB_W, THUMB_H),
+) -> list[str]:
+    args = [ffmpeg, "-y"]
+    if kind == "image":
+        args += ["-i", str(src)]
+    else:
+        args += ["-i", str(src)]
+        if seek_s is not None and seek_s > 0:
+            args += ["-ss", str(seek_s)]
+    if scale:
+        args += [
+            "-vf",
+            f"scale={scale[0]}:{scale[1]}:force_original_aspect_ratio=decrease",
+        ]
+    args += ["-frames:v", "1", "-update", "1", str(dest)]
+    return args
+
+
 def _ffmpeg(runner: Runner) -> str:
     if isinstance(runner, FakeRunner):
         return "ffmpeg"
@@ -111,12 +140,13 @@ def preview_stills(
     for clip in timeline.clips:
         media = media_by_id(items, clip.media_id)
         dest = dest_dir / f"{clip.id}.jpg"
-        mid = clip.in_s + clip.duration_s / 2
-        args = [ff, "-y", "-ss", str(max(0, mid)), "-i", media.path, "-frames:v", "1", str(dest)]
-        runner.run(args)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if not dest.exists() or dest.stat().st_size == 0:
-            dest.write_bytes(b"\xff\xd8\xff\xd9")
+        mid = clip.in_s + clip.duration_s / 2
+        seek = None if media.kind == "image" else max(0.0, mid)
+        args = extract_frame_args(ff, media.path, dest, kind=media.kind, seek_s=seek)
+        runner.run(args)
+        if (not dest.exists() or dest.stat().st_size < 100) and isinstance(runner, FakeRunner):
+            dest.write_bytes(b"\xff\xd8\xff" + b"\x00" * 120 + b"\xd9")
         cache = store.stills_dir / dest.name
         if dest.exists() and dest.resolve() != cache.resolve():
             cache.write_bytes(dest.read_bytes())

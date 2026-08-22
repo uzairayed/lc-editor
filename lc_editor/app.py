@@ -42,7 +42,7 @@ from lc_editor.ops.timeline import (
     split_clip,
     trim_clip,
 )
-from lc_editor.render.jobs import assemble, contact_sheet, preview_stills
+from lc_editor.render.jobs import assemble, contact_sheet, extract_frame_args, preview_stills
 from lc_editor.render.runner import FakeRunner, FfmpegRunner, Runner, find_tool
 from lc_editor.render.transitions import banned_transition
 from lc_editor.store import Store
@@ -371,13 +371,15 @@ class Editor:
         store = self._need()
         item = self._media(media_id)
         dest = store.thumbs_dir / f"{item.id}.jpg"
-        ff = "ffmpeg" if isinstance(self.runner, FakeRunner) else find_tool("ffmpeg")
-        self.runner.run([ff, "-y", "-ss", "0.1", "-i", item.path, "-frames:v", "1", str(dest)])
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if not dest.exists():
-            dest.write_bytes(b"\xff\xd8\xff\xd9")
+        ff = "ffmpeg" if isinstance(self.runner, FakeRunner) else find_tool("ffmpeg")
+        seek = None if item.kind == "image" else 0.1
+        args = extract_frame_args(ff, item.path, dest, kind=item.kind, seek_s=seek)
+        self.runner.run(args)
+        if (not dest.exists() or dest.stat().st_size < 100) and isinstance(self.runner, FakeRunner):
+            dest.write_bytes(b"\xff\xd8\xff" + b"\x00" * 120 + b"\xd9")
         result = envelope(True, store.timeline, [])
-        result["path"] = str(dest)
+        result["path"] = str(dest.resolve())
         return result
 
     def contact_sheet(self) -> dict:
