@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from lc_editor.lint.captions import timeline_caption_issues
+from lc_editor.lint.captions import density_warnings, timeline_caption_issues
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import mix_issues
-from lc_editor.models import LOCKED_STILL_MAX_S, MUSIC_KINDS, Project, Timeline, decorated_transition_count
+from lc_editor.models import LOCKED_STILL_MAX_S, MUSIC_KINDS, MediaItem, Project, Timeline, decorated_transition_count
 from lc_editor.render.transitions import banned_transition, graph_has_wipe, transition_video
 
 
@@ -45,9 +45,13 @@ def wipe_graph_issues(timeline: Timeline) -> list[str]:
     return errors
 
 
-def review_blockers(timeline: Timeline, project: Project | None) -> list[str]:
+def review_blockers(
+    timeline: Timeline,
+    project: Project | None,
+    media: list[MediaItem] | None = None,
+) -> list[str]:
     errors: list[str] = []
-    errors.extend(timeline_caption_issues(timeline))
+    errors.extend(timeline_caption_issues(timeline, media=media, project=project))
     errors.extend(mix_issues(timeline))
     errors.extend(locked_still_issues(timeline))
     errors.extend(music_issues(timeline, project))
@@ -70,7 +74,8 @@ def outdoor_denoise_warnings(timeline: Timeline) -> list[str]:
     return warnings
 
 
-def review_warnings(timeline: Timeline) -> list[str]:
+def review_warnings(timeline: Timeline, project: Project | None = None) -> list[str]:
     warns = [w for w in invariant_warnings(timeline) if "locked still" not in w]
     warns.extend(outdoor_denoise_warnings(timeline))
+    warns.extend(density_warnings(timeline, project))
     return warns

@@ -114,7 +114,7 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project) -> 
         "wrap": clip.wrap,
         "kenburns_amount": clip.kenburns_amount,
         "look": [project.grain, project.vignette],
-        "captions": [(c.text, c.y_pct, c.role) for c in captions if c.clip_id == clip.id],
+        "captions": [(c.text, c.y_pct, c.role, c.enter) for c in captions if c.clip_id == clip.id],
     }
 
 

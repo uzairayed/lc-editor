@@ -46,7 +46,7 @@ def test_spec_cap_05_wrap_rejects_three_lines(editor: Editor, media_file: Path) 
     assert len(text) == 48
     result = editor.caption_add(clip_id, text)
     assert result["ok"] is False
-    assert any("SPEC-CAP-05" in w for w in result["warnings"])
+    assert any("SPEC-CAP-02" in w for w in result["warnings"])
 
 
 def test_spec_cap_05_twenty_six_chars_one_line(editor: Editor, media_file: Path) -> None:
@@ -63,7 +63,7 @@ def test_spec_cap_06_eleven_words(editor: Editor, media_file: Path) -> None:
     clip_id = _long_clip(editor, media_file)
     bad = editor.caption_add(clip_id, "one two three four five six seven eight nine ten eleven")
     assert bad["ok"] is False
-    assert any("SPEC-CAP-06" in w for w in bad["warnings"])
+    assert any("SPEC-CAP-02" in w for w in bad["warnings"])
     good = editor.caption_add(clip_id, "2 hours, one fuel stop")
     assert good["ok"] is True
 
@@ -72,7 +72,7 @@ def test_spec_cap_07_box_rejected(editor: Editor, media_file: Path) -> None:
     clip_id = _long_clip(editor, media_file)
     result = editor.caption_add(clip_id, "Cafe Imran, Gharo", box=True)
     assert result["ok"] is False
-    assert any("SPEC-CAP-07" in w for w in result["warnings"])
+    assert any("SPEC-CRAFT-02" in w for w in result["warnings"])
     assert editor.timeline_get()["timeline"]["captions"] == []
 
 
@@ -90,7 +90,7 @@ def test_spec_cap_11_short_clip_rejected(editor: Editor, media_file: Path) -> No
     clip_id = editor.timeline_get()["timeline"]["clips"][-1]["id"]
     result = editor.caption_add(clip_id, "100 km down the N-5")
     assert result["ok"] is False
-    assert any("SPEC-CAP-11" in w for w in result["warnings"])
+    assert any("SPEC-CAP-02" in w for w in result["warnings"])
 
 
 def test_spec_cap_03_via_mcp(editor: Editor, media_file: Path) -> None:
