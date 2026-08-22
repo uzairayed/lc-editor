@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>lc-editor preview</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; background: #14110e; color: #f6ebd4; }
+    header { padding: 16px 24px; border-bottom: 1px solid #2a241e; }
+    main { display: grid; grid-template-columns: 280px 1fr; gap: 24px; padding: 24px; }
+    .clip { font-size: 13px; padding: 8px 0; border-bottom: 1px solid #2a241e; }
+    .stills { display: flex; flex-wrap: wrap; gap: 8px; }
+    .stills img { width: 120px; height: 213px; object-fit: cover; background: #1a1410; }
+    .muted { color: #9a8f80; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>lc-editor</strong>
+    <span class="muted">read-only preview</span>
+    <div id="summary" class="muted"></div>
+  </header>
+  <main>
+    <section id="clips"></section>
+    <section>
+      <div class="stills" id="stills"></div>
+    </section>
+  </main>
+  <script>
+    async function refresh() {
+      const res = await fetch("/api/timeline");
+      const data = await res.json();
+      const s = data.timeline_summary || {};
+      document.getElementById("summary").textContent =
+        `v${s.version || 0} · ${s.clip_count || 0} clips · ${(s.duration_s || 0).toFixed(2)}s`;
+      const clips = (data.timeline && data.timeline.clips) || [];
+      document.getElementById("clips").innerHTML = clips.map((c, i) =>
+        `<div class="clip">${i + 1}. ${c.id} · ${c.duration_s.toFixed(2)}s · ${c.motion}</div>`
+      ).join("");
+      const stills = data.stills || [];
+      document.getElementById("stills").innerHTML = stills.map(p =>
+        `<img src="/stills/${p}" alt="" />`
+      ).join("");
+    }
+    refresh();
+    setInterval(refresh, 1500);
+  </script>
+</body>
+</html>

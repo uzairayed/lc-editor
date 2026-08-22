@@ -1,0 +1,55 @@
+{
+  "items": [
+    {
+      "kind": "tick",
+      "file": "tick.wav",
+      "duration_s": 0.04
+    },
+    {
+      "kind": "pop",
+      "file": "pop.wav",
+      "duration_s": 0.06
+    },
+    {
+      "kind": "whoosh",
+      "file": "whoosh.wav",
+      "duration_s": 0.22
+    },
+    {
+      "kind": "impact",
+      "file": "impact.wav",
+      "duration_s": 0.12
+    },
+    {
+      "kind": "riser",
+      "file": "riser.wav",
+      "duration_s": 0.3
+    },
+    {
+      "kind": "wind",
+      "file": "wind.wav",
+      "duration_s": 1.0
+    },
+    {
+      "kind": "room",
+      "file": "room.wav",
+      "duration_s": 1.0
+    },
+    {
+      "kind": "steps_snow",
+      "file": "steps_snow.wav",
+      "duration_s": 0.2
+    },
+    {
+      "kind": "steps_gravel",
+      "file": "steps_gravel.wav",
+      "duration_s": 0.2
+    },
+    {
+      "kind": "engine",
+      "file": "engine.wav",
+      "duration_s": 1.0
+    }
+  ],
+  "music": false
+}

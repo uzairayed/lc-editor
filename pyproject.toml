@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lc-editor"
+version = "0.1.0"
+description = "Local MCP video editor. ffmpeg renders 9:16 reels."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "LC Reel Craft" }]
+dependencies = [
+    "pydantic>=2.8",
+    "pillow>=10.4",
+    "mcp>=1.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+analysis = ["opencv-python-headless>=4.10"]
+web = ["uvicorn>=0.30", "starlette>=0.38"]
+
+[project.scripts]
+lc-editor = "lc_editor.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lc_editor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires ffmpeg on PATH",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
