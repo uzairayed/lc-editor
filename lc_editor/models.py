@@ -14,6 +14,8 @@ DURATION_SOFT_MIN_S = 15.0
 LOCKED_STILL_MAX_S = 1.4
 DEFAULT_CLIP_S = 2.0
 DEFAULT_STILL_S = 2.5
+SHOT_MIN_S = 0.5
+SHOT_MAX_S = 8.0
 CAPTION_WRAP = 26
 CAPTION_MAX_WORDS = 10
 CAPTION_MAX_LINES = 2
@@ -128,6 +130,20 @@ class OverlayFlags(BaseModel):
     preview_platform: str = ""
 
 
+class AdjustmentLayer(BaseModel):
+    enabled: bool = True
+    grade_preset: GradePreset | None = None
+    cube_path: str | None = None
+    intensity: float = 1.0
+    grain: float = 0.0
+    vignette: float = 0.0
+    wrap: Literal["off", "soft"] = "off"
+    eq: dict[str, float] | None = None
+    colorbalance: dict[str, float] | None = None
+    fade: bool = False
+    end_hold_s: float = 0.0
+
+
 class Timeline(BaseModel):
     clips: list[Clip] = Field(default_factory=list)
     captions: list[Caption] = Field(default_factory=list)
@@ -171,6 +187,7 @@ class Project(BaseModel):
     preset: str | None = None
     grain: float = 0.0
     vignette: float = 0.0
+    adjustment: AdjustmentLayer = Field(default_factory=AdjustmentLayer)
     root: str = ""
 
 

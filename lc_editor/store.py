@@ -27,6 +27,8 @@ class Store:
         self.proxies_dir = self.cache_dir / "proxies"
         self.clip_cache_dir = self.cache_dir / "clips"
         self.stills_dir = self.cache_dir / "stills"
+        self.analysis_dir = self.cache_dir / "analysis"
+        self.keyframes_dir = self.analysis_dir / "keyframes"
         self.project_path = root / "project.json"
         self.state_path = root / "state.json"
         self.pointer = 0
@@ -47,6 +49,8 @@ class Store:
             self.proxies_dir,
             self.clip_cache_dir,
             self.stills_dir,
+            self.analysis_dir,
+            self.keyframes_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 

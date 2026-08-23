@@ -12,10 +12,18 @@ from lc_editor.models import (
     MediaItem,
     Project,
     Timeline,
+    timeline_duration,
 )
 from lc_editor.render.captions import write_textfile
 from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
-from lc_editor.render.graph import clip_hash_payload, clip_video_filters, concat_list, hero_encode_args, proxy_encode_args
+from lc_editor.render.graph import (
+    adjustment_filters,
+    clip_hash_payload,
+    clip_video_filters,
+    concat_list,
+    hero_encode_args,
+    proxy_encode_args,
+)
 from lc_editor.render.runner import FakeRunner, Runner, find_tool
 from lc_editor.store import Store
 
@@ -189,8 +197,6 @@ def render_clip_intermediate(
     dest = store.clip_cache_dir / f"{key}.mp4"
     if dest.exists():
         return dest
-    if project.cube_path is None:
-        project = project.model_copy(update={"cube_path": str(bundled_cube(project.grade_preset))})
     caps = [c for c in timeline.captions if c.clip_id == clip.id]
     kind = timeline.transitions.get(clip.id)
     vf = clip_video_filters(
@@ -280,6 +286,10 @@ def assemble(
     timeline = prepare_caption_files(store, timeline)
     if project.cube_path is None:
         project = project.model_copy(update={"cube_path": str(bundled_cube(project.grade_preset))})
+        if project.adjustment.enabled and project.adjustment.cube_path is None:
+            project = project.model_copy(
+                update={"adjustment": project.adjustment.model_copy(update={"cube_path": project.cube_path})}
+            )
     intermediates: list[Path] = []
     for clip in timeline.clips:
         media = media_by_id(items, clip.media_id)
@@ -297,8 +307,12 @@ def assemble(
     if any(s.kind == "whoosh" or s.kind == "tick" for s in timeline.sfx) or timeline.bed_kind != "none":
         # mix a silent-safe second pass: encode args only; fake runner writes dest
         pass
+    vf = adjustment_filters(project, duration_s=timeline_duration(timeline))
     encode = proxy_encode_args(dest) if proxy else hero_encode_args(dest)
-    runner.run(args + ["-af", limiter_filter()] + encode)
+    cmd = args
+    if vf:
+        cmd = cmd + ["-vf", vf]
+    runner.run(cmd + ["-af", limiter_filter()] + encode)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():
         dest.write_bytes(b"")

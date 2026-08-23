@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lc_editor.models import CANVAS_H, CANVAS_W, FPS, Caption, Clip, MediaItem, Project
+from lc_editor.models import CANVAS_H, CANVAS_W, FPS, AdjustmentLayer, Caption, Clip, MediaItem, Project
 from lc_editor.render.captions import drawtext_filter, fontfile_for
 from lc_editor.render.motion import crop_9_16, motion_chain
 from lc_editor.render.paths import ffmpeg_path
 from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter, whip_filter
+
+EQ_KEYS = frozenset({"contrast", "brightness", "saturation", "gamma", "gamma_r", "gamma_g", "gamma_b", "r", "g", "b"})
+COLORBALANCE_KEYS = frozenset({"rs", "gs", "bs", "rm", "gm", "bm", "rh", "gh", "bh"})
 
 
 def preview_video_filters(clip: Clip, media: MediaItem) -> str:
@@ -34,14 +37,6 @@ def clip_video_filters(
     parts = [crop_9_16(clip, media.width or CANVAS_W, media.height or CANVAS_H)]
     if clip.motion != "none":
         parts.append(motion_chain(clip, frames))
-    cube = project.cube_path
-    if cube:
-        mix = clip.grade_intensity
-        lut = f"lut3d=file='{ffmpeg_path(cube)}'"
-        if mix >= 0.999:
-            parts.append(lut)
-        else:
-            parts.append(f"{lut},hue=s={mix}")
     for cap in captions:
         if cap.textfile:
             parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap)))
@@ -51,11 +46,6 @@ def clip_video_filters(
         parts.append(f"setpts=PTS/{clip.speed}")
     if clip.wrap == "soft":
         parts.append("unsharp=5:5:0.8:5:5:0.0")
-    if project.grain > 0:
-        strength = max(1, int(round(project.grain * 8)))
-        parts.append(f"noise=alls={strength}:allf=t")
-    if project.vignette > 0:
-        parts.append(f"vignette=angle=PI/5*{project.vignette}:mode=forward")
     if transition == "close_fade" and last:
         parts.append(close_fade_filter(frames))
     if transition == "flash":
@@ -121,15 +111,70 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "duration_s": clip.duration_s,
         "motion": clip.motion,
         "focus": [clip.focus_x, clip.focus_y],
-        "grade": [project.grade_preset, clip.grade_intensity, clip.protect],
         "speed": clip.speed,
         "wrap": clip.wrap,
         "kenburns_amount": clip.kenburns_amount,
-        "look": [project.grain, project.vignette],
         "captions": [(c.text, c.y_pct, c.role, c.enter) for c in captions if c.clip_id == clip.id],
         "preview": preview,
     }
     return payload
+
+
+def resolved_adjustment(project: Project) -> AdjustmentLayer:
+    layer = project.adjustment
+    if not layer.enabled:
+        return layer
+    return layer.model_copy(
+        update={
+            "grade_preset": layer.grade_preset or project.grade_preset,
+            "cube_path": layer.cube_path or project.cube_path,
+            "grain": layer.grain if layer.grain > 0 else project.grain,
+            "vignette": layer.vignette if layer.vignette > 0 else project.vignette,
+        }
+    )
+
+
+def _colon_filter(name: str, params: dict[str, float], allowed: frozenset[str]) -> str:
+    bits = [f"{key}={params[key]}" for key in sorted(params) if key in allowed]
+    return f"{name}={':'.join(bits)}" if bits else ""
+
+
+def adjustment_filters(project: Project, *, duration_s: float = 0.0) -> str:
+    layer = resolved_adjustment(project)
+    if not layer.enabled:
+        return ""
+    parts: list[str] = []
+    if layer.eq or layer.colorbalance:
+        if layer.eq:
+            eq = _colon_filter("eq", layer.eq, EQ_KEYS)
+            if eq:
+                parts.append(eq)
+        if layer.colorbalance:
+            cb = _colon_filter("colorbalance", layer.colorbalance, COLORBALANCE_KEYS)
+            if cb:
+                parts.append(cb)
+    else:
+        cube = layer.cube_path
+        if cube:
+            mix = layer.intensity
+            lut = f"lut3d=file='{ffmpeg_path(cube)}'"
+            if mix >= 0.999:
+                parts.append(lut)
+            else:
+                parts.append(f"{lut},hue=s={mix}")
+    if layer.grain > 0:
+        strength = max(1, int(round(layer.grain * 8)))
+        parts.append(f"noise=alls={strength}:allf=t")
+    if layer.vignette > 0:
+        parts.append(f"vignette=angle=PI/5*{layer.vignette}:mode=forward")
+    if layer.wrap == "soft":
+        parts.append("unsharp=5:5:0.8:5:5:0.0")
+    if layer.fade and duration_s > 0:
+        frames = max(1, int(round(duration_s * FPS)))
+        parts.append(close_fade_filter(frames))
+    if layer.end_hold_s > 0:
+        parts.append(f"tpad=stop_mode=clone:stop_duration={layer.end_hold_s}")
+    return ",".join(parts)
 
 
 def whip_graph() -> str:

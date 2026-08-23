@@ -54,15 +54,16 @@ A real session, in order:
 
 1. `project_create` 9:16
 2. `import_folder`
-3. `contact_sheet`
-4. `clip_add` 12 to 18 shots
-5. `clip_refocus` on faces / subjects
-6. `motion_kenburns` on wides
-7. 5 to 7 `caption_add`
-8. `audio_bed` wind, `sfx_caption_auto`, two whooshes (`sfx_place` or `sfx_transition_auto`)
-9. `grade_preset` winter_trip
-10. `overlay_preview` IG
-11. `preview_stills`, `preview_proxy`, recut (`clip_trim` or remove), `review_report`, `export`
+3. `media_analyze`
+4. `shots_rank` per section (hook, journey, site_wide, closer); optional scoped sheet
+5. `contact_sheet` of candidates, then `clip_add` 12 to 18 shots
+6. `clip_refocus` on faces / subjects
+7. `motion_kenburns` on wides
+8. 5 to 7 `caption_add`
+9. `audio_bed` wind, `sfx_caption_auto`, two whooshes (`sfx_place` or `sfx_transition_auto`)
+10. `grade_preset` winter_trip
+11. `overlay_preview` IG
+12. `preview_stills`, `preview_proxy`, recut (`clip_trim` or remove), `review_report`, `export`
 
 ## SPEC-SES-09: web is read-only
 

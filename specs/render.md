@@ -34,7 +34,7 @@ Caption drawtext includes `textfile=`, `expansion=none`, sand fill, stroke, shad
 
 ## SPEC-RND-08: protect
 
-`grade_protect(clip_id, enabled)` sets a per-clip flag. Protected clips blend the LUT at reduced intensity (0.40) and skip split-tone shadows. Intensity slots: **1.00 / 0.70 / 0.40**.
+`grade_protect(clip_id, enabled)` sets a per-clip flag and stores an intensity slot (**1.00 / 0.70 / 0.40**). The LUT itself is applied once on the adjustment layer (SPEC-ADJ), not baked per clip.
 
 ## SPEC-RND-09: overlays preview vs bake
 
@@ -42,7 +42,7 @@ Caption drawtext includes `textfile=`, `expansion=none`, sand fill, stroke, shad
 
 ## SPEC-RND-10: per-clip cache key
 
-An intermediate file is named by a content hash of that clip's render parameters (media, in/out, motion, crop, grade, captions on that clip). Changing another clip does not invalidate this hash.
+An intermediate file is named by a content hash of that clip's render parameters (media, in/out, motion, crop, captions, and clip-local filters). Project look (grade, grain, vignette, layer wrap) is not part of the hash. Changing another clip, or changing only the adjustment layer, does not invalidate this hash.
 
 ## SPEC-RND-11: preview stills
 
@@ -64,6 +64,34 @@ The wheel ships `Anton-Regular.ttf` and static `SpaceGrotesk-Bold.ttf` (OFL). Cl
 
 - `motion_hold` is an alias of `none`. Stills with `none`/`hold` over 1.40s still fail SPEC-CRAFT-05.
 - `motion_speed(clip_id, rate)` is video only. Rate must be in **0.85–1.15**. Reject on stills. Never used to fit a caption.
-- `fx_grain(amount)` and `fx_vignette(amount)` are 0–1 project-wide. Implemented as light ffmpeg `noise` / `vignette`, not a plugin pack.
+- `fx_grain(amount)` and `fx_vignette(amount)` are 0–1 project-wide and write the adjustment layer. Implemented as light ffmpeg `noise` / `vignette` after concat, not a plugin pack.
+
+## SPEC-ADJ: adjustment layer
+
+Look is a filter on the already-cut timeline: one encode for grade / grain / vignette / LUT / layer wrap. This is not a source proxy (SPEC-SES-05) and not per-clip grade baking.
+
+### What lives on the layer
+
+- Grade / LUT / intensity
+- Grain, vignette, wrap
+- Optional global fade / end hold
+- Optional `eq` / `colorbalance` overrides (replace `lut3d`)
+
+### What stays clip-local
+
+- In/out, motion, punch, whip, flash, match
+- Captions (timing is per shot)
+- Wind denoise / highpass / gate (needs the source before concat)
+
+Do not put denoise on the adjustment layer.
+
+### Shape
+
+- `project.adjustment` holds the layer. Default is enabled and follows `grade_preset`.
+- `adjustment_set` writes grade, grain, vignette, wrap, intensity, optional eq/colorbalance, optional fade/end hold. It does not bump timeline version and does not close the export gate.
+- `adjustment_clear` disables the layer (no post-concat look).
+- `grade_preset`, `grade_set`, `fx_grain`, and `fx_vignette` write the same layer.
+- `preview_proxy` and `export` apply the layer as the last video filter after concat.
+- Changing only the layer invalidates the assembled output, not per-clip intermediates.
 - `fx_wrap(clip_id, "off"|"soft")` is off by default. Soft is a highlight bloom on one or two hero shots.
 - No lens-dirt, film-burn, or FX marketplace. No heavy picture denoise by default.

@@ -1,0 +1,30 @@
+frame:0    pts:0       pts_time:0
+lavfi.signalstats.YAVG=128.0
+lavfi.signalstats.YDIF=1.2
+lavfi.signalstats.YMIN=10
+lavfi.signalstats.YMAX=240
+lavfi.signalstats.UAVG=120.0
+lavfi.signalstats.VAVG=130.0
+
+frame:5    pts:5       pts_time:1.000000
+lavfi.signalstats.YAVG=110.5
+lavfi.signalstats.YDIF=4.0
+lavfi.signalstats.YMIN=8
+lavfi.signalstats.YMAX=220
+
+frame:10    pts:10      pts_time:2.000000
+lavfi.scd.time=2.000000
+lavfi.scd.score=18.4
+lavfi.signalstats.YAVG=90.0
+lavfi.signalstats.YDIF=12.0
+lavfi.signalstats.YMIN=4
+lavfi.signalstats.YMAX=200
+
+this line is garbage
+lavfi.scd.time=not-a-number
+lavfi.signalstats.YAVG=
+frame:15    pts:15      pts_time:3.000000
+lavfi.signalstats.YAVG=95.0
+lavfi.signalstats.YDIF=3.5
+lavfi.signalstats.YMIN=12
+lavfi.signalstats.YMAX=210

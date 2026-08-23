@@ -49,6 +49,16 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "text" in cprops
     assert "clip_id" in cprops
     assert "op_id" in (schemas["clip_add"].get("properties") or {})
+    analyze = schemas["media_analyze"].get("properties") or {}
+    assert "media_id" in analyze
+    assert "op_id" in analyze
+    assert "kwargs" not in analyze
+    search = schemas["shots_search"].get("properties") or {}
+    assert "media_id" in search
+    rank = schemas["shots_rank"].get("properties") or {}
+    assert "role" in rank
+    assert "top_k" in rank
+    assert "kwargs" not in rank
 
 
 def test_spec_ses_11_python_311_ok() -> None:
