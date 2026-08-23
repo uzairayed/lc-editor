@@ -1,8 +1,8 @@
 # lc-editor
 
-A local video editor you drive from an MCP client. There is no timeline UI to click. You send tool calls; ffmpeg renders the file.
+A local video editor for a computer use agent, made for grokbot. You drive it from an MCP client; there is no timeline UI to click. You send tool calls; ffmpeg renders the file.
 
-Built for short 9:16 reels. No music. Captions are stroke-and-shadow text, never a box. Engine rules live in `specs/craft.md`. Karachi episode structure is an optional preset, not the default.
+Built for short 9:16 reels. Captions are stroke-and-shadow text, never a box. Sound is the owner's call, not the editor's; the agent should ask before assuming. This version only renders natural audio (engine, wind, ambience, short SFX), music tracks are not supported yet. Engine rules live in `specs/craft.md`. Karachi episode structure is an optional preset, not the default.
 
 ## Needs
 
@@ -54,24 +54,30 @@ On Windows the path looks like `C:/Users/you/my-reel`.
 
 Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail out loud. Same `op_id` twice does not duplicate. `review_report` must pass before `export`. Preview stills and the contact sheet are JPEG files on disk, not base64.
 
-Optional: `project_create(..., preset="karachi")` loads series branding. A Murree cut does not need it.
+Optional: `project_create(..., preset="karachi")` loads series branding. Other reels do not need it.
 
-## Unexpected Murree
+## Giving this to grokbot
 
-Point `LC_EDITOR_MURREE_DIR` at a folder of exactly 117 stills on this machine, then:
-
-```
-$env:LC_EDITOR_MURREE_DIR="C:\path\to\murree"
-pytest -m murree -s
-```
-
-Unix:
+Once the MCP server is in grokbot's config, hand it a prompt like this:
 
 ```
-LC_EDITOR_MURREE_DIR=/path/to/murree pytest -m murree -s
+You have an MCP server called lc-editor. It is a video editor you control
+entirely through tool calls; ffmpeg does the rendering.
+
+My raw clips are in <folder>. Cut a 9:16 reel of <subject>, 15 to 28 seconds.
+Follow the craft rules in specs/craft.md: stroke-and-shadow captions with no
+background box, hard cuts on motion.
+
+Before you touch the timeline, ask me what I want for sound: music or natural
+audio only. Do not assume either way. If I ask for music, tell me this version
+of the editor cannot render it yet and offer natural audio plus SFX instead.
+
+Work in passes: analyze the footage first, pick the strongest shots, build the
+timeline, then run review_report and fix every warning before you export.
+Show me preview stills at each pass before moving on.
 ```
 
-The stills stay local. They are not in this repo.
+Swap the folder, subject, and any series preset (for example `preset="karachi"`) into the prompt as needed.
 
 ## Not in this version
 
