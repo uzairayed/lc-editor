@@ -112,6 +112,17 @@ Undo moves the snapshot pointer back one mutation. Redo moves forward. A new mut
 
 An imported still becomes a clip with a duration (default 2.50s) and motion `kenburns`. It is never a static overlay.
 
+## SPEC-EDIT-ACK: acknowledge floor and density
+
+A clip must stay on screen long enough to register. Caption hold is not the same as a picture floor.
+
+- `SHOT_ACK_MIN_S = 2.4` for video on the timeline.
+- `STILL_ACK_MIN_S = 2.2` for stills (already above locked-still 1.4s).
+- A fragment shorter than the floor is `SPEC-EDIT-ACK-01` and fails `review_report`, unless the clip holds its entire source. A whole-source hold shorter than the floor is a warning, not an error.
+- Clip count may not exceed `ceil(duration_s * 16 / 60)` (`SPEC-EDIT-ACK-02`). A 60s reel therefore lands at most 16 clips. Override with `review_report(allow_dense=true)`.
+- `shots_rank` drops video shots shorter than `SHOT_ACK_MIN_S`. If that empties the pool, it falls back to all shots with a warning.
+- `clip_add` defaults video duration to `SHOT_ACK_MIN_S` (or the whole source if shorter).
+
 ## SPEC-EDIT-19: timeline_get is one call
 
 `timeline_get` returns the full JSON timeline in one response, plus `timeline_summary`.

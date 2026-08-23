@@ -56,7 +56,7 @@ A real session, in order:
 2. `import_folder`
 3. `media_analyze`
 4. `shots_rank` per section (hook, journey, site_wide, closer); optional scoped sheet
-5. `contact_sheet` of candidates, then `clip_add` 12 to 18 shots
+5. `contact_sheet` of candidates, then `clip_add` enough shots to fill 15 to 28s without exceeding `ceil(duration_s * 16 / 60)` clips
 6. `clip_refocus` on faces / subjects
 7. `motion_kenburns` on wides
 8. 5 to 7 `caption_add`

@@ -94,8 +94,8 @@ def test_look_only_change_reuses_clip_intermediates(tmp_path: Path) -> None:
     editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
     editor.import_file(str(a))
     editor.import_file(str(b))
-    editor.clip_add(media_id=editor.media[0].id, in_s=0.0, out_s=2.0)
-    editor.clip_add(media_id=editor.media[1].id, in_s=0.0, out_s=2.0)
+    editor.clip_add(media_id=editor.media[0].id, in_s=0.0, out_s=4.0)
+    editor.clip_add(media_id=editor.media[1].id, in_s=0.0, out_s=4.0)
     ins = [(c["in_s"], c["out_s"]) for c in editor.timeline_get()["timeline"]["clips"]]
     review = editor.review_report()
     assert review["ok"], review

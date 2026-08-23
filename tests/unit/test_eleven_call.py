@@ -28,11 +28,11 @@ def test_spec_ses_08_eleven_call_session(editor: Editor, tmp_path: Path) -> None
     assert sheet["ok"] is True
 
     ids = []
-    for item in editor.media_list()["media"]:
-        add = editor.clip_add(media_id=item["id"], duration_s=2.0)
+    for item in editor.media_list()["media"][:6]:
+        add = editor.clip_add(media_id=item["id"], duration_s=3.8)
         assert add["ok"] is True
         ids.append(editor.timeline_get()["timeline"]["clips"][-1]["id"])
-    assert 12 <= len(ids) <= 18
+    assert 6 <= len(ids) <= 8
 
     for clip_id in ids[:3]:
         assert editor.clip_refocus(clip_id, 0.45, 0.35)["ok"] is True
@@ -63,7 +63,7 @@ def test_spec_ses_08_eleven_call_session(editor: Editor, tmp_path: Path) -> None
     proxy = editor.preview_proxy()
     assert stills["ok"] and proxy["ok"]
 
-    recut = editor.clip_trim(ids[-1], 0.0, 1.5)
+    recut = editor.clip_trim(ids[-1], 0.0, 2.4)
     assert recut["ok"] is True
     review = editor.review_report()
     assert review["ok"] is True

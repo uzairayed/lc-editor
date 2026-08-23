@@ -9,7 +9,7 @@ from tests.conftest import touch_media
 
 def _video_clip(editor: Editor, media_file: Path) -> str:
     editor.import_file(str(media_file))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.0)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.4)
     return editor.timeline_get()["timeline"]["clips"][-1]["id"]
 
 

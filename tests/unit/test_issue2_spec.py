@@ -9,7 +9,7 @@ from lc_editor.render.motion import kenburns_filter
 from lc_editor.render.transitions import transition_video, whip_filter
 
 
-def _add(editor: Editor, media_file: Path, duration_s: float = 2.0) -> str:
+def _add(editor: Editor, media_file: Path, duration_s: float = 4.0) -> str:
     editor.import_file(str(media_file))
     mid = editor.media[-1].id
     editor.clip_add(media_id=mid, duration_s=duration_s)

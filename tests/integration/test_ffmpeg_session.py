@@ -71,7 +71,7 @@ def test_spec_rnd_03_whip_filter_accepted(tmp_path: Path) -> None:
 def test_spec_ses_08_eleven_call_real_ffmpeg(tmp_path: Path) -> None:
     inbox = tmp_path / "inbox"
     for i in range(3):
-        _make_clip(inbox / f"shot{i:02d}.mp4", 2.0)
+        _make_clip(inbox / f"shot{i:02d}.mp4", 4.0)
 
     editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
     editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
@@ -81,7 +81,7 @@ def test_spec_ses_08_eleven_call_real_ffmpeg(tmp_path: Path) -> None:
 
     ids = []
     for item in editor.media_list()["media"]:
-        editor.clip_add(media_id=item["id"], duration_s=2.0)
+        editor.clip_add(media_id=item["id"], duration_s=4.0)
         ids.append(editor.timeline_get()["timeline"]["clips"][-1]["id"])
 
     editor.clip_refocus(ids[0], 0.5, 0.4)
@@ -95,7 +95,7 @@ def test_spec_ses_08_eleven_call_real_ffmpeg(tmp_path: Path) -> None:
     editor.overlay_preview("ig")
     editor.preview_stills()
     editor.preview_proxy()
-    editor.clip_trim(ids[-1], 0.0, 1.5)
+    editor.clip_trim(ids[-1], 0.0, 4.0)
     editor.review_report()
     exported = editor.export()
     assert exported["ok"], exported
