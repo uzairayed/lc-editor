@@ -49,18 +49,18 @@ def test_preview_proxy_skips_hero_lut_and_denoise(editor: Editor, media_file: Pa
     result = editor.preview_proxy()
     assert result["ok"] is True
     clip_blob = " ".join(
-        " ".join(c) for c in editor.runner.calls if any("/clips/" in a.replace("\\", "/") for a in c)
+        " ".join(c) for c in editor.runner.calls if c and "/clips/" in c[-1].replace("\\", "/")
     )
     proxy_blob = " ".join(
         " ".join(c) for c in editor.runner.calls if any("/proxies/" in a.replace("\\", "/") for a in c)
     )
-    concat_blob = " ".join(
+    assemble_blob = " ".join(
         " ".join(c)
         for c in editor.runner.calls
-        if "-f" in c and c[c.index("-f") + 1] == "concat"
+        if "-filter_complex" in c and any("preview_proxy" in a.replace("\\", "/") for a in c)
     )
     assert "lut3d" not in clip_blob
     assert "lut3d" not in proxy_blob
     assert "afftdn" not in clip_blob
-    assert "afftdn" not in concat_blob
-    assert "lut3d" in concat_blob
+    assert "afftdn" not in assemble_blob
+    assert "lut3d" in assemble_blob

@@ -1,6 +1,6 @@
 # LC Reel Craft
 
-Engine craft (no music, no caption box, hold formula, 15-28s target, 60s cap) lives in `specs/craft.md` and applies to every project.
+Engine craft (no caption box, hold formula, 15-28s target, 60s cap, music only when the owner opts in) lives in `specs/craft.md` and applies to every project.
 
 This file is the **Sites to visit in Karachi** series preset: optional branding, not the editor default. Apply it with `project_create(..., preset="karachi")`. A Murree cut, or any other reel, does not need this structure.
 

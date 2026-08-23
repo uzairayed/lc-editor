@@ -4,7 +4,9 @@ These rules belong to the editor. They apply to every project, including Murree.
 
 ## SPEC-CRAFT-01: sound policy belongs to the owner
 
-Music is an owner preference, not an engine opinion. An agent driving this editor must ask the project owner what they want for sound instead of assuming. This version ships no music pipeline, so `allow_music` is always false and music, melody, drum loop, score, and cinematic beds are `ok: false`; an owner who wants music needs a future version that adds one.
+Music is an owner preference, not an engine opinion. An agent driving this editor must ask the project owner what they want for sound instead of assuming.
+
+`allow_music` defaults to **false**. The owner may set it true with `project_set(allow_music=true)`. Music is a first-class imported track (`music_add`), never an SFX kind and never a cinematic/ambient bed. Bundled SFX and `audio_bed` stay non-musical. A preset cannot turn music on. Placing music while `allow_music` is false is `ok: false`. Review warns if music is present without source attribution.
 
 ## SPEC-CRAFT-02: no caption box
 

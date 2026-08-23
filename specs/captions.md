@@ -2,7 +2,7 @@
 
 Primary goal: people can see and finish the text on a phone at arm's length. Graphics look designed. Not CapCut karaoke. Not a slideshow box.
 
-No caption boxes, banners, blur pads, or scrims (SPEC-CRAFT-02). No music. No word-by-word Hormozi as the default.
+No caption boxes, banners, blur pads, or scrims (SPEC-CRAFT-02). No word-by-word Hormozi as the default. Music is independent of caption style (SPEC-SND-11).
 
 Hold formula (authoritative):
 
@@ -75,6 +75,8 @@ ALL CAPS / Hormozi shouting is `ok: false` unless a future `caption_style="punch
 On caption in, optional **2–4 frame** scale 100→102% (or opacity 0→1). Must finish inside the 0.4s land. No bounce, no per-word karaoke, no emoji rain.
 
 `caption_add(..., enter="none"|"fade"|"punch")`. Default `punch` for titles, `fade` for body.
+
+Independent text layers also accept `motion="none"|"fade"|"pop"|"slide"|"type_on"`. Pop is a 2–4 frame scale (same as punch). Slide is a short vertical ease-in. Type-on reveals characters inside the 0.4s land window via `enable`/`text` drawtext, still using a textfile (never inline apostrophes). All four stay box-free.
 
 ## SPEC-CAP-06: contrast lint
 

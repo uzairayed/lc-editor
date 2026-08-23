@@ -16,13 +16,16 @@ def _add(editor: Editor, media_file: Path, duration_s: float = 2.4) -> str:
 def _concat_calls(calls: list[list[str]]) -> list[list[str]]:
     found = []
     for args in calls:
-        if "-f" in args and args[args.index("-f") + 1] == "concat":
+        out = (args[-1] if args else "").replace("\\", "/")
+        if "/clips/" in out:
+            continue
+        if "-filter_complex" in args or ("-f" in args and args[args.index("-f") + 1] == "concat"):
             found.append(args)
     return found
 
 
 def _clip_cache_calls(calls: list[list[str]]) -> list[list[str]]:
-    return [args for args in calls if any("/clips/" in a.replace("\\", "/") for a in args)]
+    return [args for args in calls if args and "/clips/" in args[-1].replace("\\", "/")]
 
 
 def test_adjustment_set_and_clear(editor: Editor) -> None:

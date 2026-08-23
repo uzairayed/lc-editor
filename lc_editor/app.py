@@ -30,6 +30,8 @@ from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import mix_issues, mix_preview_payload, sfx_too_hot
 from lc_editor.lint.review import review_blockers, review_warnings
 from lc_editor.presets import load_preset
+from lc_editor.analysis.beats import analyze_beats
+from lc_editor.migrate import sync_caption_layers
 from lc_editor.models import (
     CAPTION_Y_DEFAULT,
     DEFAULT_STILL_S,
@@ -38,15 +40,36 @@ from lc_editor.models import (
     SOURCE_PROXY_W,
     MUSIC_KINDS,
     AdjustmentLayer,
+    BeatGrid,
     Caption,
     Clip,
+    EffectInstance,
+    Keyframe,
+    LayerItem,
     MediaItem,
+    MusicTrack,
     Project,
+    TextStyle,
     Timeline,
+    Transform,
     envelope,
     recompute_starts,
     timeline_duration,
 )
+from lc_editor.ops.layers import (
+    add_effect,
+    add_keyframe,
+    add_layer,
+    remove_effect,
+    remove_layer,
+    reorder_layer,
+    set_transform,
+    update_effect,
+    update_layer,
+)
+from lc_editor.ops.music import add_music, remove_music, set_beat_grid, update_music
+from lc_editor.ops.sync import apply_beat_sync, propose_beat_sync
+from lc_editor.ops.templates import apply_template, list_templates, load_template, save_template
 from lc_editor.ops.timeline import (
     Reject,
     add_clip,
@@ -69,6 +92,7 @@ from lc_editor.ops.timeline import (
     split_clip,
     trim_clip,
 )
+from lc_editor.render.effects import validate_effect
 from lc_editor.render.jobs import (
     assemble,
     contact_sheet,
@@ -147,6 +171,7 @@ class Editor:
         if cap:
             return envelope(False, before, [cap])
         new_tl = recompute_starts(new_tl)
+        new_tl = sync_caption_layers(new_tl)
         warnings = invariant_warnings(new_tl)
         result = envelope(True, new_tl, warnings)
         store.commit(new_tl, op_id, result)
@@ -227,9 +252,11 @@ class Editor:
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
-        if allow_music is True:
-            return envelope(False, store.timeline, ["SPEC-SND-01: allow_music is always false"])
         update: dict = {}
+        if allow_music is not None:
+            if allow_music is False and store.timeline.music:
+                return envelope(False, store.timeline, ["SPEC-MUS-02: turn off music tracks first"])
+            update["allow_music"] = allow_music
         if name:
             update["name"] = name
         if preset is not None:
@@ -387,6 +414,8 @@ class Editor:
     def media_remove(self, media_id: str, op_id: str | None = None) -> dict:
         store = self._need()
         used = [c.id for c in store.timeline.clips if c.media_id == media_id]
+        used += [layer.id for layer in store.timeline.layers if layer.media_id == media_id]
+        used += [track.id for track in store.timeline.music if track.media_id == media_id]
         if used:
             return envelope(False, store.timeline, [f"SPEC-SES-05: media still used by clips {used}"])
         self.media = [m for m in self.media if m.id != media_id]
@@ -749,6 +778,8 @@ class Editor:
         op_id: str | None = None,
     ) -> dict:
         item = self._media(media_id)
+        if item.kind == "audio":
+            return envelope(False, self._need().timeline, ["SPEC-SND-11: audio files are placed with music_add"])
         is_still = item.kind == "image"
         video_default = min(SHOT_ACK_MIN_S, item.duration_s or SHOT_ACK_MIN_S)
         default_dur = DEFAULT_STILL_S if is_still else video_default
@@ -1287,7 +1318,23 @@ class Editor:
                 for clip in store.timeline.clips
             ],
             "captions": [c.model_dump() for c in store.timeline.captions],
+            "layers": [layer.model_dump() for layer in store.timeline.layers],
             "sfx": [{"kind": s.kind, "at_s": s.at_s, "gain_db": s.gain_db} for s in store.timeline.sfx],
+            "music": [
+                {
+                    "id": track.id,
+                    "media_id": track.media_id,
+                    "source_name": track.source_name,
+                    "license_note": track.license_note,
+                    "gain_db": track.gain_db,
+                    "in_s": track.in_s,
+                    "duration_s": track.duration_s,
+                    "source": media_map.get(track.media_id).original_path if track.media_id in media_map else "",
+                }
+                for track in store.timeline.music
+            ],
+            "beat_grid": store.timeline.beat_grid.model_dump() if store.timeline.beat_grid else None,
+            "template_id": store.timeline.template_id,
         }
         verify = verify_hero_av(self.runner, hero)
         payload["verify"] = verify
@@ -1304,6 +1351,297 @@ class Editor:
             store.ledger[op_id] = result
             store.persist()
         return result
+
+    def layer_add(
+        self,
+        kind: str,
+        start_s: float = 0.0,
+        duration_s: float = 2.0,
+        media_id: str | None = None,
+        text: str = "",
+        role: str = "body",
+        z: int = 10,
+        y_pct: float = CAPTION_Y_DEFAULT,
+        motion: str = "fade",
+        op_id: str | None = None,
+    ) -> dict:
+        if kind not in ("video", "image", "text"):
+            return envelope(False, self._need().timeline, ["SPEC-LAY-01: kind must be video, image, or text"])
+        if kind == "text":
+            issues = caption_issues(text, y_pct=y_pct, clip=None, box=False, role=role if role in ("title", "body") else "body")
+            if any("box" in i.lower() for i in issues):
+                return envelope(False, self._need().timeline, issues)
+        style = TextStyle(role=role if role in ("title", "body") else "body", motion=motion if motion in ("none", "fade", "pop", "slide", "type_on") else "fade")
+        layer = LayerItem(
+            id=new_id("ly"),
+            kind=kind,  # type: ignore[arg-type]
+            z=z,
+            start_s=start_s,
+            duration_s=duration_s,
+            media_id=media_id,
+            text=text,
+            role=style.role,
+            y_pct=y_pct,
+            style=style,
+        )
+        return self._mutate(op_id, lambda tl: add_layer(tl, layer))
+
+    def layer_update(
+        self,
+        layer_id: str,
+        start_s: float | None = None,
+        duration_s: float | None = None,
+        z: int | None = None,
+        text: str | None = None,
+        y_pct: float | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        return self._mutate(op_id, lambda tl: update_layer(tl, layer_id, start_s=start_s, duration_s=duration_s, z=z, text=text, y_pct=y_pct))
+
+    def layer_remove(self, layer_id: str, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: remove_layer(tl, layer_id))
+
+    def layer_reorder(self, layer_id: str, z: int, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: reorder_layer(tl, layer_id, z))
+
+    def layer_transform(
+        self,
+        layer_id: str,
+        x: float = 0.5,
+        y: float = 0.5,
+        scale: float = 1.0,
+        rotation: float = 0.0,
+        opacity: float = 1.0,
+        op_id: str | None = None,
+    ) -> dict:
+        return self._mutate(op_id, lambda tl: set_transform(tl, layer_id, Transform(x=x, y=y, scale=scale, rotation=rotation, opacity=opacity)))
+
+    def layer_keyframe(
+        self,
+        layer_id: str,
+        t_s: float,
+        x: float | None = None,
+        y: float | None = None,
+        scale: float | None = None,
+        rotation: float | None = None,
+        opacity: float | None = None,
+        ease: str = "smoothstep",
+        op_id: str | None = None,
+    ) -> dict:
+        kf = Keyframe(t_s=t_s, x=x, y=y, scale=scale, rotation=rotation, opacity=opacity, ease=ease if ease in ("linear", "smoothstep") else "smoothstep")
+        return self._mutate(op_id, lambda tl: add_keyframe(tl, layer_id, kf))
+
+    def effect_add(self, target: str, name: str, params: dict | None = None, op_id: str | None = None) -> dict:
+        try:
+            kind = "text" if any(layer.id == target and layer.kind == "text" for layer in self._need().timeline.layers) else "clip"
+            clean = validate_effect(name, params, kind)
+        except Reject as exc:
+            return envelope(False, self._need().timeline, [str(exc)])
+        effect = EffectInstance(id=new_id("fx"), name=name, params=clean)
+        return self._mutate(op_id, lambda tl: add_effect(tl, target, effect))
+
+    def effect_update(self, effect_id: str, params: dict | None = None, enabled: bool | None = None, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: update_effect(tl, effect_id, params=params, enabled=enabled))
+
+    def effect_remove(self, effect_id: str, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: remove_effect(tl, effect_id))
+
+    def text_style(self, layer_id: str, motion: str = "fade", role: str | None = None, op_id: str | None = None) -> dict:
+        if motion not in ("none", "fade", "pop", "slide", "type_on"):
+            return envelope(False, self._need().timeline, ["SPEC-CAP-05: unknown text motion"])
+
+        def apply(tl: Timeline) -> Timeline:
+            layers = []
+            for layer in tl.layers:
+                if layer.id != layer_id:
+                    layers.append(layer)
+                    continue
+                style = layer.style.model_copy(update={"motion": motion, **({"role": role} if role in ("title", "body") else {})})
+                layers.append(layer.model_copy(update={"style": style, "role": style.role}))
+            return tl.model_copy(update={"layers": layers})
+
+        return self._mutate(op_id, apply)
+
+    def template_list(self) -> dict:
+        store = self._need()
+        result = envelope(True, store.timeline, [])
+        result["templates"] = list_templates(store.templates_dir)
+        return result
+
+    def template_apply(self, name: str, bindings: dict | None = None, op_id: str | None = None) -> dict:
+        store = self._need()
+        try:
+            data = load_template(name, store.templates_dir)
+        except Reject as exc:
+            return envelope(False, store.timeline, [str(exc)])
+        look = {}
+        if data.get("grade") in ("motovlog", "winter_trip", "neutral"):
+            self.adjustment_set(grade=data["grade"], grain=data.get("grain"), vignette=data.get("vignette"))
+
+        def apply(tl: Timeline) -> Timeline:
+            new_tl, _warns = apply_template(tl, data, bindings)
+            return new_tl
+
+        result = self._mutate(op_id, apply)
+        return result
+
+    def template_save(self, name: str, op_id: str | None = None) -> dict:
+        store = self._need()
+        try:
+            path = save_template(name, store.timeline, store.templates_dir, look={"grade": store.project.grade_preset if store.project else None})
+        except Reject as exc:
+            return envelope(False, store.timeline, [str(exc)])
+        result = envelope(True, store.timeline, [])
+        result["path"] = str(path)
+        return result
+
+    def music_add(
+        self,
+        media_id: str,
+        start_s: float = 0.0,
+        in_s: float = 0.0,
+        duration_s: float | None = None,
+        gain_db: float = -8.0,
+        fade_in_s: float = 0.4,
+        fade_out_s: float = 0.8,
+        loop: bool = False,
+        duck_natural: bool = True,
+        source_name: str = "",
+        license_note: str = "",
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        item = self._media(media_id)
+        if item.kind != "audio":
+            return envelope(False, store.timeline, ["SPEC-SND-11: media is not audio"])
+        dur = duration_s if duration_s is not None else max(0.1, item.duration_s - in_s)
+        track = MusicTrack(
+            id=new_id("mu"),
+            media_id=media_id,
+            start_s=start_s,
+            in_s=in_s,
+            duration_s=dur,
+            gain_db=gain_db,
+            fade_in_s=fade_in_s,
+            fade_out_s=fade_out_s,
+            loop=loop,
+            duck_natural=duck_natural,
+            source_name=source_name or Path(item.original_path).name,
+            license_note=license_note,
+        )
+        return self._mutate(op_id, lambda tl: add_music(tl, track, allow_music=bool(store.project and store.project.allow_music)))
+
+    def music_update(
+        self,
+        track_id: str,
+        start_s: float | None = None,
+        in_s: float | None = None,
+        duration_s: float | None = None,
+        gain_db: float | None = None,
+        fade_in_s: float | None = None,
+        fade_out_s: float | None = None,
+        loop: bool | None = None,
+        duck_natural: bool | None = None,
+        source_name: str | None = None,
+        license_note: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        return self._mutate(
+            op_id,
+            lambda tl: update_music(
+                tl,
+                track_id,
+                start_s=start_s,
+                in_s=in_s,
+                duration_s=duration_s,
+                gain_db=gain_db,
+                fade_in_s=fade_in_s,
+                fade_out_s=fade_out_s,
+                loop=loop,
+                duck_natural=duck_natural,
+                source_name=source_name,
+                license_note=license_note,
+            ),
+        )
+
+    def music_remove(self, track_id: str, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: remove_music(tl, track_id))
+
+    def music_list(self) -> dict:
+        store = self._need()
+        result = envelope(True, store.timeline, [])
+        result["music"] = [t.model_dump() for t in store.timeline.music]
+        result["beat_grid"] = store.timeline.beat_grid.model_dump() if store.timeline.beat_grid else None
+        return result
+
+    def beat_analyze(self, media_id: str, op_id: str | None = None) -> dict:
+        store = self._need()
+        item = self._media(media_id)
+        grid = analyze_beats(self.runner, store.beats_dir, media_id, Path(item.path), item.duration_s)
+        result = self._mutate(op_id, lambda tl: set_beat_grid(tl, grid))
+        result["beat_grid"] = store.timeline.beat_grid.model_dump() if store.timeline.beat_grid else grid.model_dump()
+        return result
+
+    def beat_edit(
+        self,
+        bpm: float | None = None,
+        offset_s: float | None = None,
+        beats: list[float] | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        current = store.timeline.beat_grid or BeatGrid(media_id=store.timeline.music[0].media_id if store.timeline.music else "manual")
+        update = {"source": "manual"}
+        if bpm is not None:
+            update["bpm"] = bpm
+        if offset_s is not None:
+            update["offset_s"] = offset_s
+        if beats is not None:
+            update["beats"] = beats
+        grid = current.model_copy(update=update)
+        return self._mutate(op_id, lambda tl: set_beat_grid(tl, grid))
+
+    def beat_sync_preview(
+        self,
+        strength: float = 1.0,
+        subdivision: str = "1",
+        min_shot_s: float = 0.5,
+        max_shot_s: float = 8.0,
+        protected_ids: list[str] | None = None,
+    ) -> dict:
+        store = self._need()
+        preview = propose_beat_sync(
+            store.timeline,
+            strength=strength,
+            subdivision=subdivision,
+            min_shot_s=min_shot_s,
+            max_shot_s=max_shot_s,
+            protected_ids=protected_ids,
+        )
+        result = envelope(preview["ok"], store.timeline, preview.get("warnings") or [])
+        result["proposal"] = preview.get("proposal") or []
+        result["sfx"] = preview.get("sfx") or []
+        return result
+
+    def beat_sync_apply(
+        self,
+        strength: float = 1.0,
+        subdivision: str = "1",
+        min_shot_s: float = 0.5,
+        max_shot_s: float = 8.0,
+        protected_ids: list[str] | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        preview = propose_beat_sync(
+            store.timeline,
+            strength=strength,
+            subdivision=subdivision,
+            min_shot_s=min_shot_s,
+            max_shot_s=max_shot_s,
+            protected_ids=protected_ids,
+        )
+        return self._mutate(op_id, lambda tl: apply_beat_sync(tl, preview))
 
     def undo(self) -> dict:
         store = self._need()

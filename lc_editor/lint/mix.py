@@ -18,10 +18,13 @@ def estimate_true_peak_db(timeline: Timeline) -> float:
     sfx_peak = 0.0
     for sfx in timeline.sfx:
         sfx_peak = max(sfx_peak, 10 ** (sfx.gain_db / 20))
-    if timeline.duck:
-        peak = max(bed_lin, sfx_peak)
+    music_peak = 0.0
+    for track in timeline.music:
+        music_peak = max(music_peak, 10 ** (track.gain_db / 20))
+    if timeline.duck or any(t.duck_natural for t in timeline.music):
+        peak = max(bed_lin, sfx_peak, music_peak)
     else:
-        peak = bed_lin + sfx_peak
+        peak = bed_lin + sfx_peak + music_peak
     if peak <= 0:
         return -120.0
     return 20 * math.log10(peak)

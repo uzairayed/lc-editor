@@ -35,6 +35,13 @@ CAPTION_PROTECT_PX = 80
 PHONE_PROOF_W = 270
 PHONE_PROOF_H = 480
 CaptionEnter = Literal["none", "fade", "punch"]
+TextMotion = Literal["none", "fade", "pop", "slide", "type_on"]
+LayerKind = Literal["video", "image", "text"]
+EaseKind = Literal["linear", "smoothstep"]
+EffectName = Literal["blur", "sharpen", "glow", "grain", "vignette", "lut", "color"]
+BeatSubdivision = Literal["1", "1/2", "1/4"]
+SCHEMA_V1 = 1
+SCHEMA_V2 = 2
 SFX_UNDER_BED_DB = 6.0
 HIGHPASS_DEFAULT_HZ = 120.0
 TRUE_PEAK_LIMIT_DBTP = -1.0
@@ -77,7 +84,92 @@ SfxKind = Literal[
 ]
 MEDIA_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
 MEDIA_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
+MEDIA_AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".aiff"}
 MUSIC_KINDS = {"music", "melody", "drum", "drum_loop", "score", "cinematic", "ambient_music"}
+LEGAL_EFFECTS = ("blur", "sharpen", "glow", "grain", "vignette", "lut", "color")
+BEAT_CONFIDENCE_WARN = 0.45
+MUSIC_HOT_DB = -3.0
+
+
+class Transform(BaseModel):
+    x: float = 0.5
+    y: float = 0.5
+    scale: float = 1.0
+    rotation: float = 0.0
+    opacity: float = 1.0
+
+
+class Keyframe(BaseModel):
+    t_s: float
+    x: float | None = None
+    y: float | None = None
+    scale: float | None = None
+    rotation: float | None = None
+    opacity: float | None = None
+    ease: EaseKind = "smoothstep"
+
+
+class EffectInstance(BaseModel):
+    id: str
+    name: str
+    params: dict[str, float | str | bool] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class TextStyle(BaseModel):
+    role: CaptionRole = "body"
+    fill: str = SAND
+    stroke: str = STROKE
+    stroke_w: int = STROKE_W
+    motion: TextMotion = "fade"
+
+
+class LayerItem(BaseModel):
+    id: str
+    kind: LayerKind
+    z: int = 10
+    start_s: float = 0.0
+    duration_s: float = 2.0
+    media_id: str | None = None
+    in_s: float = 0.0
+    text: str = ""
+    role: CaptionRole = "body"
+    clip_id: str | None = None
+    caption_id: str | None = None
+    y_pct: float = CAPTION_Y_DEFAULT
+    lines: list[str] = Field(default_factory=list)
+    hold_s: float = 1.5
+    textfile: str = ""
+    style: TextStyle = Field(default_factory=TextStyle)
+    transform: Transform = Field(default_factory=Transform)
+    keyframes: list[Keyframe] = Field(default_factory=list)
+    effects: list[EffectInstance] = Field(default_factory=list)
+
+
+class MusicTrack(BaseModel):
+    id: str
+    media_id: str
+    start_s: float = 0.0
+    in_s: float = 0.0
+    duration_s: float = 0.0
+    gain_db: float = -8.0
+    fade_in_s: float = 0.4
+    fade_out_s: float = 0.8
+    loop: bool = False
+    duck_natural: bool = True
+    source_name: str = ""
+    license_note: str = ""
+
+
+class BeatGrid(BaseModel):
+    media_id: str
+    bpm: float = 120.0
+    offset_s: float = 0.0
+    beats: list[float] = Field(default_factory=list)
+    downbeats: list[float] = Field(default_factory=list)
+    sections: list[dict] = Field(default_factory=list)
+    confidence: float = 0.0
+    source: Literal["auto", "manual"] = "auto"
 
 
 class Clip(BaseModel):
@@ -100,6 +192,7 @@ class Clip(BaseModel):
     speed: float = 1.0
     wrap: Literal["off", "soft"] = "off"
     kenburns_amount: float = KENBURNS_ZOOM
+    effects: list[EffectInstance] = Field(default_factory=list)
 
 
 class Caption(BaseModel):
@@ -148,9 +241,14 @@ class AdjustmentLayer(BaseModel):
 
 
 class Timeline(BaseModel):
+    schema_version: int = SCHEMA_V2
     clips: list[Clip] = Field(default_factory=list)
     captions: list[Caption] = Field(default_factory=list)
+    layers: list[LayerItem] = Field(default_factory=list)
     sfx: list[SfxPlacement] = Field(default_factory=list)
+    music: list[MusicTrack] = Field(default_factory=list)
+    beat_grid: BeatGrid | None = None
+    template_id: str | None = None
     transitions: dict[str, TransitionKind] = Field(default_factory=dict)
     bed_kind: BedKind = "none"
     bed_gain_db: float = -6.0
@@ -164,7 +262,7 @@ class MediaItem(BaseModel):
     id: str
     path: str
     original_path: str
-    kind: Literal["video", "image"] = "video"
+    kind: Literal["video", "image", "audio"] = "video"
     duration_s: float = 0.0
     width: int = 0
     height: int = 0

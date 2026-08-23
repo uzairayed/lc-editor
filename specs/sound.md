@@ -1,12 +1,12 @@
 # SPEC-SND: Sound
 
-Source: `instructions.md` Sound; product spec Sound tools.
+Source: `instructions.md` Sound; product spec Sound tools; v2 music and beat-sync.
 
-`allow_music` is always `false`. There is no music asset in the shipped pack and no API to enable music.
+`allow_music` defaults to `false`. There is no music asset in the shipped pack and no stock catalog. The owner opts in with `project_set(allow_music=true)`, then imports a local audio file and places it with `music_add`.
 
-## SPEC-SND-01: music is rejected
+## SPEC-SND-01: music is not SFX or a bed
 
-Any attempt to set `allow_music: true`, place a music/melody/drum-loop asset, or add a cinematic/ambient musical bed is `ok: false`.
+Placing a music/melody/drum-loop asset as SFX, or adding a cinematic/ambient musical bed via `audio_bed`, is `ok: false`. Music is only legal through `music_add` after `allow_music` is true. `project_create` still starts with `allow_music: false`.
 
 ## SPEC-SND-02: shipped SFX only
 
@@ -60,10 +60,38 @@ Tools: `audio_denoise(clip_id|"all", profile)`, `audio_gate(clip_id|"all", enabl
 
 `mix_preview` reports pre vs post peak and a wind-band estimate (80–400 Hz and 2–8 kHz). Review fails if post peak > −1.0 dBTP. Review warns if an outdoor/wind clip has denoise off.
 
-The denoise graph never contains a music bed.
+The denoise graph never contains a music bed. Music is mixed after clip denoise (SPEC-SND-11).
+
+## SPEC-SND-11: imported music
+
+`import_file` accepts audio (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`). The file is copied into project media with `kind=audio`. `music_add(media_id, start_s=0, in_s=0, duration_s?, gain_db=-8, fade_in_s=0.4, fade_out_s=0.8, loop=false, duck_natural=true, source_name?, license_note?)` places one music track.
+
+- Rejects if `allow_music` is false.
+- Rejects if media is not audio.
+- Trim, loop, fade, and gain are stored on the track.
+- When `duck_natural` is true, clip/bed audio is sidechain-ducked under the music (about 8 dB).
+- Export mixes music with clip audio, bed, and SFX, then `alimiter` and optional hero `loudnorm`.
+
+`music_update` / `music_remove` mutate the same object. `music_list` returns tracks plus beat-grid summary.
 
 ## SPEC-SND-12: picture and sound share a duration
 
-Every hero intermediate, including stills and muted clips, emits audio of exactly `clip.duration_s` (live: `apad` + `atrim`; still/mute: `anullsrc`). `assemble` pads the concat and caps with `-t` equal to the timeline duration.
+Every hero intermediate, including stills and muted clips, emits audio of exactly `clip.duration_s` (live: `apad` + `atrim`; still/mute: `anullsrc`). `assemble` pads the mix and caps with `-t` equal to the timeline duration.
 
 `export` probes the hero. `|audio_dur - video_dur| > 50ms` or a full-scale peak lasting more than 10 ms is `ok: false` (`SPEC-SND-12`). The sidecar records `verify`. Preview proxies stay video-only (`-an`).
+
+## SPEC-SND-13: beat analysis
+
+`beat_analyze(media_id)` writes a cached beat sidecar keyed by source content: BPM, offset, beat timestamps, downbeats, sections, and confidence. Automatic detection may be wrong on intros, tempo changes, and low-percussion tracks, so `beat_edit(bpm?, offset_s?, beats?)` is the correction path. Confidence below 0.45 is a review warning.
+
+## SPEC-SND-14: beat sync
+
+`beat_sync_preview` / `beat_sync_apply` take `strength` (0-1), `subdivision` (`1` | `1/2` | `1/4`), `min_shot_s`, `max_shot_s`, and a list of protected clip ids.
+
+- Preview returns a dry-run proposal and does not mutate.
+- Apply commits the proposal: clip out-points, transitions, caption entrances, effect starts, and SFX snap toward the nearest legal beat without shortening a caption below SPEC-CAP hold and without moving `protect` clips.
+- Silent auto-sync is illegal. The agent must preview, then apply.
+
+## SPEC-SND-15: mix with music
+
+`mix_preview` includes music gain in the peak estimate. Music hotter than −3 dB is a warning. Post true peak still must be ≤ −1.0 dBTP. Review warns if music is present and `source_name` is empty (owner remains responsible for licensing).

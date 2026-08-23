@@ -1,10 +1,40 @@
 {
   "id": "karachi",
+  "schema_version": 2,
   "brand": "Sites to visit in Karachi",
   "grade": "motovlog",
+  "grain": 0.16,
+  "vignette": 0.22,
   "no_selfies": true,
   "structure": ["hook", "series_card", "journey", "site", "closer"],
   "series_card": "Sites to visit in Karachi, Ep {n}",
+  "placeholders": ["hook_text", "series_text"],
+  "layers": [
+    {
+      "id": "tpl_hook",
+      "kind": "text",
+      "z": 20,
+      "start_s": 0.0,
+      "duration_s": 2.0,
+      "role": "title",
+      "y_pct": 0.34,
+      "placeholder": "hook_text",
+      "text": "",
+      "style": { "motion": "pop" }
+    },
+    {
+      "id": "tpl_series",
+      "kind": "text",
+      "z": 20,
+      "start_s": 2.0,
+      "duration_s": 1.5,
+      "role": "title",
+      "y_pct": 0.36,
+      "placeholder": "series_text",
+      "text": "Sites to visit in Karachi",
+      "style": { "motion": "fade" }
+    }
+  ],
   "episode_1": {
     "title": "Makli / Thatta",
     "beats": ["series title", "100 km / ~2 hours on the N-5", "Cafe Imran, Gharo", "the site"]

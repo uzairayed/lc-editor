@@ -30,10 +30,12 @@ def test_spec_ses_02_project_create_9_16(tmp_path: Path) -> None:
     assert project["allow_music"] is False
 
 
-def test_spec_ses_03_allow_music_rejected(editor: Editor) -> None:
+def test_spec_ses_03_allow_music_opt_in(editor: Editor) -> None:
     result = editor.project_set(allow_music=True)
-    assert result["ok"] is False
-    assert any("SPEC-SND-01" in w for w in result["warnings"])
+    assert result["ok"] is True
+    assert editor.project_get()["project"]["allow_music"] is True
+    off = editor.project_set(allow_music=False)
+    assert off["ok"] is True
     assert editor.project_get()["project"]["allow_music"] is False
 
 

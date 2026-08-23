@@ -16,6 +16,9 @@ from lc_editor.models import (
 )
 from lc_editor.render.captions import write_textfile
 from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
+from lc_editor.assets.pack import sfx_path
+from lc_editor.render.audio import bed_asset_name
+from lc_editor.render.compositor import assemble_fingerprint, build_assemble_command
 from lc_editor.render.graph import (
     adjustment_filters,
     clip_hash_payload,
@@ -137,6 +140,8 @@ def working_media(item: MediaItem) -> MediaItem:
 
 
 def ensure_source_proxy(runner: Runner, store: Store, item: MediaItem) -> tuple[MediaItem, bool]:
+    if item.kind == "audio":
+        return item, True
     src = Path(item.path)
     if not src.exists():
         src = Path(item.original_path)
@@ -162,7 +167,15 @@ def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
         path = store.caption_dir / f"{cap.id}.txt"
         write_textfile(path, cap.text)
         caps.append(cap.model_copy(update={"textfile": str(path)}))
-    return timeline.model_copy(update={"captions": caps})
+    layers = []
+    for layer in timeline.layers:
+        if layer.kind == "text" and layer.text:
+            path = store.caption_dir / f"{layer.id}.txt"
+            write_textfile(path, layer.text)
+            layers.append(layer.model_copy(update={"textfile": str(path)}))
+        else:
+            layers.append(layer)
+    return timeline.model_copy(update={"captions": caps, "layers": layers})
 
 
 def overlay_filters(project: Project, for_preview: bool) -> list[str]:
@@ -197,7 +210,8 @@ def render_clip_intermediate(
     dest = store.clip_cache_dir / f"{key}.mp4"
     if dest.exists():
         return dest
-    caps = [c for c in timeline.captions if c.clip_id == clip.id]
+    bound = {layer.caption_id for layer in timeline.layers if layer.caption_id}
+    caps = [c for c in timeline.captions if c.clip_id == clip.id and c.id not in bound]
     kind = timeline.transitions.get(clip.id)
     vf = clip_video_filters(
         clip,
@@ -304,34 +318,75 @@ def assemble(
             project = project.model_copy(
                 update={"adjustment": project.adjustment.model_copy(update={"cube_path": project.cube_path})}
             )
+    dest.parent.mkdir(parents=True, exist_ok=True)
     intermediates: list[Path] = []
+    prepared_items: list[MediaItem] = []
+    prepared_clips: list[Clip] = []
     for clip in timeline.clips:
         media = media_by_id(items, clip.media_id)
-        if proxy:
+        if proxy and media.kind != "audio":
             media = working_media(media)
-        intermediates.append(
-            render_clip_intermediate(
-                runner, store, project, timeline, clip, media, items, preview=proxy
+        path = render_clip_intermediate(
+            runner, store, project, timeline, clip, media, items, preview=proxy
+        )
+        intermediates.append(path)
+        mid = f"{clip.id}__src"
+        prepared_clips.append(clip.model_copy(update={"media_id": mid, "in_s": 0.0, "out_s": clip.duration_s}))
+        prepared_items.append(
+            media.model_copy(
+                update={
+                    "id": mid,
+                    "path": str(path),
+                    "kind": "video",
+                    "has_audio": media.has_audio and not clip.muted and not proxy,
+                }
             )
         )
-    list_path = store.cache_dir / "concat.txt"
-    concat_list(intermediates, list_path)
-    ff = _ffmpeg(runner)
-    args = [ff, "-y", "-f", "concat", "-safe", "0", "-i", str(list_path)]
-    if any(s.kind == "whoosh" or s.kind == "tick" for s in timeline.sfx) or timeline.bed_kind != "none":
-        # mix a silent-safe second pass: encode args only; fake runner writes dest
-        pass
+    work_items = list(prepared_items)
+    for item in items:
+        if item.kind == "audio" or any(layer.media_id == item.id for layer in timeline.layers):
+            work_items.append(working_media(item) if proxy and item.kind != "audio" else item)
+    prepared_timeline = timeline.model_copy(update={"clips": prepared_clips})
     vf = adjustment_filters(project, duration_s=timeline_duration(timeline))
     encode = proxy_encode_args(dest) if proxy else hero_encode_args(dest)
-    cmd = args
-    if vf:
-        cmd = cmd + ["-vf", vf]
-    dur = timeline_duration(timeline)
-    if proxy:
-        runner.run(cmd + encode)
-    else:
-        runner.run(cmd + ["-af", f"apad,{limiter_filter()}", "-t", f"{dur:.4f}"] + encode)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    encode_flags = encode[:-1]
+    if not proxy:
+        encode_flags = ["-t", f"{timeline_duration(timeline):.4f}", *encode_flags]
+    extra = overlay_filters(project, for_preview=proxy)
+    sfx_files = {}
+    for sfx in timeline.sfx:
+        path = sfx_path(sfx.kind)
+        if path.exists():
+            sfx_files[sfx.kind] = path
+        user = store.user_sfx_dir / f"{sfx.kind}.wav"
+        if user.exists():
+            sfx_files[sfx.kind] = user
+    bed = None
+    name = bed_asset_name(timeline.bed_kind)
+    if name:
+        from lc_editor.assets.pack import SFX_DIR
+
+        candidate = SFX_DIR / name
+        if candidate.exists():
+            bed = candidate
+    ff = _ffmpeg(runner)
+    cmd = build_assemble_command(
+        ff,
+        store.caption_dir,
+        project,
+        prepared_timeline,
+        work_items,
+        dest,
+        proxy=proxy,
+        encode_args=encode_flags + [str(dest)],
+        adjustment=vf,
+        overlay_extra=extra,
+        sfx_files=sfx_files,
+        bed_file=bed,
+        hero=not proxy,
+        preprocessed=True,
+    )
+    runner.run(cmd)
     if not dest.exists():
         dest.write_bytes(b"")
     return dest

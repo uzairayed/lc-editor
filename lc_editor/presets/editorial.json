@@ -1,0 +1,34 @@
+{
+  "id": "editorial",
+  "schema_version": 2,
+  "grade": "neutral",
+  "grain": 0.12,
+  "vignette": 0.18,
+  "placeholders": ["hook_text", "body_text"],
+  "layers": [
+    {
+      "id": "tpl_hook",
+      "kind": "text",
+      "z": 20,
+      "start_s": 0.0,
+      "duration_s": 2.2,
+      "role": "title",
+      "y_pct": 0.32,
+      "placeholder": "hook_text",
+      "text": "",
+      "style": { "motion": "pop" }
+    },
+    {
+      "id": "tpl_body",
+      "kind": "text",
+      "z": 20,
+      "start_s": 2.2,
+      "duration_s": 2.4,
+      "role": "body",
+      "y_pct": 0.40,
+      "placeholder": "body_text",
+      "text": "",
+      "style": { "motion": "fade" }
+    }
+  ]
+}

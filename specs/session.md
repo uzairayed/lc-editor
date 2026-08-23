@@ -16,11 +16,11 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 ## SPEC-SES-02: project_create 9:16
 
-`project_create` with aspect `9:16` makes a project at 1080x1920, 30fps, `allow_music: false`.
+`project_create` with aspect `9:16` makes a project at 1080x1920, 30fps, `allow_music: false`. The owner may later set `allow_music: true`.
 
 ## SPEC-SES-03: project_open / get / set / list
 
-`project_open` loads a project directory. `project_get` returns project + summary. `project_set` updates allowed fields (name, overlay flags). Setting `allow_music` to true is `ok: false`. `project_list` lists project dirs under the workspace root.
+`project_open` loads a project directory. `project_get` returns project + summary. `project_set` updates allowed fields (name, overlay flags, `allow_music`). Setting `allow_music` false while music tracks exist is `ok: false`. `project_list` lists project dirs under the workspace root.
 
 ## SPEC-SES-04: import_file / import_folder
 
@@ -79,7 +79,7 @@ The package installs and the unit suite runs on Python 3.11 and 3.12.
 
 ## SPEC-SES-12: optional series preset
 
-`project_create(preset="karachi")` and `project_set(preset="karachi")` attach the Karachi series file. `project_get` exposes `preset`. Default is `null`. A preset cannot set `allow_music` true or weaken SPEC-CRAFT rules.
+`project_create(preset="karachi")` and `project_set(preset="karachi")` attach the Karachi series file. `project_get` exposes `preset`. Default is `null`. A preset cannot set `allow_music` true or weaken SPEC-CRAFT rules. `template_apply("editorial"|"karachi")` expands into ordinary layers and look; it does not hide runtime behavior.
 
 ## SPEC-SES-13: preview files are paths
 
