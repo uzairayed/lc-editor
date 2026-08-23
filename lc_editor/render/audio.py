@@ -14,7 +14,7 @@ def resolve_denoise_profile(clip: Clip, timeline: Timeline) -> str:
         return "off"
     profile = clip.denoise
     if profile == "auto":
-        return "indoor" if timeline.bed_kind == "room" else "outdoor"
+        return "outdoor" if timeline.bed_kind == "wind" else "indoor"
     return profile
 
 
@@ -23,11 +23,9 @@ def denoise_chain(profile: str, *, gated: bool = True, highpass_hz: float | None
         return ""
     if profile == "indoor":
         hp = 80.0 if highpass_hz is None else highpass_hz
-        nr = 6
-    else:
-        hp = 120.0 if highpass_hz is None else highpass_hz
-        nr = 12
-    parts = [highpass_filter(hp), f"afftdn=nr={nr}"]
+        return ",".join([highpass_filter(hp), "afftdn=nr=6"])
+    hp = 120.0 if highpass_hz is None else highpass_hz
+    parts = [highpass_filter(hp), "afftdn=nr=12"]
     if gated:
         parts.append("agate=attack=10:release=200")
     return ",".join(parts)

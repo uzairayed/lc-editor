@@ -54,10 +54,16 @@ Every unmuted clip (and the bed) runs a denoise chain unless `audio_denoise(...,
 
 Order: highpass, spectral `afftdn` (nr=12 outdoor / nr=6 indoor), `agate` attack 10 ms release 200 ms, then mix `alimiter` to −1.0 dBTP.
 
-Profiles: `off | outdoor | indoor | auto`. Auto is outdoor unless `bed_kind==room`. Muted clips skip the chain.
+Profiles: `off | outdoor | indoor | auto`. Auto is outdoor only when `bed_kind==wind`; otherwise indoor (HP 80, nr=6, no agate, so speech is not gated). Outdoor keeps HP 120, nr=12, and agate. Muted clips skip the chain.
 
 Tools: `audio_denoise(clip_id|"all", profile)`, `audio_gate(clip_id|"all", enabled)`.
 
 `mix_preview` reports pre vs post peak and a wind-band estimate (80–400 Hz and 2–8 kHz). Review fails if post peak > −1.0 dBTP. Review warns if an outdoor/wind clip has denoise off.
 
 The denoise graph never contains a music bed.
+
+## SPEC-SND-12: picture and sound share a duration
+
+Every hero intermediate, including stills and muted clips, emits audio of exactly `clip.duration_s` (live: `apad` + `atrim`; still/mute: `anullsrc`). `assemble` pads the concat and caps with `-t` equal to the timeline duration.
+
+`export` probes the hero. `|audio_dur - video_dur| > 50ms` or a full-scale peak lasting more than 10 ms is `ok: false` (`SPEC-SND-12`). The sidecar records `verify`. Preview proxies stay video-only (`-an`).

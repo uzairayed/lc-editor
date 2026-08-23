@@ -131,6 +131,7 @@ def _output_path(args: list[str]) -> Path | None:
         "-filter:v",
         "-movflags",
         "-shortest",
+        "-filter:a",
     }
     for i, arg in enumerate(args):
         if skip_next:

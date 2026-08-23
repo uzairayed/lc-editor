@@ -76,6 +76,7 @@ from lc_editor.render.jobs import (
     extract_frame_args,
     preview_stills,
     source_proxy_hash,
+    verify_hero_av,
     working_media,
 )
 from lc_editor.render.runner import FakeRunner, FfmpegRunner, Runner, find_tool
@@ -1269,13 +1270,17 @@ class Editor:
             "captions": [c.model_dump() for c in store.timeline.captions],
             "sfx": [{"kind": s.kind, "at_s": s.at_s, "gain_db": s.gain_db} for s in store.timeline.sfx],
         }
+        verify = verify_hero_av(self.runner, hero)
+        payload["verify"] = verify
         from lc_editor.store import atomic_write
 
         atomic_write(sidecar, json.dumps(payload, indent=2))
-        result = envelope(True, store.timeline, [])
+        warnings = [] if verify.get("ok", True) else [verify.get("warning") or "SPEC-SND-12: hero audio failed verification"]
+        result = envelope(verify.get("ok", True), store.timeline, warnings)
         result["hero"] = str(hero.resolve())
         result["proxy"] = str(proxy.resolve())
         result["sidecar"] = str(sidecar.resolve())
+        result["verify"] = verify
         if op_id:
             store.ledger[op_id] = result
             store.persist()
