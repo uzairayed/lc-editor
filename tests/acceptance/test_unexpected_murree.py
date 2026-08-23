@@ -40,6 +40,17 @@ def test_spec_ses_14_unexpected_murree(tmp_path: Path, murree_dir: Path) -> None
     imported = editor.import_folder(str(murree_dir))
     assert imported["ok"]
     assert imported["media"]
+    t_ana = time.perf_counter()
+    analyzed = editor.media_analyze()
+    ranked = editor.shots_rank("closer", top_k=5, sheet=True)
+    ana_s = time.perf_counter() - t_ana
+    assert analyzed["ok"], analyzed
+    assert analyzed["shots"] == len(imported["media"])
+    assert ranked["ok"], ranked
+    assert ranked["shots"]
+    assert Path(ranked["path"]).is_file()
+    print(f"murree analyze+rank {ana_s:.2f}s")
+    assert ana_s <= 30.0
     sheet = editor.contact_sheet()
     assert Path(sheet["path"]).is_file()
     assert Path(sheet["path"]).stat().st_size > 100

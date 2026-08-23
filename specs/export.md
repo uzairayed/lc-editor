@@ -38,7 +38,7 @@ A duration between 28s and 60s is a warning, not a failure.
 
 ## SPEC-EXPORT-05: export writes two files
 
-A successful `export` writes the hero reel and a proxy alongside it.
+A successful `export` writes the hero reel and a proxy alongside it. Both apply the adjustment layer after concat (SPEC-ADJ). Hero canvas stays 1080x1920.
 
 ## SPEC-EXPORT-06: same call twice
 

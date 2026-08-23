@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from lc_editor.analysis.manifest import Shot, load_manifest, manifest_path, shot_id, write_manifest
 from lc_editor.analysis.media import kind_for, pxl_burst_id, parse_probe, probe_args, select_import_paths
+from lc_editor.analysis.rank import ROLES, contradictory_filters, filter_shots, rank_shots, sort_shots
+from lc_editor.analysis.shots import (
+    analysis_pass_args,
+    metrics_for_span,
+    parse_astats,
+    parse_scdet,
+    parse_signalstats,
+    segment_shots,
+)
 from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest
 from lc_editor.ids import new_id
 from lc_editor.lint.captions import (
@@ -23,7 +34,10 @@ from lc_editor.models import (
     CAPTION_Y_DEFAULT,
     DEFAULT_CLIP_S,
     DEFAULT_STILL_S,
+    SOURCE_PROXY_H,
+    SOURCE_PROXY_W,
     MUSIC_KINDS,
+    AdjustmentLayer,
     Caption,
     Clip,
     MediaItem,
@@ -61,6 +75,7 @@ from lc_editor.render.jobs import (
     ensure_source_proxy,
     extract_frame_args,
     preview_stills,
+    source_proxy_hash,
     working_media,
 )
 from lc_editor.render.runner import FakeRunner, FfmpegRunner, Runner, find_tool
@@ -461,6 +476,244 @@ class Editor:
         result["cached"] = cached
         return result
 
+    def _proxy_key(self, item: MediaItem) -> str:
+        src = Path(item.path)
+        if not src.exists():
+            src = Path(item.original_path)
+        if src.exists():
+            return source_proxy_hash(src)
+        return item.id
+
+    def _manifest_for(self, item: MediaItem) -> Path:
+        return manifest_path(self._need().analysis_dir, self._proxy_key(item))
+
+    def _extract_keyframe(self, item: MediaItem, dest: Path, seek_s: float) -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        src = Path(item.path)
+        if not src.exists():
+            src = Path(item.original_path)
+        if item.kind == "image":
+            try:
+                from PIL import Image
+
+                image = Image.open(src).convert("RGB")
+                image = image.resize((SOURCE_PROXY_W, SOURCE_PROXY_H))
+                image.save(dest, "JPEG")
+                if dest.exists() and dest.stat().st_size > 0:
+                    return
+            except Exception:
+                pass
+        ff = "ffmpeg" if isinstance(self.runner, FakeRunner) else find_tool("ffmpeg")
+        work = working_media(item)
+        work_src = Path(work.path)
+        kind = "image" if item.kind == "image" or work_src.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} else "video"
+        seek = None if kind == "image" else max(0.0, seek_s)
+        args = extract_frame_args(
+            ff,
+            work_src,
+            dest,
+            kind=kind,
+            seek_s=seek,
+            scale=(SOURCE_PROXY_W, SOURCE_PROXY_H),
+        )
+        self.runner.run(args)
+        if (not dest.exists() or dest.stat().st_size < 100) and isinstance(self.runner, FakeRunner):
+            dest.write_bytes(b"\xff\xd8\xff" + b"\x00" * 120 + b"\xd9")
+
+    def _analyze_one(self, item: MediaItem) -> tuple[int, bool, MediaItem, str | None]:
+        store = self._need()
+        store.analysis_dir.mkdir(parents=True, exist_ok=True)
+        store.keyframes_dir.mkdir(parents=True, exist_ok=True)
+        fresh, _proxy_cached = ensure_source_proxy(self.runner, store, item)
+        dest = manifest_path(store.analysis_dir, self._proxy_key(fresh))
+        if dest.exists() and dest.stat().st_size > 0:
+            return len(load_manifest(dest)), True, fresh, None
+        if fresh.kind == "image":
+            sid = shot_id(self._proxy_key(fresh), 0)
+            keyframe = store.keyframes_dir / f"{sid}.jpg"
+            self._extract_keyframe(fresh, keyframe, 0.0)
+            shot = Shot(
+                id=sid,
+                media_id=fresh.id,
+                in_s=0.0,
+                out_s=DEFAULT_STILL_S,
+                duration_s=DEFAULT_STILL_S,
+                keyframe=str(keyframe.resolve()),
+                metrics=metrics_for_span([], [], 0.0, DEFAULT_STILL_S, keyframe, has_audio=False),
+            )
+            write_manifest(dest, [shot])
+            return 1, False, fresh, None
+        ff = "ffmpeg" if isinstance(self.runner, FakeRunner) else find_tool("ffmpeg")
+        key = self._proxy_key(fresh)
+        args = analysis_pass_args(
+            ff,
+            fresh.proxy_path or fresh.path,
+            has_audio=fresh.has_audio,
+        )
+        ran = self.runner.run(args)
+        if ran.returncode != 0:
+            return 0, False, fresh, f"SPEC-ANA-08: analysis failed for {fresh.id}: {ran.stderr or 'ffmpeg failed'}"
+        text = f"{ran.stderr or ''}\n{ran.stdout or ''}"
+        events = parse_scdet(text)
+        signal = parse_signalstats(text)
+        audio = parse_astats(text) if fresh.has_audio else []
+        spans = segment_shots(events, fresh.duration_s)
+        shots: list[Shot] = []
+        for index, (in_s, out_s) in enumerate(spans):
+            sid = shot_id(key, index)
+            keyframe = store.keyframes_dir / f"{sid}.jpg"
+            self._extract_keyframe(fresh, keyframe, (in_s + out_s) / 2)
+            shots.append(
+                Shot(
+                    id=sid,
+                    media_id=fresh.id,
+                    in_s=in_s,
+                    out_s=out_s,
+                    duration_s=round(out_s - in_s, 4),
+                    keyframe=str(keyframe.resolve()),
+                    metrics=metrics_for_span(
+                        signal,
+                        audio,
+                        in_s,
+                        out_s,
+                        keyframe,
+                        has_audio=fresh.has_audio,
+                    ),
+                )
+            )
+        write_manifest(dest, shots)
+        return len(shots), False, fresh, None
+
+    def media_analyze(self, media_id: str | None = None, op_id: str | None = None) -> dict:
+        store = self._need()
+        replay = store.replay(op_id)
+        if replay is not None:
+            return replay
+        targets = [self._media(media_id)] if media_id else list(self.media)
+        if not targets:
+            result = envelope(True, store.timeline, [])
+            result["shots"] = 0
+            result["cached"] = []
+            if op_id:
+                store.ledger[op_id] = result
+                store.persist()
+            return result
+
+        def run_one(item: MediaItem) -> tuple[int, bool, MediaItem, str | None]:
+            return self._analyze_one(item)
+
+        if isinstance(self.runner, FakeRunner) or len(targets) <= 1:
+            rows = [run_one(item) for item in targets]
+        else:
+            with ThreadPoolExecutor(max_workers=min(4, len(targets))) as pool:
+                rows = list(pool.map(run_one, targets))
+
+        warnings: list[str] = []
+        cached: list[bool] = []
+        total = 0
+        updated: dict[str, MediaItem] = {}
+        failed = False
+        for count, was_cached, fresh, warning in rows:
+            updated[fresh.id] = fresh
+            cached.append(was_cached)
+            total += count
+            if warning:
+                failed = True
+                warnings.append(warning)
+        self.media = [updated.get(item.id, item) for item in self.media]
+        self._save_media()
+        result = envelope(not failed, store.timeline, warnings)
+        result["shots"] = total
+        result["cached"] = cached
+        if op_id:
+            store.ledger[op_id] = result
+            store.persist()
+        return result
+
+    def _load_shots(self, media_id: str | None = None) -> tuple[list[Shot], list[str]]:
+        items = [self._media(media_id)] if media_id else list(self.media)
+        shots: list[Shot] = []
+        warnings: list[str] = []
+        missing = False
+        for item in items:
+            path = self._manifest_for(item)
+            if not path.exists():
+                missing = True
+                continue
+            shots.extend(load_manifest(path))
+        if missing:
+            warnings.append("not analyzed")
+        return shots, warnings
+
+    def shots_list(self, media_id: str | None = None) -> dict:
+        store = self._need()
+        shots, warnings = self._load_shots(media_id)
+        result = envelope(True, store.timeline, warnings)
+        result["shots"] = [shot.model_dump() for shot in shots]
+        return result
+
+    def shots_search(
+        self,
+        media_id: str | None = None,
+        min_duration_s: float | None = None,
+        max_duration_s: float | None = None,
+        min_motion: float | None = None,
+        max_motion: float | None = None,
+        audio_class: str | None = None,
+        kind: str | None = None,
+        sort: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        store = self._need()
+        reason = contradictory_filters(min_duration_s, max_duration_s, min_motion, max_motion)
+        if reason:
+            result = envelope(False, store.timeline, [reason])
+            result["shots"] = []
+            return result
+        shots, warnings = self._load_shots(media_id)
+        kinds = {item.id: item.kind for item in self.media}
+        filtered = filter_shots(
+            shots,
+            min_duration_s=min_duration_s,
+            max_duration_s=max_duration_s,
+            min_motion=min_motion,
+            max_motion=max_motion,
+            audio_class=audio_class,
+            kinds=kinds,
+            kind=kind,
+        )
+        ordered = sort_shots(filtered, sort, [item.id for item in self.media])
+        if limit is not None:
+            ordered = ordered[: max(0, int(limit))]
+        result = envelope(True, store.timeline, warnings)
+        result["shots"] = [shot.model_dump() for shot in ordered]
+        return result
+
+    def shots_rank(
+        self,
+        role: str,
+        top_k: int = 5,
+        media_id: str | None = None,
+        sheet: bool = False,
+    ) -> dict:
+        store = self._need()
+        if role not in ROLES:
+            result = envelope(False, store.timeline, [f"unknown role {role}"])
+            result["shots"] = []
+            return result
+        shots, warnings = self._load_shots(media_id)
+        first = self.media[0].id if self.media else None
+        ranked = rank_shots(shots, role, top_k, first_media_id=first)
+        result = envelope(True, store.timeline, warnings)
+        result["shots"] = [shot.model_dump() for shot in ranked]
+        if sheet:
+            dest = (store.output_dir / f"rank_{role}.jpg").resolve()
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            thumbs = [Path(shot.keyframe) for shot in ranked if shot.keyframe]
+            contact_sheet(self.runner, thumbs, dest)
+            result["path"] = str(dest)
+        return result
+
     # --- edit ---
 
     def timeline_get(self) -> dict:
@@ -577,20 +830,10 @@ class Editor:
         return self._mutate(op_id, lambda tl: set_audio_xfade(tl, ms))
 
     def fx_grain(self, amount: float, op_id: str | None = None) -> dict:
-        store = self._need()
-        if amount < 0 or amount > 1:
-            return envelope(False, store.timeline, ["SPEC-FX: grain must be 0-1"])
-        store.project = store.project.model_copy(update={"grain": amount})
-        store.persist()
-        return envelope(True, store.timeline, [])
+        return self.adjustment_set(grain=amount, op_id=op_id)
 
     def fx_vignette(self, amount: float, op_id: str | None = None) -> dict:
-        store = self._need()
-        if amount < 0 or amount > 1:
-            return envelope(False, store.timeline, ["SPEC-FX: vignette must be 0-1"])
-        store.project = store.project.model_copy(update={"vignette": amount})
-        store.persist()
-        return envelope(True, store.timeline, [])
+        return self.adjustment_set(vignette=amount, op_id=op_id)
 
     def fx_wrap(self, clip_id: str, mode: str = "off", op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_wrap(tl, clip_id, mode))
@@ -830,18 +1073,88 @@ class Editor:
     # --- look ---
 
     def grade_set(self, cube_path_str: str, op_id: str | None = None) -> dict:
-        store = self._need()
-        store.project = store.project.model_copy(update={"cube_path": cube_path_str})
-        store.persist()
-        return envelope(True, store.timeline, [])
+        return self.adjustment_set(cube_path_str=cube_path_str, op_id=op_id)
 
     def grade_preset(self, name: str, op_id: str | None = None) -> dict:
+        return self.adjustment_set(grade=name, op_id=op_id)
+
+    def adjustment_set(
+        self,
+        grade: str | None = None,
+        cube_path_str: str | None = None,
+        grain: float | None = None,
+        vignette: float | None = None,
+        wrap: str | None = None,
+        intensity: float | None = None,
+        eq: dict | None = None,
+        colorbalance: dict | None = None,
+        fade: bool | None = None,
+        end_hold_s: float | None = None,
+        op_id: str | None = None,
+    ) -> dict:
         store = self._need()
-        if name not in ("motovlog", "winter_trip", "neutral"):
+        if grain is not None and (grain < 0 or grain > 1):
+            return envelope(False, store.timeline, ["SPEC-FX: grain must be 0-1"])
+        if vignette is not None and (vignette < 0 or vignette > 1):
+            return envelope(False, store.timeline, ["SPEC-FX: vignette must be 0-1"])
+        if wrap is not None and wrap not in ("off", "soft"):
+            return envelope(False, store.timeline, ["SPEC-ADJ: wrap must be off or soft"])
+        if intensity is not None and (intensity < 0 or intensity > 1):
+            return envelope(False, store.timeline, ["SPEC-ADJ: intensity must be 0-1"])
+        if end_hold_s is not None and end_hold_s < 0:
+            return envelope(False, store.timeline, ["SPEC-ADJ: end_hold_s must be >= 0"])
+        if grade is not None and grade not in ("motovlog", "winter_trip", "neutral"):
             return envelope(False, store.timeline, ["unknown grade preset"])
-        store.project = store.project.model_copy(update={"grade_preset": name, "cube_path": str(cube_path(name))})
+        layer = store.project.adjustment.model_copy()
+        update: dict = {"enabled": True}
+        project_update: dict = {}
+        if grade is not None:
+            resolved_cube = cube_path_str if cube_path_str is not None else str(cube_path(grade))
+            update["grade_preset"] = grade
+            update["cube_path"] = resolved_cube
+            update["eq"] = None
+            update["colorbalance"] = None
+            project_update["grade_preset"] = grade
+            project_update["cube_path"] = resolved_cube
+        elif cube_path_str is not None:
+            update["cube_path"] = cube_path_str
+            project_update["cube_path"] = cube_path_str
+        if grain is not None:
+            update["grain"] = grain
+            project_update["grain"] = grain
+        if vignette is not None:
+            update["vignette"] = vignette
+            project_update["vignette"] = vignette
+        if wrap is not None:
+            update["wrap"] = wrap
+        if intensity is not None:
+            update["intensity"] = intensity
+        if eq is not None:
+            update["eq"] = eq
+        if colorbalance is not None:
+            update["colorbalance"] = colorbalance
+        if fade is not None:
+            update["fade"] = fade
+        if end_hold_s is not None:
+            update["end_hold_s"] = end_hold_s
+        layer = layer.model_copy(update=update)
+        project_update["adjustment"] = layer
+        store.project = store.project.model_copy(update=project_update)
         store.persist()
-        return envelope(True, store.timeline, [])
+        result = envelope(True, store.timeline, [])
+        result["adjustment"] = layer.model_dump()
+        return result
+
+    def adjustment_clear(self, op_id: str | None = None) -> dict:
+        store = self._need()
+        layer = AdjustmentLayer(enabled=False)
+        store.project = store.project.model_copy(
+            update={"adjustment": layer, "grain": 0.0, "vignette": 0.0}
+        )
+        store.persist()
+        result = envelope(True, store.timeline, [])
+        result["adjustment"] = layer.model_dump()
+        return result
 
     def grade_protect(self, clip_id: str, enabled: bool = True, intensity: float | None = None, op_id: str | None = None) -> dict:
         if intensity is not None and intensity not in (1.0, 0.7, 0.4, 0.70, 0.40):

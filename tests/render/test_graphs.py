@@ -59,6 +59,13 @@ def test_spec_rnd_10_hash_ignores_other_clips() -> None:
     assert a == b
 
 
+def test_spec_adj_hash_ignores_look() -> None:
+    clip = Clip(id="c1", media_id="m1")
+    a = clip_hash_payload(clip, [], Project(id="p", name="n", grade_preset="neutral", grain=0.0))
+    b = clip_hash_payload(clip, [], Project(id="p", name="n", grade_preset="motovlog", grain=0.5, vignette=0.3))
+    assert a == b
+
+
 def test_spec_rnd_05_hard_cut_has_no_xfade() -> None:
     clip = Clip(id="c1", media_id="m1")
     media = MediaItem(id="m1", path="x.mp4", original_path="x.mp4", width=1920, height=1080)

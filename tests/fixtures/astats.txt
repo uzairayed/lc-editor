@@ -1,0 +1,14 @@
+frame:0    pts:0       pts_time:0
+lavfi.astats.Overall.RMS_level=-18.5
+lavfi.astats.Overall.Peak_level=-3.2
+lavfi.astats.Overall.Crest_factor=6.4
+
+frame:5    pts:5       pts_time:1.000000
+lavfi.astats.Overall.RMS_level=-16.0
+lavfi.astats.Overall.Crest_factor=5.8
+
+broken RMS_level=abc
+lavfi.astats.Overall.RMS_level=
+frame:10    pts:10      pts_time:2.000000
+lavfi.astats.Overall.RMS_level=-22.0
+lavfi.astats.Overall.Crest_factor=12.0

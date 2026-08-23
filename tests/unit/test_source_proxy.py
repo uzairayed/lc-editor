@@ -48,6 +48,19 @@ def test_preview_proxy_skips_hero_lut_and_denoise(editor: Editor, media_file: Pa
     editor.grade_preset("winter_trip")
     result = editor.preview_proxy()
     assert result["ok"] is True
-    blob = " ".join(" ".join(c) for c in editor.runner.calls)
-    assert "lut3d" not in blob
-    assert "afftdn" not in blob
+    clip_blob = " ".join(
+        " ".join(c) for c in editor.runner.calls if any("/clips/" in a.replace("\\", "/") for a in c)
+    )
+    proxy_blob = " ".join(
+        " ".join(c) for c in editor.runner.calls if any("/proxies/" in a.replace("\\", "/") for a in c)
+    )
+    concat_blob = " ".join(
+        " ".join(c)
+        for c in editor.runner.calls
+        if "-f" in c and c[c.index("-f") + 1] == "concat"
+    )
+    assert "lut3d" not in clip_blob
+    assert "lut3d" not in proxy_blob
+    assert "afftdn" not in clip_blob
+    assert "afftdn" not in concat_blob
+    assert "lut3d" in concat_blob

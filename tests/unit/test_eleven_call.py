@@ -18,6 +18,12 @@ def test_spec_ses_08_eleven_call_session(editor: Editor, tmp_path: Path) -> None
     assert imported["ok"] is True
     assert len(imported["media"]) == 14
 
+    analyzed = editor.media_analyze()
+    assert analyzed["ok"] is True
+    ranked = editor.shots_rank("hook", top_k=5)
+    assert ranked["ok"] is True
+    assert ranked["shots"]
+
     sheet = editor.contact_sheet()
     assert sheet["ok"] is True
 
