@@ -95,24 +95,32 @@ def _float_or_none(raw: str) -> float | None:
         return None
 
 
+def _line_tag_and_body(line: str) -> tuple[str, str]:
+    stripped = line.strip()
+    if stripped.startswith("[") and "]" in stripped:
+        tag, _, rest = stripped.partition("]")
+        return tag[1:].strip(), rest.strip()
+    return "", stripped
+
+
 def _iter_frame_blocks(text: str) -> list[dict]:
     blocks: list[dict] = []
-    current: dict | None = None
+    currents: dict[str, dict] = {}
     for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("frame:"):
-            if current is not None:
-                blocks.append(current)
-            current = {"t": None, "kv": {}}
-            if "pts_time:" in stripped:
-                current["t"] = _float_or_none(stripped.split("pts_time:", 1)[1].split()[0])
+        tag, body = _line_tag_and_body(line)
+        if body.startswith("frame:"):
+            if tag in currents:
+                blocks.append(currents[tag])
+            currents[tag] = {"t": None, "kv": {}}
+            if "pts_time:" in body:
+                currents[tag]["t"] = _float_or_none(body.split("pts_time:", 1)[1].split()[0])
             continue
-        if current is None or "=" not in stripped:
+        current = currents.get(tag)
+        if current is None or "=" not in body:
             continue
-        key, _, value = stripped.partition("=")
+        key, _, value = body.partition("=")
         current["kv"][key.strip()] = value.strip()
-    if current is not None:
-        blocks.append(current)
+    blocks.extend(currents.values())
     return blocks
 
 
@@ -139,7 +147,7 @@ def parse_signalstats(text: str) -> list[dict]:
         ymin = _float_or_none(kv.get("lavfi.signalstats.YMIN", ""))
         ymax = _float_or_none(kv.get("lavfi.signalstats.YMAX", ""))
         t = block["t"]
-        if t is None and yavg is None:
+        if yavg is None and ydif is None:
             continue
         frames.append(
             {
@@ -160,7 +168,7 @@ def parse_astats(text: str) -> list[dict]:
         rms = _float_or_none(kv.get("lavfi.astats.Overall.RMS_level", ""))
         crest = _float_or_none(kv.get("lavfi.astats.Overall.Crest_factor", ""))
         t = block["t"]
-        if t is None and rms is None:
+        if rms is None and crest is None:
             continue
         frames.append(
             {

@@ -66,6 +66,55 @@ def _scene_clip(dest: Path) -> Path:
     return dest
 
 
+def _moving_tone(dest: Path, seconds: float = 4.0) -> Path:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            ffmpeg,
+            "-nostdin",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc2=s=640x360:d={seconds}",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:d={seconds}",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(dest),
+        ]
+    )
+    return dest
+
+
+def _still_jpeg(dest: Path) -> Path:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            ffmpeg,
+            "-nostdin",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=white:s=640x360:d=1",
+            "-frames:v",
+            "1",
+            "-update",
+            "1",
+            str(dest),
+        ]
+    )
+    return dest
+
+
 def _silent_clip(dest: Path) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     _run(
@@ -127,3 +176,46 @@ def test_analyze_silent_lavfi(tmp_path: Path) -> None:
     for shot in editor.shots_list()["shots"]:
         assert shot["metrics"]["audio_class"] == "silent"
         assert shot["metrics"]["audio_rms_db"] is None
+
+
+@skip_no_ffmpeg
+def test_analyze_moving_tone_has_nonzero_metrics(tmp_path: Path) -> None:
+    clip = _moving_tone(tmp_path / "move.mp4")
+    editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
+    editor.import_file(str(clip))
+    result = editor.media_analyze()
+    assert result["ok"] is True, result
+    shots = editor.shots_list()["shots"]
+    assert shots
+    assert any(shot["metrics"]["motion"] > 0 for shot in shots)
+    assert all(shot["metrics"]["audio_class"] != "silent" for shot in shots)
+
+
+@skip_no_ffmpeg
+def test_analyze_still_stays_silent(tmp_path: Path) -> None:
+    still = _still_jpeg(tmp_path / "still.jpg")
+    editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
+    editor.import_file(str(still))
+    result = editor.media_analyze()
+    assert result["ok"] is True, result
+    shot = editor.shots_list()["shots"][0]
+    assert shot["metrics"]["audio_class"] == "silent"
+
+
+@skip_no_ffmpeg
+def test_journey_rank_prefers_moving_video_over_still(tmp_path: Path) -> None:
+    clip = _moving_tone(tmp_path / "move.mp4")
+    still = _still_jpeg(tmp_path / "still.jpg")
+    editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
+    editor.import_file(str(clip))
+    editor.import_file(str(still))
+    analyzed = editor.media_analyze()
+    assert analyzed["ok"] is True, analyzed
+    ranked = editor.shots_rank("journey", top_k=1)
+    assert ranked["ok"] is True
+    winner = ranked["shots"][0]
+    assert winner["media_id"] == editor.media[0].id
+    assert winner["metrics"]["motion"] > 0

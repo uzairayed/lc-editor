@@ -72,3 +72,20 @@ def test_parse_astats_skips_malformed() -> None:
     assert frames[0]["rms_db"] == -18.5
     assert frames[2]["crest"] == 12.0
     assert parse_astats("") == []
+
+
+def test_parse_prefixed_ffmpeg_stderr_matches_plain() -> None:
+    real = (FIXTURES / "metadata_print_real.txt").read_text(encoding="utf-8")
+    assert parse_scdet(real) == [2.0]
+    frames = parse_signalstats(real)
+    assert len(frames) == 4
+    assert frames[0]["t"] == 0.0
+    assert frames[0]["yavg"] == 128.0
+    assert frames[2]["ydif"] == 12.0
+    assert frames[2]["ymin"] == 4.0
+    audio = parse_astats(real)
+    assert len(audio) == 3
+    assert audio[0]["rms_db"] == -18.5
+    assert audio[2]["crest"] == 12.0
+    assert audio[0].get("yavg") is None
+    assert frames[0].get("rms_db") is None

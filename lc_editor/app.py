@@ -556,6 +556,8 @@ class Editor:
         text = f"{ran.stderr or ''}\n{ran.stdout or ''}"
         events = parse_scdet(text)
         signal = parse_signalstats(text)
+        if not signal:
+            return 0, False, fresh, f"SPEC-ANA-08: empty metadata for {fresh.id}"
         audio = parse_astats(text) if fresh.has_audio else []
         spans = segment_shots(events, fresh.duration_s)
         shots: list[Shot] = []

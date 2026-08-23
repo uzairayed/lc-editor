@@ -47,6 +47,7 @@ class FakeRunner:
     fail: bool = False
     scene_cuts: list[float] = field(default_factory=lambda: [2.0])
     fail_inputs: list[str] = field(default_factory=list)
+    empty_metadata: bool = False
 
     def run(self, args: list[str]) -> RunResult:
         self.calls.append(list(args))
@@ -71,7 +72,10 @@ class FakeRunner:
             return RunResult(0, json.dumps(payload), "")
         stderr = ""
         if "scdet" in joined or "metadata=print" in joined:
-            stderr = self._analysis_meta_text(has_audio="-af" in args or "astats" in joined)
+            if self.empty_metadata:
+                stderr = ""
+            else:
+                stderr = self._analysis_meta_text(has_audio="-af" in args or "astats" in joined)
         out = _output_path(args)
         if out:
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -84,18 +88,21 @@ class FakeRunner:
     def _analysis_meta_text(self, *, has_audio: bool) -> str:
         times = sorted({0.0, *self.scene_cuts, float(self.duration_s)})
         lines = []
+        video = "[Parsed_metadata_3 @ 0x1]"
+        audio = "[Parsed_ametadata_5 @ 0x2]"
         for i, t in enumerate(times):
-            lines.append(f"frame:{i}    pts:{i}       pts_time:{t}")
+            lines.append(f"{video} frame:{i}    pts:{i}       pts_time:{t}")
             if t in self.scene_cuts:
-                lines.append(f"lavfi.scd.time={t}")
-                lines.append("lavfi.scd.score=15.0")
-            lines.append("lavfi.signalstats.YAVG=120.0")
-            lines.append("lavfi.signalstats.YDIF=6.0")
-            lines.append("lavfi.signalstats.YMIN=10")
-            lines.append("lavfi.signalstats.YMAX=220")
+                lines.append(f"{video} lavfi.scd.time={t}")
+                lines.append(f"{video} lavfi.scd.score=15.0")
+            lines.append(f"{video} lavfi.signalstats.YAVG=120.0")
+            lines.append(f"{video} lavfi.signalstats.YDIF=6.0")
+            lines.append(f"{video} lavfi.signalstats.YMIN=10")
+            lines.append(f"{video} lavfi.signalstats.YMAX=220")
             if has_audio:
-                lines.append("lavfi.astats.Overall.RMS_level=-16.0")
-                lines.append("lavfi.astats.Overall.Crest_factor=6.0")
+                lines.append(f"{audio} frame:{i}    pts:{i}       pts_time:{t}")
+                lines.append(f"{audio} lavfi.astats.Overall.RMS_level=-16.0")
+                lines.append(f"{audio} lavfi.astats.Overall.Crest_factor=6.0")
         return "\n".join(lines)
 
 

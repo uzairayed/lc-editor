@@ -46,7 +46,7 @@ Video, from the analysis pass plus the keyframe:
 - `audio_rms_db`: mean astats RMS in the shot, or `null` when silent / no audio
 - `audio_class`: from level and crest. `has_audio: false` is always `silent` with `audio_rms_db: null`, never an error.
 
-Malformed metadata lines are skipped. Empty metadata yields zero events (one shot after SPEC-ANA-03).
+Malformed metadata lines are skipped. Empty metadata on a video (zero signalstats frames after parse, including the real ffmpeg `[Parsed_metadata @ ...] frame:` stderr form) fails that file with `SPEC-ANA-08: empty metadata` and writes no manifest. Images are unaffected.
 
 ## SPEC-ANA-05: keyframes
 
