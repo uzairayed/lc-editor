@@ -8,7 +8,7 @@ ASPECT_9_16 = "9:16"
 CANVAS_W = 1080
 CANVAS_H = 1920
 FPS = 30
-DURATION_CAP_S = 45.0
+DURATION_CAP_S = 60.0
 DURATION_SOFT_MAX_S = 28.0
 DURATION_SOFT_MIN_S = 15.0
 LOCKED_STILL_MAX_S = 1.4
@@ -39,6 +39,8 @@ SPEED_MIN = 0.85
 SPEED_MAX = 1.15
 PROXY_W = 540
 PROXY_H = 960
+SOURCE_PROXY_W = 360
+SOURCE_PROXY_H = 640
 PUNCH_FRAMES = 4
 WHIP_FRAMES = 8
 CLOSE_FADE_FRAMES = 4
@@ -151,6 +153,7 @@ class MediaItem(BaseModel):
     has_audio: bool = False
     burst_cover: bool = False
     burst_id: str = ""
+    proxy_path: str = ""
 
 
 class Project(BaseModel):

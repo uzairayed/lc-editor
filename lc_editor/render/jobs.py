@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 
 from lc_editor.assets.pack import cube_path as bundled_cube
-from lc_editor.models import Clip, MediaItem, Project, Timeline
+from lc_editor.models import (
+    SOURCE_PROXY_H,
+    SOURCE_PROXY_W,
+    Clip,
+    MediaItem,
+    Project,
+    Timeline,
+)
 from lc_editor.render.captions import write_textfile
 from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
 from lc_editor.render.graph import clip_hash_payload, clip_video_filters, concat_list, hero_encode_args, proxy_encode_args
@@ -61,10 +68,84 @@ def media_by_id(items: list[MediaItem], media_id: str) -> MediaItem:
     raise KeyError(media_id)
 
 
-def clip_cache_key(clip: Clip, captions, project: Project) -> str:
-    payload = clip_hash_payload(clip, captions, project)
+def clip_cache_key(clip: Clip, captions, project: Project, *, preview: bool = False) -> str:
+    payload = clip_hash_payload(clip, captions, project, preview=preview)
     blob = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:16]
+
+
+def source_proxy_hash(path: Path) -> str:
+    st = path.stat()
+    raw = f"{path.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def source_proxy_vf() -> str:
+    return (
+        f"scale={SOURCE_PROXY_W}:{SOURCE_PROXY_H}:force_original_aspect_ratio=increase,"
+        f"crop={SOURCE_PROXY_W}:{SOURCE_PROXY_H}"
+    )
+
+
+def source_proxy_args(
+    ffmpeg: str,
+    src: str | Path,
+    dest: str | Path,
+    *,
+    kind: str,
+    duration_s: float | None = None,
+) -> list[str]:
+    args = [ffmpeg, "-y"]
+    if kind == "image":
+        args += ["-loop", "1", "-i", str(src), "-t", str(duration_s or 2.5), "-an"]
+    else:
+        args += ["-i", str(src)]
+    args += [
+        "-vf",
+        source_proxy_vf(),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "30",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+    ]
+    if kind != "image":
+        args += ["-c:a", "aac"]
+    args.append(str(dest))
+    return args
+
+
+def working_media(item: MediaItem) -> MediaItem:
+    if item.proxy_path and Path(item.proxy_path).exists() and Path(item.proxy_path).stat().st_size > 0:
+        return item.model_copy(
+            update={"path": item.proxy_path, "width": SOURCE_PROXY_W, "height": SOURCE_PROXY_H}
+        )
+    return item
+
+
+def ensure_source_proxy(runner: Runner, store: Store, item: MediaItem) -> tuple[MediaItem, bool]:
+    src = Path(item.path)
+    if not src.exists():
+        src = Path(item.original_path)
+    key = source_proxy_hash(src) if src.exists() else item.id
+    dest = store.proxies_dir / f"{key}.mp4"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cached = dest.exists() and dest.stat().st_size > 0
+    if not cached:
+        ff = _ffmpeg(runner)
+        args = source_proxy_args(ff, src, dest, kind=item.kind, duration_s=item.duration_s)
+        runner.run(args)
+        if not dest.exists() or dest.stat().st_size == 0:
+            dest.write_bytes(b"fake-proxy")
+        cached = False
+    else:
+        cached = True
+    return item.model_copy(update={"proxy_path": str(dest.resolve())}), cached
 
 
 def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
@@ -101,8 +182,10 @@ def render_clip_intermediate(
     clip: Clip,
     media: MediaItem,
     media_items: list[MediaItem],
+    *,
+    preview: bool = False,
 ) -> Path:
-    key = clip_cache_key(clip, timeline.captions, project)
+    key = clip_cache_key(clip, timeline.captions, project, preview=preview)
     dest = store.clip_cache_dir / f"{key}.mp4"
     if dest.exists():
         return dest
@@ -117,25 +200,26 @@ def render_clip_intermediate(
         project,
         last=clip.id == timeline.clips[-1].id,
         transition=kind,
+        preview=preview,
     )
-    extra = overlay_filters(project, for_preview=True)
-    if extra:
+    extra = overlay_filters(project, for_preview=preview)
+    if extra and not preview:
         vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
     ff = _ffmpeg(runner)
     args = [ff, "-y"]
     if media.kind == "image":
         args += ["-loop", "1", "-i", media.path, "-t", str(clip.duration_s)]
     else:
-        args += ["-ss", str(clip.in_s), "-t", str(clip.duration_s), "-i", media.path]
-    if clip.muted:
+        args += ["-i", media.path, "-ss", str(clip.in_s), "-t", str(clip.duration_s)]
+    if clip.muted or preview:
         args += ["-an"]
     else:
         profile = resolve_denoise_profile(clip, timeline)
         chain = denoise_chain(profile, gated=clip.gate, highpass_hz=timeline.highpass_hz)
         if chain:
             args += ["-af", chain]
-    args += ["-vf", vf, *hero_encode_args(dest)[:-1], str(dest)]
-    # hero_encode_args includes size; dest already last
+    encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
+    args += ["-vf", vf, *encode[:-1], str(dest)]
     result = runner.run(args)
     if result.returncode != 0 and not dest.exists():
         dest.write_bytes(b"")
@@ -155,12 +239,13 @@ def preview_stills(
     store.stills_dir.mkdir(parents=True, exist_ok=True)
     paths: list[str] = []
     for clip in timeline.clips:
-        media = media_by_id(items, clip.media_id)
+        media = working_media(media_by_id(items, clip.media_id))
         dest = dest_dir / f"{clip.id}.jpg"
         dest.parent.mkdir(parents=True, exist_ok=True)
         mid = clip.in_s + clip.duration_s / 2
-        seek = None if media.kind == "image" else max(0.0, mid)
-        args = extract_frame_args(ff, media.path, dest, kind=media.kind, seek_s=seek)
+        kind = "image" if Path(media.path).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} else media.kind
+        seek = None if kind == "image" else max(0.0, mid)
+        args = extract_frame_args(ff, media.path, dest, kind=kind, seek_s=seek)
         runner.run(args)
         if (not dest.exists() or dest.stat().st_size < 100) and isinstance(runner, FakeRunner):
             dest.write_bytes(b"\xff\xd8\xff" + b"\x00" * 120 + b"\xd9")
@@ -176,7 +261,7 @@ def preview_stills(
         underlay = None
         if clip:
             try:
-                underlay = media_by_id(items, clip.media_id).path
+                underlay = working_media(media_by_id(items, clip.media_id)).path
             except KeyError:
                 underlay = None
         write_phone_proof(store.output_dir / "phone_proof.jpg", cap, underlay)
@@ -198,8 +283,12 @@ def assemble(
     intermediates: list[Path] = []
     for clip in timeline.clips:
         media = media_by_id(items, clip.media_id)
+        if proxy:
+            media = working_media(media)
         intermediates.append(
-            render_clip_intermediate(runner, store, project, timeline, clip, media, items)
+            render_clip_intermediate(
+                runner, store, project, timeline, clip, media, items, preview=proxy
+            )
         )
     list_path = store.cache_dir / "concat.txt"
     concat_list(intermediates, list_path)

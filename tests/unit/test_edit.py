@@ -108,13 +108,13 @@ def test_spec_edit_13_close_fade_last_only(editor: Editor, media_file: Path) -> 
 def test_spec_edit_14_duration_cap(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
     mid = editor.media[-1].id
-    for _ in range(22):
+    for _ in range(30):
         editor.clip_add(media_id=mid, duration_s=2.0)
-    assert editor.timeline_get()["timeline_summary"]["duration_s"] == 44.0
+    assert editor.timeline_get()["timeline_summary"]["duration_s"] == 60.0
     rejected = editor.clip_add(media_id=mid, duration_s=2.0)
     assert rejected["ok"] is False
     assert any("SPEC-EDIT-14" in w for w in rejected["warnings"])
-    assert editor.timeline_get()["timeline_summary"]["duration_s"] == 44.0
+    assert editor.timeline_get()["timeline_summary"]["duration_s"] == 60.0
 
 
 def test_spec_edit_15_soft_warning_over_28(editor: Editor, media_file: Path) -> None:

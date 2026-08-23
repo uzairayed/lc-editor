@@ -13,7 +13,7 @@ from lc_editor.models import (
 def reject_duration(timeline: Timeline) -> str | None:
     dur = timeline_duration(timeline)
     if dur > DURATION_CAP_S + 1e-9:
-        return f"SPEC-EDIT-14: duration {dur:.2f}s exceeds cap 45.00s"
+        return f"SPEC-EDIT-14: duration {dur:.2f}s exceeds cap {DURATION_CAP_S:.2f}s"
     return None
 
 

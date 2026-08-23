@@ -35,7 +35,8 @@ Pixel bursts named `PXL_*BURST*` are an exception: see SPEC-SES-06.
 - `probe` returns ffprobe-derived width, height, duration, fps, has_audio
 - `thumbnail` writes a JPEG
 - `contact_sheet` writes a tiled JPEG of imported media
-- `proxy_build` builds a per-media low-res proxy
+- `proxy_build` / `media_proxy` writes a cached 360x640 source proxy (H.264 + AAC). No LUT, captions, or denoise. A second call with the same bytes is a no-op.
+- `preview_proxy`, `preview_stills`, and `caption_lint` read the source proxy. `export` conforms the same in/out onto the originals.
 
 ## SPEC-SES-06: burst-COVER
 

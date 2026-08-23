@@ -16,6 +16,7 @@ TOOLS = [
     "thumbnail",
     "contact_sheet",
     "proxy_build",
+    "media_proxy",
     "timeline_get",
     "timeline_reset",
     "clip_add",

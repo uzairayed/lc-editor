@@ -15,7 +15,7 @@ Hero export is:
 
 ## SPEC-EXPORT-02: proxy budget
 
-Preview / export proxy is 540x960, `-preset veryfast`, `-crf 30`. Size target **8 to 14 MB** for a reel up to 45s. Builder must use these encode args (integration asserts args and, when ffmpeg is present, file existence).
+The timeline preview encode is 540x960, `-preset veryfast`, `-crf 30`. Edit/lint reads a cached **360x640** source proxy (no LUT, no denoise). Hero export stays 1080x1920.
 
 ## SPEC-EXPORT-03: export is gated
 
@@ -32,9 +32,9 @@ Preview / export proxy is 540x960, `-preset veryfast`, `-crf 30`. Size target **
 - a caption hold is shorter than required
 - `allow_music` is true
 - any SFX is less than 6 dB under the bed
-- duration exceeds 45.00s
+- duration exceeds 60.00s
 
-A duration between 28s and 45s is a warning, not a failure.
+A duration between 28s and 60s is a warning, not a failure.
 
 ## SPEC-EXPORT-05: export writes two files
 

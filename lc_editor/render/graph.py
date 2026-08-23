@@ -9,6 +9,15 @@ from lc_editor.render.paths import ffmpeg_path
 from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter, whip_filter
 
 
+def preview_video_filters(clip: Clip, media: MediaItem) -> str:
+    from lc_editor.models import PROXY_H, PROXY_W
+
+    return (
+        f"scale={PROXY_W}:{PROXY_H}:force_original_aspect_ratio=increase,"
+        f"crop={PROXY_W}:{PROXY_H}"
+    )
+
+
 def clip_video_filters(
     clip: Clip,
     media: MediaItem,
@@ -17,7 +26,10 @@ def clip_video_filters(
     *,
     last: bool = False,
     transition: str | None = None,
+    preview: bool = False,
 ) -> str:
+    if preview:
+        return preview_video_filters(clip, media)
     frames = max(1, int(round(clip.duration_s * FPS)))
     parts = [crop_9_16(clip, media.width or CANVAS_W, media.height or CANVAS_H)]
     if clip.motion != "none":
@@ -101,8 +113,8 @@ def concat_list(paths: list[Path], list_path: Path) -> Path:
     return list_path
 
 
-def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project) -> dict:
-    return {
+def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, preview: bool = False) -> dict:
+    payload = {
         "media_id": clip.media_id,
         "in_s": clip.in_s,
         "out_s": clip.out_s,
@@ -115,7 +127,9 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project) -> 
         "kenburns_amount": clip.kenburns_amount,
         "look": [project.grain, project.vignette],
         "captions": [(c.text, c.y_pct, c.role, c.enter) for c in captions if c.clip_id == clip.id],
+        "preview": preview,
     }
+    return payload
 
 
 def whip_graph() -> str:
