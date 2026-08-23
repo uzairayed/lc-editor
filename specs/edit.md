@@ -138,3 +138,7 @@ Snapshots store `schema_version`. Missing or `1` loads as v1 and is migrated on 
 ## SPEC-EDIT-22: effects
 
 `effect_add(target, name, params?)` attaches a registry effect to a clip (`target=clip_id`) or layer (`target=layer_id`). Legal names: `blur`, `sharpen`, `glow`, `grain`, `vignette`, `lut`, `color`. Raw ffmpeg filter strings are rejected. `effect_update` / `effect_remove` edit the instance.
+
+## SPEC-EDIT-23: layouts
+
+`layout_add(kind, panes)` appends one clip that shows two or more sources at once. The clip stays on the gapless primary track. Kinds, pane counts, review, and render live in `specs/layouts.md`. `clip_split` on a layout is `ok: false`.

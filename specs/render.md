@@ -90,6 +90,10 @@ Do not put denoise on the adjustment layer.
 
 `assemble` compiles one filtergraph: normalize each primary clip, apply two-input whip at those boundaries, concat the rest, overlay `layers` by `z`, draw text (captions and text layers), then the adjustment layer, then one encode. Proxy and hero share the same graph at different resolution and CRF. Music, bed, SFX, ducking, and limiter live on the audio graph.
 
+## SPEC-RND-18: layout composite
+
+A clip with `layout` is rendered as one intermediate: each pane cover-crops into its cell, then `vstack` / `hstack` builds 1080x1920. Motion, captions, and clip-local filters run on that composite. Assemble then treats the file as an ordinary clip (SPEC-RND-15). `preview_stills` stacks the pane midpoints into one JPEG.
+
 ## SPEC-RND-16: effect registry
 
 Effects compile through `lc_editor.render.effects`. Each name has typed params, bounds, and compatible kinds. Unknown names and raw filter strings are `ok: false`.

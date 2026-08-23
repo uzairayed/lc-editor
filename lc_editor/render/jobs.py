@@ -12,6 +12,7 @@ from lc_editor.models import (
     MediaItem,
     Project,
     Timeline,
+    is_layout_clip,
     timeline_duration,
 )
 from lc_editor.render.captions import write_textfile
@@ -19,6 +20,7 @@ from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denois
 from lc_editor.assets.pack import sfx_path
 from lc_editor.render.audio import bed_asset_name
 from lc_editor.render.compositor import assemble_fingerprint, build_assemble_command
+from lc_editor.render.layouts import layout_filter_complex
 from lc_editor.render.graph import (
     adjustment_filters,
     clip_hash_payload,
@@ -57,6 +59,21 @@ def extract_frame_args(
             f"scale={scale[0]}:{scale[1]}:force_original_aspect_ratio=decrease",
         ]
     args += ["-frames:v", "1", "-update", "1", str(dest)]
+    return args
+
+
+def layout_still_args(ffmpeg: str, clip: Clip, items: list[MediaItem], dest: Path) -> list[str]:
+    pane_items = _pane_items(clip, items, preview=True)
+    args = [ffmpeg, "-y"]
+    for pane, item in zip(clip.panes, pane_items, strict=True):
+        image = item.kind == "image" or Path(item.path).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        if image:
+            args += ["-i", item.path]
+        else:
+            mid = pane.in_s + clip.duration_s / 2
+            args += ["-ss", str(max(0.0, mid)), "-i", item.path]
+    graph = layout_filter_complex(clip, pane_items, still_frame=True)
+    args += ["-filter_complex", graph, "-map", "[laid]", "-frames:v", "1", "-update", "1", str(dest)]
     return args
 
 
@@ -195,6 +212,24 @@ def overlay_filters(project: Project, for_preview: bool) -> list[str]:
     return filters
 
 
+def _pane_items(clip: Clip, media_items: list[MediaItem], *, preview: bool) -> list[MediaItem]:
+    by_id = {item.id: item for item in media_items}
+    items: list[MediaItem] = []
+    for pane in clip.panes:
+        item = by_id[pane.media_id]
+        if preview and item.kind != "audio":
+            item = working_media(item)
+        items.append(item)
+    return items
+
+
+def _append_image_or_video(args: list[str], path: str, *, image: bool, in_s: float, duration_s: float) -> None:
+    if image:
+        args += ["-loop", "1", "-t", str(duration_s), "-i", path]
+    else:
+        args += ["-ss", str(in_s), "-t", str(duration_s), "-i", path]
+
+
 def render_clip_intermediate(
     runner: Runner,
     store: Store,
@@ -213,6 +248,22 @@ def render_clip_intermediate(
     bound = {layer.caption_id for layer in timeline.layers if layer.caption_id}
     caps = [c for c in timeline.captions if c.clip_id == clip.id and c.id not in bound]
     kind = timeline.transitions.get(clip.id)
+    extra = overlay_filters(project, for_preview=preview)
+    ff = _ffmpeg(runner)
+    if is_layout_clip(clip):
+        return _render_layout_intermediate(
+            runner,
+            dest,
+            project,
+            timeline,
+            clip,
+            media,
+            media_items,
+            caps,
+            kind,
+            extra,
+            preview=preview,
+        )
     vf = clip_video_filters(
         clip,
         media,
@@ -222,10 +273,8 @@ def render_clip_intermediate(
         transition=kind,
         preview=preview,
     )
-    extra = overlay_filters(project, for_preview=preview)
     if extra and not preview:
         vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
-    ff = _ffmpeg(runner)
     args = [ff, "-y"]
     if media.kind == "image":
         args += ["-loop", "1", "-i", media.path, "-t", str(clip.duration_s)]
@@ -260,6 +309,68 @@ def render_clip_intermediate(
     return dest
 
 
+def _render_layout_intermediate(
+    runner: Runner,
+    dest: Path,
+    project: Project,
+    timeline: Timeline,
+    clip: Clip,
+    media: MediaItem,
+    media_items: list[MediaItem],
+    caps,
+    kind: str | None,
+    extra: list[str],
+    *,
+    preview: bool,
+) -> Path:
+    pane_items = _pane_items(clip, media_items, preview=preview)
+    ff = _ffmpeg(runner)
+    args = [ff, "-y"]
+    for pane, item in zip(clip.panes, pane_items, strict=True):
+        image = item.kind == "image" or Path(item.path).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
+        _append_image_or_video(args, item.path, image=image, in_s=pane.in_s, duration_s=clip.duration_s)
+    post = clip_video_filters(
+        clip,
+        media,
+        caps,
+        project,
+        last=clip.id == timeline.clips[-1].id,
+        transition=kind,
+        preview=preview,
+        composed=True,
+    )
+    if extra and not preview:
+        post = f"{post},{','.join(extra)}" if post else ",".join(extra)
+    graph = layout_filter_complex(clip, pane_items)
+    graph += f";[laid]{post}[vout]" if post else ";[laid]copy[vout]"
+    audio_idx = None
+    if preview:
+        args += ["-an"]
+    elif clip.muted or media.kind == "image" or not media.has_audio:
+        args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+        audio_idx = len(clip.panes)
+    encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
+    args += ["-filter_complex", graph, "-map", "[vout]"]
+    if audio_idx is not None:
+        args += [
+            "-map",
+            f"{audio_idx}:a",
+            "-af",
+            f"atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS",
+            "-shortest",
+        ]
+    elif not preview:
+        profile = resolve_denoise_profile(clip, timeline)
+        chain = denoise_chain(profile, gated=clip.gate, highpass_hz=timeline.highpass_hz)
+        pad = f"apad,atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS"
+        args += ["-map", "0:a", "-af", f"{chain},{pad}" if chain else pad]
+    args += [*encode[:-1], str(dest)]
+    result = runner.run(args)
+    if result.returncode != 0 and not dest.exists():
+        dest.write_bytes(b"")
+    return dest
+
+
 def preview_stills(
     runner: Runner,
     store: Store,
@@ -273,14 +384,18 @@ def preview_stills(
     store.stills_dir.mkdir(parents=True, exist_ok=True)
     paths: list[str] = []
     for clip in timeline.clips:
-        media = working_media(media_by_id(items, clip.media_id))
         dest = dest_dir / f"{clip.id}.jpg"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        mid = clip.in_s + clip.duration_s / 2
-        kind = "image" if Path(media.path).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} else media.kind
-        seek = None if kind == "image" else max(0.0, mid)
-        args = extract_frame_args(ff, media.path, dest, kind=kind, seek_s=seek)
-        runner.run(args)
+        if is_layout_clip(clip):
+            args = layout_still_args(ff, clip, items, dest)
+            runner.run(args)
+        else:
+            media = working_media(media_by_id(items, clip.media_id))
+            mid = clip.in_s + clip.duration_s / 2
+            kind = "image" if Path(media.path).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"} else media.kind
+            seek = None if kind == "image" else max(0.0, mid)
+            args = extract_frame_args(ff, media.path, dest, kind=kind, seek_s=seek)
+            runner.run(args)
         if (not dest.exists() or dest.stat().st_size < 100) and isinstance(runner, FakeRunner):
             dest.write_bytes(b"\xff\xd8\xff" + b"\x00" * 120 + b"\xd9")
         cache = store.stills_dir / dest.name

@@ -46,6 +46,7 @@ from lc_editor.models import (
     EffectInstance,
     Keyframe,
     LayerItem,
+    LayoutPane,
     MediaItem,
     MusicTrack,
     Project,
@@ -55,6 +56,16 @@ from lc_editor.models import (
     envelope,
     recompute_starts,
     timeline_duration,
+)
+from lc_editor.ops.layouts import (
+    add_layout,
+    build_layout_clip,
+    clear_layout,
+    parse_panes,
+    resolve_layout_duration,
+    set_layout_pane,
+    update_layout,
+    validate_layout,
 )
 from lc_editor.ops.layers import (
     add_effect,
@@ -413,7 +424,9 @@ class Editor:
 
     def media_remove(self, media_id: str, op_id: str | None = None) -> dict:
         store = self._need()
-        used = [c.id for c in store.timeline.clips if c.media_id == media_id]
+        from lc_editor.models import clip_media_ids
+
+        used = [c.id for c in store.timeline.clips if media_id in clip_media_ids(c)]
         used += [layer.id for layer in store.timeline.layers if layer.media_id == media_id]
         used += [track.id for track in store.timeline.music if track.media_id == media_id]
         if used:
@@ -843,6 +856,95 @@ class Editor:
 
     def clip_mute(self, clip_id: str, muted: bool = True, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: mute_clip(tl, clip_id, muted))
+
+    def layout_list(self) -> dict:
+        store = self._need()
+        result = envelope(True, store.timeline, [])
+        result["layouts"] = [
+            {"kind": "stack_v", "panes": 2, "shape": "top/bottom"},
+            {"kind": "stack_h", "panes": 2, "shape": "left/right"},
+            {"kind": "stack_v3", "panes": 3, "shape": "three rows"},
+            {"kind": "grid_2x2", "panes": 4, "shape": "quadrants"},
+        ]
+        return result
+
+    def layout_add(
+        self,
+        kind: str,
+        panes: list[dict] | str,
+        duration_s: float | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        """Append one layout clip. kind is stack_v, stack_h, stack_v3, or grid_2x2. panes is [{media_id, in_s?, focus_x?, focus_y?}]."""
+        try:
+            parsed = parse_panes(panes)
+            validate_layout(kind, parsed)
+            items = [self._media(pane.media_id) for pane in parsed]
+            dur = resolve_layout_duration(parsed, items, duration_s)
+        except Reject as exc:
+            return envelope(False, self._need().timeline, [str(exc)])
+
+        def apply(tl: Timeline) -> Timeline:
+            clip = build_layout_clip(new_id("c"), kind, parsed, items, dur)
+            return add_layout(tl, clip)
+
+        return self._mutate(op_id, apply)
+
+    def layout_update(
+        self,
+        clip_id: str,
+        kind: str | None = None,
+        panes: list[dict] | str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        """Change a layout clip's kind or replace its panes."""
+        try:
+            parsed = parse_panes(panes) if panes is not None else None
+            if kind is not None:
+                clip = self._clip(clip_id)
+                validate_layout(kind, parsed if parsed is not None else clip.panes)
+            if parsed is not None:
+                for pane in parsed:
+                    self._media(pane.media_id)
+        except Reject as exc:
+            return envelope(False, self._need().timeline, [str(exc)])
+        return self._mutate(op_id, lambda tl: update_layout(tl, clip_id, kind=kind, panes=parsed))
+
+    def layout_pane(
+        self,
+        clip_id: str,
+        index: int,
+        media_id: str | None = None,
+        in_s: float | None = None,
+        focus_x: float | None = None,
+        focus_y: float | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        """Edit one pane of a layout clip."""
+        clip = self._clip(clip_id)
+        if not clip.layout or index < 0 or index >= len(clip.panes):
+            return envelope(False, self._need().timeline, [f"SPEC-LAYO-03: pane index {index} is out of range"])
+        current = clip.panes[index]
+        next_media = media_id or current.media_id
+        try:
+            self._media(next_media)
+            pane = LayoutPane(
+                media_id=next_media,
+                in_s=current.in_s if in_s is None else in_s,
+                focus_x=current.focus_x if focus_x is None else focus_x,
+                focus_y=current.focus_y if focus_y is None else focus_y,
+            )
+            if not (0.0 <= pane.focus_x <= 1.0 and 0.0 <= pane.focus_y <= 1.0):
+                raise Reject("SPEC-LAYO-03: focus must be in [0, 1]")
+            if pane.in_s < 0:
+                raise Reject("SPEC-LAYO-03: in_s must be >= 0")
+        except Reject as exc:
+            return envelope(False, self._need().timeline, [str(exc)])
+        return self._mutate(op_id, lambda tl: set_layout_pane(tl, clip_id, index, pane, clip.duration_s))
+
+    def layout_clear(self, clip_id: str, op_id: str | None = None) -> dict:
+        """Turn a layout clip into a full-frame clip of pane 0."""
+        return self._mutate(op_id, lambda tl: clear_layout(tl, clip_id))
 
     def motion_kenburns(self, clip_id: str, amount: float | None = None, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "kenburns", amount))
@@ -1314,6 +1416,8 @@ class Editor:
                     "duration_s": clip.duration_s,
                     "motion": clip.motion,
                     "crop": {"focus_x": clip.focus_x, "focus_y": clip.focus_y},
+                    "layout": clip.layout,
+                    "panes": [pane.model_dump() for pane in clip.panes],
                 }
                 for clip in store.timeline.clips
             ],

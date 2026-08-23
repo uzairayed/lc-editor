@@ -5,6 +5,7 @@ from math import ceil
 from lc_editor.lint.captions import density_warnings, timeline_caption_issues
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.layers import layer_issues
+from lc_editor.lint.layouts import layout_issues
 from lc_editor.lint.mix import mix_issues
 from lc_editor.models import (
     BEAT_CONFIDENCE_WARN,
@@ -116,6 +117,7 @@ def review_blockers(
     errors.extend(locked_still_issues(timeline))
     errors.extend(music_issues(timeline, project))
     errors.extend(layer_issues(timeline, media))
+    errors.extend(layout_issues(timeline, media))
     errors.extend(decorated_transition_issues(timeline))
     errors.extend(wipe_graph_issues(timeline))
     errors.extend(acknowledge_errors(timeline, media, allow_dense=allow_dense))

@@ -11,6 +11,24 @@ from lc_editor.models import (
 )
 
 
+def crop_cover(src_w: int, src_h: int, dest_w: int, dest_h: int, focus_x: float, focus_y: float) -> str:
+    target_ratio = dest_w / dest_h if dest_h else 1.0
+    src_ratio = src_w / src_h if src_h else target_ratio
+    if src_ratio > target_ratio:
+        crop_h = src_h
+        crop_w = int(src_h * target_ratio)
+    else:
+        crop_w = src_w
+        crop_h = int(src_w / target_ratio)
+    crop_w = max(2, crop_w - crop_w % 2)
+    crop_h = max(2, crop_h - crop_h % 2)
+    dest_w = max(2, dest_w - dest_w % 2)
+    dest_h = max(2, dest_h - dest_h % 2)
+    x = int(max(0, min(src_w - crop_w, focus_x * src_w - crop_w / 2)))
+    y = int(max(0, min(src_h - crop_h, focus_y * src_h - crop_h / 2)))
+    return f"crop={crop_w}:{crop_h}:{x}:{y},scale={dest_w}:{dest_h}"
+
+
 def crop_9_16(clip: Clip, src_w: int, src_h: int) -> str:
     target_ratio = CANVAS_W / CANVAS_H
     src_ratio = src_w / src_h if src_h else target_ratio

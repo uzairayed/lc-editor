@@ -7,6 +7,7 @@ from lc_editor.models import (
     Clip,
     MediaItem,
     Timeline,
+    is_layout_clip,
     recompute_starts,
 )
 
@@ -55,7 +56,11 @@ def trim_clip(timeline: Timeline, clip_id: str, in_s: float, out_s: float, sourc
     clip = timeline.clips[i]
     duration = round(out_s - in_s, 4)
     clips = list(timeline.clips)
-    clips[i] = clip.model_copy(update={"in_s": in_s, "out_s": out_s, "duration_s": duration})
+    update = {"in_s": in_s, "out_s": out_s, "duration_s": duration}
+    if is_layout_clip(clip) and clip.panes:
+        pane0 = clip.panes[0].model_copy(update={"in_s": in_s})
+        update["panes"] = [pane0, *clip.panes[1:]]
+    clips[i] = clip.model_copy(update=update)
     return recompute_starts(timeline.model_copy(update={"clips": clips}))
 
 
@@ -75,6 +80,8 @@ def ripple_trim_clip(timeline: Timeline, clip_id: str, edge: str, delta_s: float
 def split_clip(timeline: Timeline, clip_id: str, at_s: float, new_id: str) -> Timeline:
     i = _clip_index(timeline, clip_id)
     clip = timeline.clips[i]
+    if is_layout_clip(clip):
+        raise Reject("SPEC-LAYO-06: split is not legal on a layout clip")
     if at_s <= 0 or at_s >= clip.duration_s:
         raise Reject("SPEC-EDIT-07: split must be inside the clip")
     first_out = round(clip.in_s + at_s, 4)
@@ -120,7 +127,12 @@ def refocus_clip(timeline: Timeline, clip_id: str, x: float, y: float) -> Timeli
         raise Reject("SPEC-EDIT-10: focus must be in [0, 1]")
     i = _clip_index(timeline, clip_id)
     clips = list(timeline.clips)
-    clips[i] = clips[i].model_copy(update={"focus_x": x, "focus_y": y})
+    clip = clips[i]
+    update = {"focus_x": x, "focus_y": y}
+    if is_layout_clip(clip) and clip.panes:
+        pane0 = clip.panes[0].model_copy(update={"focus_x": x, "focus_y": y})
+        update["panes"] = [pane0, *clip.panes[1:]]
+    clips[i] = clip.model_copy(update=update)
     return timeline.model_copy(update={"clips": clips})
 
 

@@ -51,6 +51,8 @@ def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
                 "effects": [e.model_dump() for e in c.effects],
                 "protect": c.protect,
                 "grade_intensity": c.grade_intensity,
+                "layout": c.layout,
+                "panes": [pane.model_dump() for pane in c.panes],
             }
             for c in timeline.clips
         ],

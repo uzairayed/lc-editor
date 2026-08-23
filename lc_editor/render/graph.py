@@ -30,13 +30,18 @@ def clip_video_filters(
     last: bool = False,
     transition: str | None = None,
     preview: bool = False,
+    composed: bool = False,
 ) -> str:
     if preview:
         return preview_video_filters(clip, media)
     frames = max(1, int(round(clip.duration_s * FPS)))
-    parts = [crop_9_16(clip, media.width or CANVAS_W, media.height or CANVAS_H)]
+    parts: list[str] = []
+    if not composed:
+        parts.append(crop_9_16(clip, media.width or CANVAS_W, media.height or CANVAS_H))
     if clip.motion != "none":
         parts.append(motion_chain(clip, frames))
+    elif composed:
+        parts.append(f"scale={CANVAS_W}:{CANVAS_H}")
     for cap in captions:
         if cap.textfile:
             parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap)))
@@ -123,6 +128,8 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "wrap": clip.wrap,
         "kenburns_amount": clip.kenburns_amount,
         "effects": [e.model_dump() for e in clip.effects],
+        "layout": clip.layout,
+        "panes": [pane.model_dump() for pane in clip.panes],
         "captions": [(c.text, c.y_pct, c.role, c.enter) for c in captions if c.clip_id == clip.id],
         "preview": preview,
     }

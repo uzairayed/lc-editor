@@ -37,6 +37,7 @@ PHONE_PROOF_H = 480
 CaptionEnter = Literal["none", "fade", "punch"]
 TextMotion = Literal["none", "fade", "pop", "slide", "type_on"]
 LayerKind = Literal["video", "image", "text"]
+LayoutKind = Literal["stack_v", "stack_h", "stack_v3", "grid_2x2"]
 EaseKind = Literal["linear", "smoothstep"]
 EffectName = Literal["blur", "sharpen", "glow", "grain", "vignette", "lut", "color"]
 BeatSubdivision = Literal["1", "1/2", "1/4"]
@@ -87,6 +88,8 @@ MEDIA_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 MEDIA_AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".aiff"}
 MUSIC_KINDS = {"music", "melody", "drum", "drum_loop", "score", "cinematic", "ambient_music"}
 LEGAL_EFFECTS = ("blur", "sharpen", "glow", "grain", "vignette", "lut", "color")
+LEGAL_LAYOUTS = ("stack_v", "stack_h", "stack_v3", "grid_2x2")
+LAYOUT_PANE_COUNT = {"stack_v": 2, "stack_h": 2, "stack_v3": 3, "grid_2x2": 4}
 BEAT_CONFIDENCE_WARN = 0.45
 MUSIC_HOT_DB = -3.0
 
@@ -172,6 +175,13 @@ class BeatGrid(BaseModel):
     source: Literal["auto", "manual"] = "auto"
 
 
+class LayoutPane(BaseModel):
+    media_id: str
+    in_s: float = 0.0
+    focus_x: float = 0.5
+    focus_y: float = 0.5
+
+
 class Clip(BaseModel):
     id: str
     media_id: str
@@ -193,6 +203,18 @@ class Clip(BaseModel):
     wrap: Literal["off", "soft"] = "off"
     kenburns_amount: float = KENBURNS_ZOOM
     effects: list[EffectInstance] = Field(default_factory=list)
+    layout: LayoutKind | None = None
+    panes: list[LayoutPane] = Field(default_factory=list)
+
+
+def is_layout_clip(clip: Clip) -> bool:
+    return bool(clip.layout and clip.panes)
+
+
+def clip_media_ids(clip: Clip) -> list[str]:
+    if is_layout_clip(clip):
+        return [pane.media_id for pane in clip.panes]
+    return [clip.media_id]
 
 
 class Caption(BaseModel):
