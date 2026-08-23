@@ -115,3 +115,15 @@ An imported still becomes a clip with a duration (default 2.50s) and motion `ken
 ## SPEC-EDIT-19: timeline_get is one call
 
 `timeline_get` returns the full JSON timeline in one response, plus `timeline_summary`.
+
+## SPEC-EDIT-20: timeline schema v2
+
+Snapshots store `schema_version`. Missing or `1` loads as v1 and is migrated on read to v2 (layers, music, beat_grid, template_id). The primary `clips` list stays gapless (SPEC-EDIT-01). Overlay video, image, and text live in `layers` with absolute `start_s` / `duration_s` and integer `z`. Existing clip and caption tools keep working.
+
+## SPEC-EDIT-21: layers
+
+`layer_add(kind, start_s, duration_s, media_id?|text?, z?, transform?, style?)` appends a timed overlay. `kind` is `video`, `image`, or `text`. Text layers follow SPEC-CAP (no box, hold, safe zone). `layer_update`, `layer_remove`, `layer_reorder` (z-order), `layer_transform`, and `layer_keyframe` mutate one item. Overlapping layers composite by ascending `z`.
+
+## SPEC-EDIT-22: effects
+
+`effect_add(target, name, params?)` attaches a registry effect to a clip (`target=clip_id`) or layer (`target=layer_id`). Legal names: `blur`, `sharpen`, `glow`, `grain`, `vignette`, `lut`, `color`. Raw ffmpeg filter strings are rejected. `effect_update` / `effect_remove` edit the instance.

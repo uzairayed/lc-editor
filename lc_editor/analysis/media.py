@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from lc_editor.models import FPS, MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT
+from lc_editor.models import FPS, MEDIA_AUDIO_EXT, MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT
 
 PXL_BURST = re.compile(r"^(PXL_.+?)[\._-]BURST", re.IGNORECASE)
 
@@ -36,13 +36,16 @@ def parse_probe(payload: str, fallback_kind: str) -> dict:
         if float(den) != 0:
             fps = float(num) / float(den)
     duration = float(fmt.get("duration") or 0.0)
+    kind = fallback_kind
+    if fallback_kind == "audio" or (not video and audio):
+        kind = "audio"
     return {
         "width": int(video.get("width") or 0),
         "height": int(video.get("height") or 0),
         "duration_s": duration,
         "fps": fps,
-        "has_audio": audio is not None,
-        "kind": fallback_kind,
+        "has_audio": audio is not None or kind == "audio",
+        "kind": kind,
     }
 
 
@@ -52,6 +55,8 @@ def kind_for(path: Path) -> str | None:
         return "video"
     if ext in MEDIA_IMAGE_EXT:
         return "image"
+    if ext in MEDIA_AUDIO_EXT:
+        return "audio"
     return None
 
 

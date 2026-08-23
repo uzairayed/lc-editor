@@ -2,8 +2,17 @@ from __future__ import annotations
 
 from lc_editor.lint.captions import density_warnings, timeline_caption_issues
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
+from lc_editor.lint.layers import layer_issues
 from lc_editor.lint.mix import mix_issues
-from lc_editor.models import LOCKED_STILL_MAX_S, MUSIC_KINDS, MediaItem, Project, Timeline, decorated_transition_count
+from lc_editor.models import (
+    BEAT_CONFIDENCE_WARN,
+    LOCKED_STILL_MAX_S,
+    MUSIC_KINDS,
+    MediaItem,
+    Project,
+    Timeline,
+    decorated_transition_count,
+)
 from lc_editor.render.transitions import banned_transition, graph_has_wipe, transition_video
 
 
@@ -19,8 +28,9 @@ def locked_still_issues(timeline: Timeline) -> list[str]:
 
 def music_issues(timeline: Timeline, project: Project | None) -> list[str]:
     errors: list[str] = []
-    if project is not None and project.allow_music:
-        errors.append("SPEC-CRAFT-01: allow_music is true")
+    allow = bool(project and project.allow_music)
+    if timeline.music and not allow:
+        errors.append("SPEC-CRAFT-01: music is on the timeline while allow_music is false")
     if timeline.bed_kind in MUSIC_KINDS:
         errors.append(f"SPEC-CRAFT-01: musical bed {timeline.bed_kind}")
     for sfx in timeline.sfx:
@@ -55,6 +65,7 @@ def review_blockers(
     errors.extend(mix_issues(timeline))
     errors.extend(locked_still_issues(timeline))
     errors.extend(music_issues(timeline, project))
+    errors.extend(layer_issues(timeline, media))
     errors.extend(decorated_transition_issues(timeline))
     errors.extend(wipe_graph_issues(timeline))
     cap = reject_duration(timeline)
@@ -78,4 +89,11 @@ def review_warnings(timeline: Timeline, project: Project | None = None) -> list[
     warns = [w for w in invariant_warnings(timeline) if "locked still" not in w]
     warns.extend(outdoor_denoise_warnings(timeline))
     warns.extend(density_warnings(timeline, project))
+    if timeline.music:
+        if any(not track.source_name.strip() for track in timeline.music):
+            warns.append("SPEC-SND-14: music is present without source attribution")
+        if any(track.gain_db > -3.0 for track in timeline.music):
+            warns.append("SPEC-SND-14: music gain is hotter than -3 dB")
+    if timeline.beat_grid and timeline.beat_grid.confidence < BEAT_CONFIDENCE_WARN:
+        warns.append(f"SPEC-SND-12: beat grid confidence {timeline.beat_grid.confidence:.2f} is low")
     return warns

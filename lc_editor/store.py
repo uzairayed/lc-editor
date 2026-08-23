@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 
+from lc_editor.migrate import migrate_timeline_data
 from lc_editor.models import Project, Timeline
 
 
@@ -29,6 +30,8 @@ class Store:
         self.stills_dir = self.cache_dir / "stills"
         self.analysis_dir = self.cache_dir / "analysis"
         self.keyframes_dir = self.analysis_dir / "keyframes"
+        self.beats_dir = self.analysis_dir / "beats"
+        self.templates_dir = root / "templates"
         self.project_path = root / "project.json"
         self.state_path = root / "state.json"
         self.pointer = 0
@@ -51,6 +54,8 @@ class Store:
             self.stills_dir,
             self.analysis_dir,
             self.keyframes_dir,
+            self.beats_dir,
+            self.templates_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 
@@ -84,8 +89,8 @@ class Store:
         self.pointer = int(state["pointer"])
         self.max_pointer = int(state["max_pointer"])
         self.ledger = dict(state.get("ledger") or {})
-        self.timeline = Timeline.model_validate_json(
-            self.snapshot_path(self.pointer).read_text(encoding="utf-8")
+        self.timeline = migrate_timeline_data(
+            json.loads(self.snapshot_path(self.pointer).read_text(encoding="utf-8"))
         )
 
     def init_project(self, project: Project) -> None:
@@ -122,8 +127,8 @@ class Store:
         if self.pointer <= 0:
             return False
         self.pointer -= 1
-        self.timeline = Timeline.model_validate_json(
-            self.snapshot_path(self.pointer).read_text(encoding="utf-8")
+        self.timeline = migrate_timeline_data(
+            json.loads(self.snapshot_path(self.pointer).read_text(encoding="utf-8"))
         )
         self.persist()
         return True
@@ -132,8 +137,8 @@ class Store:
         if self.pointer >= self.max_pointer:
             return False
         self.pointer += 1
-        self.timeline = Timeline.model_validate_json(
-            self.snapshot_path(self.pointer).read_text(encoding="utf-8")
+        self.timeline = migrate_timeline_data(
+            json.loads(self.snapshot_path(self.pointer).read_text(encoding="utf-8"))
         )
         self.persist()
         return True

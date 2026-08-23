@@ -47,12 +47,23 @@ def test_review_fails_hold_too_short(editor: Editor, media_file: Path) -> None:
     assert any("SPEC-CAP-02" in w for w in result["warnings"])
 
 
-def test_review_fails_music_flag(editor: Editor, media_file: Path) -> None:
+def test_review_fails_music_without_opt_in(editor: Editor, media_file: Path) -> None:
+    from lc_editor.models import MusicTrack
+
     _video_clip(editor, media_file)
-    editor.store.project = editor.store.project.model_copy(update={"allow_music": True})
+    editor.store.timeline = editor.store.timeline.model_copy(
+        update={"music": [MusicTrack(id="mu1", media_id="missing", duration_s=4.0, source_name="track.mp3")]}
+    )
     result = editor.review_report()
     assert result["ok"] is False
     assert any("SPEC-CRAFT-01" in w for w in result["warnings"])
+
+
+def test_review_allows_opt_in_without_track(editor: Editor, media_file: Path) -> None:
+    _video_clip(editor, media_file)
+    editor.store.project = editor.store.project.model_copy(update={"allow_music": True})
+    result = editor.review_report()
+    assert result["ok"] is True
 
 
 def test_review_fails_sfx_above_bed(editor: Editor, media_file: Path) -> None:

@@ -82,8 +82,21 @@ Look is a filter on the already-cut timeline: one encode for grade / grain / vig
 - In/out, motion, punch, whip, flash, match
 - Captions (timing is per shot)
 - Wind denoise / highpass / gate (needs the source before concat)
+- Per-clip registry effects (`blur`, `sharpen`, `glow`)
 
 Do not put denoise on the adjustment layer.
+
+## SPEC-RND-15: compositor
+
+`assemble` compiles one filtergraph: normalize each primary clip, apply two-input whip at those boundaries, concat the rest, overlay `layers` by `z`, draw text (captions and text layers), then the adjustment layer, then one encode. Proxy and hero share the same graph at different resolution and CRF. Music, bed, SFX, ducking, and limiter live on the audio graph.
+
+## SPEC-RND-16: effect registry
+
+Effects compile through `lc_editor.render.effects`. Each name has typed params, bounds, and compatible kinds. Unknown names and raw filter strings are `ok: false`.
+
+## SPEC-RND-17: cache fingerprint
+
+Per-clip cache keys stay clip-local (SPEC-RND-10). The assembled output fingerprint includes clip hashes, transition kinds and neighbors, layer/effect/music ids, template id, and the adjustment layer. Changing a whip neighbor invalidates the assemble cache.
 
 ### Shape
 

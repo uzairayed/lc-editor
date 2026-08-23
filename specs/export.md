@@ -30,9 +30,12 @@ The timeline preview encode is 540x960, `-preset veryfast`, `-crf 30`. Edit/lint
 - a still has `motion=none` and duration greater than 1.40s
 - a caption center is outside 22-50%
 - a caption hold is shorter than required
-- `allow_music` is true
+- music is on the timeline while `allow_music` is false
 - any SFX is less than 6 dB under the bed
 - duration exceeds 60.00s
+- a layer is missing its media or text, or sits fully off-canvas
+- an effect name is not in the registry
+- a caption box or banned transition is present
 
 A duration between 28s and 60s is a warning, not a failure.
 
@@ -46,4 +49,4 @@ A successful `export` writes the hero reel and a proxy alongside it. Both apply 
 
 ## SPEC-EXPORT-07: sidecar
 
-A successful `export` writes `reel.json` next to the hero. The sidecar lists shots (source, in, out, duration, motion, crop), captions, SFX (kind, at, gain), total duration, grade, preset, timeline version, and the hero/proxy paths. Replay of the same `op_id` returns the same sidecar path.
+A successful `export` writes `reel.json` next to the hero. The sidecar lists shots (source, in, out, duration, motion, crop), captions, layers, SFX (kind, at, gain), music (source name, gain, in/out), beat-grid BPM if present, total duration, grade, preset, template id, timeline version, and the hero/proxy paths. Replay of the same `op_id` returns the same sidecar path.
