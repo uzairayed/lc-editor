@@ -2,9 +2,9 @@
 
 These rules belong to the editor. They apply to every project, including Murree. Series branding is not here.
 
-## SPEC-CRAFT-01: no music
+## SPEC-CRAFT-01: sound policy belongs to the owner
 
-`allow_music` is always false. Music, melody, drum loop, score, and cinematic beds are `ok: false`.
+Music is an owner preference, not an engine opinion. An agent driving this editor must ask the project owner what they want for sound instead of assuming. This version ships no music pipeline, so `allow_music` is always false and music, melody, drum loop, score, and cinematic beds are `ok: false`; an owner who wants music needs a future version that adds one.
 
 ## SPEC-CRAFT-02: no caption box
 
@@ -28,7 +28,7 @@ SFX must sit at least 6 dB under the bed (bed treated as 0 dB when none is set).
 
 ## SPEC-CRAFT-08: outdoor audio is denoised
 
-Ride wind is not a highpass-only problem. Outdoor audio uses SPEC-SND-10. Still no music.
+Ride wind is not a highpass-only problem. Outdoor audio uses SPEC-SND-10. SPEC-CRAFT-01 still applies.
 
 ## SPEC-CRAFT-07: series is a preset
 
