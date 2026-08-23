@@ -217,13 +217,27 @@ def render_clip_intermediate(
         args += ["-loop", "1", "-i", media.path, "-t", str(clip.duration_s)]
     else:
         args += ["-i", media.path, "-ss", str(clip.in_s), "-t", str(clip.duration_s)]
-    if clip.muted or preview:
+    if preview:
         args += ["-an"]
+    elif clip.muted or media.kind == "image" or not media.has_audio:
+        args += [
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=48000:cl=stereo",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-af",
+            f"atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS",
+            "-shortest",
+        ]
     else:
         profile = resolve_denoise_profile(clip, timeline)
         chain = denoise_chain(profile, gated=clip.gate, highpass_hz=timeline.highpass_hz)
-        if chain:
-            args += ["-af", chain]
+        pad = f"apad,atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS"
+        args += ["-af", f"{chain},{pad}" if chain else pad]
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
     args += ["-vf", vf, *encode[:-1], str(dest)]
     result = runner.run(args)
@@ -312,11 +326,88 @@ def assemble(
     cmd = args
     if vf:
         cmd = cmd + ["-vf", vf]
-    runner.run(cmd + ["-af", limiter_filter()] + encode)
+    dur = timeline_duration(timeline)
+    if proxy:
+        runner.run(cmd + encode)
+    else:
+        runner.run(cmd + ["-af", f"apad,{limiter_filter()}", "-t", f"{dur:.4f}"] + encode)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if not dest.exists():
         dest.write_bytes(b"")
     return dest
+
+
+def verify_hero_av(runner: Runner, hero: Path) -> dict:
+    if isinstance(runner, FakeRunner) or not hero.exists() or hero.stat().st_size < 32:
+        return {"ok": True, "skipped": True}
+    try:
+        probe = find_tool("ffprobe")
+        ff = find_tool("ffmpeg")
+    except FileNotFoundError:
+        return {"ok": True, "skipped": True}
+    probed = runner.run(
+        [
+            probe,
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,duration",
+            "-of",
+            "json",
+            str(hero),
+        ]
+    )
+    video_s = audio_s = None
+    try:
+        payload = json.loads(probed.stdout or "{}")
+        for stream in payload.get("streams") or []:
+            kind = stream.get("codec_type")
+            dur = stream.get("duration")
+            if dur is None:
+                continue
+            if kind == "video":
+                video_s = float(dur)
+            elif kind == "audio":
+                audio_s = float(dur)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {"ok": False, "warning": "SPEC-SND-12: could not probe hero streams"}
+    if video_s is None or audio_s is None:
+        return {"ok": False, "warning": "SPEC-SND-12: hero is missing a video or audio stream", "video_s": video_s, "audio_s": audio_s}
+    if abs(video_s - audio_s) > 0.05:
+        return {
+            "ok": False,
+            "warning": f"SPEC-SND-12: |audio_dur - video_dur| {abs(video_s - audio_s):.3f}s > 50ms",
+            "video_s": video_s,
+            "audio_s": audio_s,
+        }
+    stats = runner.run(
+        [ff, "-y", "-i", str(hero), "-af", "astats=metadata=1:reset=0", "-vn", "-f", "null", "-"]
+    )
+    text = f"{stats.stderr or ''}\n{stats.stdout or ''}"
+    peak = None
+    count = None
+    for line in text.splitlines():
+        if "Peak_level=" in line:
+            raw = line.split("Peak_level=", 1)[1].strip().split()[0]
+            try:
+                peak = float(raw)
+            except ValueError:
+                pass
+        if "Peak_count=" in line:
+            raw = line.split("Peak_count=", 1)[1].strip().split()[0]
+            try:
+                count = float(raw)
+            except ValueError:
+                pass
+    if peak is not None and peak >= -0.01 and count is not None and count > 480:
+        return {
+            "ok": False,
+            "warning": "SPEC-SND-12: full-scale clip longer than 10ms",
+            "video_s": video_s,
+            "audio_s": audio_s,
+            "peak_db": peak,
+        }
+    return {"ok": True, "video_s": video_s, "audio_s": audio_s, "peak_db": peak}
 
 
 def contact_sheet(runner: Runner, thumbs: list[Path], dest: Path) -> Path:

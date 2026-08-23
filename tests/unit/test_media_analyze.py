@@ -17,6 +17,17 @@ def _manifest(editor: Editor, media_id: str | None = None) -> Path:
     return editor.store.analysis_dir / f"{key}.json"
 
 
+def test_media_analyze_empty_metadata_fails_video(editor: Editor, media_file: Path) -> None:
+    editor.import_file(str(media_file))
+    editor.runner.empty_metadata = True
+    version = editor.timeline_get()["timeline_summary"]["version"]
+    result = editor.media_analyze()
+    assert result["ok"] is False
+    assert any("empty metadata" in w for w in result["warnings"])
+    assert result["timeline_summary"]["version"] == version
+    assert not _manifest(editor).exists()
+
+
 def test_media_analyze_empty_project(editor: Editor) -> None:
     version = editor.timeline_get()["timeline_summary"]["version"]
     result = editor.media_analyze()

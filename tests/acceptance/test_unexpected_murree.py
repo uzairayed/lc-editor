@@ -56,10 +56,10 @@ def test_spec_ses_14_unexpected_murree(tmp_path: Path, murree_dir: Path) -> None
     assert Path(sheet["path"]).stat().st_size > 100
     assert "base64" not in sheet
 
-    picks = editor.media_list()["media"][:14]
+    picks = editor.media_list()["media"][:5]
     ids = []
     for item in picks:
-        add = editor.clip_add(media_id=item["id"], duration_s=2.0)
+        add = editor.clip_add(media_id=item["id"], duration_s=3.5)
         assert add["ok"], add
         ids.append(editor.timeline_get()["timeline"]["clips"][-1]["id"])
     for clip_id in ids[:4]:

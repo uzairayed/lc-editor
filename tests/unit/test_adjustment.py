@@ -7,7 +7,7 @@ from lc_editor.models import Caption, Clip, MediaItem, Project
 from lc_editor.render.graph import adjustment_filters, clip_hash_payload, clip_video_filters
 
 
-def _add(editor: Editor, media_file: Path, duration_s: float = 2.0) -> str:
+def _add(editor: Editor, media_file: Path, duration_s: float = 2.4) -> str:
     editor.import_file(str(media_file))
     editor.clip_add(media_id=editor.media[-1].id, duration_s=duration_s)
     return editor.timeline_get()["timeline"]["clips"][-1]["id"]
@@ -120,7 +120,7 @@ def test_adjustment_clear_drops_look_filters() -> None:
 
 def test_look_change_reuses_clip_cache(editor: Editor, media_file: Path) -> None:
     _add(editor, media_file)
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.0)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.4)
     editor.review_report()
     first = editor.export()
     assert first["ok"] is True

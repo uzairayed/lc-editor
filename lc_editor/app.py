@@ -32,8 +32,8 @@ from lc_editor.lint.review import review_blockers, review_warnings
 from lc_editor.presets import load_preset
 from lc_editor.models import (
     CAPTION_Y_DEFAULT,
-    DEFAULT_CLIP_S,
     DEFAULT_STILL_S,
+    SHOT_ACK_MIN_S,
     SOURCE_PROXY_H,
     SOURCE_PROXY_W,
     MUSIC_KINDS,
@@ -76,6 +76,7 @@ from lc_editor.render.jobs import (
     extract_frame_args,
     preview_stills,
     source_proxy_hash,
+    verify_hero_av,
     working_media,
 )
 from lc_editor.render.runner import FakeRunner, FfmpegRunner, Runner, find_tool
@@ -556,6 +557,8 @@ class Editor:
         text = f"{ran.stderr or ''}\n{ran.stdout or ''}"
         events = parse_scdet(text)
         signal = parse_signalstats(text)
+        if not signal:
+            return 0, False, fresh, f"SPEC-ANA-08: empty metadata for {fresh.id}"
         audio = parse_astats(text) if fresh.has_audio else []
         spans = segment_shots(events, fresh.duration_s)
         shots: list[Shot] = []
@@ -702,8 +705,20 @@ class Editor:
             result["shots"] = []
             return result
         shots, warnings = self._load_shots(media_id)
+        kinds = {item.id: item.kind for item in self.media}
+        floor_ok = [
+            shot
+            for shot in shots
+            if kinds.get(shot.media_id) != "video" or shot.duration_s + 1e-6 >= SHOT_ACK_MIN_S
+        ]
+        if floor_ok:
+            pool = floor_ok
+        else:
+            pool = shots
+            if shots:
+                warnings.append("SPEC-EDIT-ACK-01: no shots meet the acknowledge floor")
         first = self.media[0].id if self.media else None
-        ranked = rank_shots(shots, role, top_k, first_media_id=first)
+        ranked = rank_shots(pool, role, top_k, first_media_id=first)
         result = envelope(True, store.timeline, warnings)
         result["shots"] = [shot.model_dump() for shot in ranked]
         if sheet:
@@ -735,7 +750,8 @@ class Editor:
     ) -> dict:
         item = self._media(media_id)
         is_still = item.kind == "image"
-        default_dur = DEFAULT_STILL_S if is_still else min(DEFAULT_CLIP_S, item.duration_s or DEFAULT_CLIP_S)
+        video_default = min(SHOT_ACK_MIN_S, item.duration_s or SHOT_ACK_MIN_S)
+        default_dur = DEFAULT_STILL_S if is_still else video_default
         start_in = 0.0 if in_s is None else in_s
         if out_s is None:
             end = start_in + (duration_s or default_dur)
@@ -1206,10 +1222,16 @@ class Editor:
         result["path"] = str(dest)
         return result
 
-    def review_report(self) -> dict:
+    def review_report(self, allow_dense: bool = False) -> dict:
         store = self._need()
-        errors = review_blockers(store.timeline, store.project, media=self._lint_media())
-        warns = review_warnings(store.timeline, store.project)
+        errors = review_blockers(
+            store.timeline,
+            store.project,
+            media=self.media,
+            allow_dense=allow_dense,
+            lint_media=self._lint_media(),
+        )
+        warns = review_warnings(store.timeline, store.project, media=self.media)
         dur = timeline_duration(store.timeline)
         ok = len(errors) == 0
         if ok:
@@ -1267,13 +1289,17 @@ class Editor:
             "captions": [c.model_dump() for c in store.timeline.captions],
             "sfx": [{"kind": s.kind, "at_s": s.at_s, "gain_db": s.gain_db} for s in store.timeline.sfx],
         }
+        verify = verify_hero_av(self.runner, hero)
+        payload["verify"] = verify
         from lc_editor.store import atomic_write
 
         atomic_write(sidecar, json.dumps(payload, indent=2))
-        result = envelope(True, store.timeline, [])
+        warnings = [] if verify.get("ok", True) else [verify.get("warning") or "SPEC-SND-12: hero audio failed verification"]
+        result = envelope(verify.get("ok", True), store.timeline, warnings)
         result["hero"] = str(hero.resolve())
         result["proxy"] = str(proxy.resolve())
         result["sidecar"] = str(sidecar.resolve())
+        result["verify"] = verify
         if op_id:
             store.ledger[op_id] = result
             store.persist()

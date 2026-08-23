@@ -1,0 +1,35 @@
+[Parsed_metadata_3 @ 000001ce] frame:0    pts:0       pts_time:0
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YAVG=128.0
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YDIF=1.2
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMIN=10
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMAX=240
+[Parsed_ametadata_5 @ 000001cf] frame:0    pts:0       pts_time:0
+[Parsed_ametadata_5 @ 000001cf] lavfi.astats.Overall.RMS_level=-18.5
+[Parsed_ametadata_5 @ 000001cf] lavfi.astats.Overall.Peak_level=-3.2
+[Parsed_ametadata_5 @ 000001cf] lavfi.astats.Overall.Crest_factor=6.4
+[Parsed_metadata_3 @ 000001ce] frame:5    pts:5       pts_time:1.000000
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YAVG=110.5
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YDIF=4.0
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMIN=8
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMAX=220
+[Parsed_ametadata_5 @ 000001cf] frame:5    pts:5       pts_time:1.000000
+[Parsed_ametadata_5 @ 000001cf] lavfi.astats.Overall.RMS_level=-16.0
+[Parsed_ametadata_5 @ 000001cf] lavfi.astats.Overall.Crest_factor=5.8
+[Parsed_metadata_3 @ 000001ce] frame:10    pts:10      pts_time:2.000000
+[Parsed_metadata_3 @ 000001ce] lavfi.scd.time=2.000000
+[Parsed_metadata_3 @ 000001ce] lavfi.scd.score=18.4
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YAVG=90.0
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YDIF=12.0
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMIN=4
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMAX=200
+[Parsed_ametadata_5 @ 000001cf] frame:10    pts:10      pts_time:2.000000
+[Parsed_ametadata_5 @ 000001cf] lavfi.astats.Overall.RMS_level=-22.0
+[Parsed_ametadata_5 @ 000001cf] lavfi.astats.Overall.Crest_factor=12.0
+this line is garbage
+[Parsed_metadata_3 @ 000001ce] lavfi.scd.time=not-a-number
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YAVG=
+[Parsed_metadata_3 @ 000001ce] frame:15    pts:15      pts_time:3.000000
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YAVG=95.0
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YDIF=3.5
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMIN=12
+[Parsed_metadata_3 @ 000001ce] lavfi.signalstats.YMAX=210

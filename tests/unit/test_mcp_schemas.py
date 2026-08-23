@@ -59,6 +59,8 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "role" in rank
     assert "top_k" in rank
     assert "kwargs" not in rank
+    review = schemas["review_report"].get("properties") or {}
+    assert "allow_dense" in review
 
 
 def test_spec_ses_11_python_311_ok() -> None:
