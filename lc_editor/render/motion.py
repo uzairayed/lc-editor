@@ -30,7 +30,11 @@ def kenburns_filter(frames: int, amount: float = KENBURNS_ZOOM) -> str:
     delta = amount - 1.0
     # smoothstep t*t*(3-2*t) on on/n
     z = f"1+{delta}*(3*pow(on/{n},2)-2*pow(on/{n},3))"
+    # zoompan rounds pan offsets to whole pixels per frame; at native res the
+    # rounding wobbles the image ("swimming"). Upscaling 4x first makes each
+    # rounding step a quarter-pixel after the downscale to canvas size.
     return (
+        f"scale={CANVAS_W * 4}:{CANVAS_H * 4},"
         f"zoompan=z='{z}':"
         f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
         f"d={n}:s={CANVAS_W}x{CANVAS_H}:fps={FPS}"

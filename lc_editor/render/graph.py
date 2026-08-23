@@ -58,9 +58,17 @@ def clip_video_filters(
 
 
 def hero_encode_args(output: Path) -> list[str]:
+    # CRF 18 + tune grain: temporal grain noise boils into wavy macroblocks
+    # at x264 defaults, especially across the two-pass intermediate+concat encode.
     return [
         "-c:v",
         "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-tune",
+        "grain",
         "-pix_fmt",
         "yuv420p",
         "-r",
@@ -162,13 +170,14 @@ def adjustment_filters(project: Project, *, duration_s: float = 0.0) -> str:
                 parts.append(lut)
             else:
                 parts.append(f"{lut},hue=s={mix}")
-    if layer.grain > 0:
-        strength = max(1, int(round(layer.grain * 8)))
-        parts.append(f"noise=alls={strength}:allf=t")
-    if layer.vignette > 0:
-        parts.append(f"vignette=angle=PI/5*{layer.vignette}:mode=forward")
+    # Sharpen before adding grain so unsharp does not amplify per-frame noise flicker.
     if layer.wrap == "soft":
         parts.append("unsharp=5:5:0.8:5:5:0.0")
+    if layer.grain > 0:
+        strength = max(1, int(round(layer.grain * 4)))
+        parts.append(f"noise=alls={strength}:allf=t+u")
+    if layer.vignette > 0:
+        parts.append(f"vignette=angle=PI/5*{layer.vignette}:mode=forward")
     if layer.fade and duration_s > 0:
         frames = max(1, int(round(duration_s * FPS)))
         parts.append(close_fade_filter(frames))
