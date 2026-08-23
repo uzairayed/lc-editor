@@ -55,7 +55,14 @@ from lc_editor.ops.timeline import (
     split_clip,
     trim_clip,
 )
-from lc_editor.render.jobs import assemble, contact_sheet, extract_frame_args, preview_stills
+from lc_editor.render.jobs import (
+    assemble,
+    contact_sheet,
+    ensure_source_proxy,
+    extract_frame_args,
+    preview_stills,
+    working_media,
+)
 from lc_editor.render.runner import FakeRunner, FfmpegRunner, Runner, find_tool
 from lc_editor.render.transitions import banned_transition
 from lc_editor.store import Store
@@ -299,6 +306,7 @@ class Editor:
             has_audio=info["has_audio"],
             burst_id=burst_id,
         )
+        item, _cached = ensure_source_proxy(self.runner, store, item)
         self.media.append(item)
         return item
 
@@ -380,6 +388,29 @@ class Editor:
         result["probe"] = info
         return result
 
+    def _lint_media(self) -> list:
+        store = self._need()
+        ff = "ffmpeg" if isinstance(self.runner, FakeRunner) else find_tool("ffmpeg")
+        out = []
+        for item in self.media:
+            work = working_media(item)
+            src = Path(work.path)
+            if src.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                out.append(work.model_copy(update={"path": str(src), "kind": "image"}))
+                continue
+            still = store.stills_dir / f"{item.id}_lint.jpg"
+            still.parent.mkdir(parents=True, exist_ok=True)
+            if not still.exists() or still.stat().st_size < 200:
+                self.runner.run(extract_frame_args(ff, src, still, kind="video", seek_s=0.1))
+            if (not still.exists() or still.stat().st_size < 200) and item.kind == "image":
+                out.append(item.model_copy(update={"path": item.path, "kind": "image"}))
+                continue
+            if still.exists() and still.stat().st_size >= 200:
+                out.append(work.model_copy(update={"path": str(still), "kind": "image"}))
+            else:
+                out.append(work)
+        return out
+
     def thumbnail(self, media_id: str) -> dict:
         store = self._need()
         item = self._media(media_id)
@@ -409,35 +440,25 @@ class Editor:
         return result
 
     def proxy_build(self, media_id: str | None = None) -> dict:
+        return self.media_proxy(media_id=media_id)
+
+    def media_proxy(self, media_id: str | None = None, op_id: str | None = None) -> dict:
         store = self._need()
         targets = [self._media(media_id)] if media_id else list(self.media)
-        ff = "ffmpeg" if isinstance(self.runner, FakeRunner) else find_tool("ffmpeg")
         paths = []
-        from lc_editor.models import PROXY_H, PROXY_W
-
+        cached = []
+        updated = []
         for item in targets:
-            dest = store.proxies_dir / f"{item.id}.mp4"
-            self.runner.run(
-                [
-                    ff,
-                    "-y",
-                    "-i",
-                    item.path,
-                    "-vf",
-                    f"scale={PROXY_W}:{PROXY_H}",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "30",
-                    str(dest),
-                ]
-            )
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            if not dest.exists():
-                dest.write_bytes(b"fake")
-            paths.append(str(dest))
+            fresh, was_cached = ensure_source_proxy(self.runner, store, item)
+            updated.append(fresh)
+            paths.append(fresh.proxy_path)
+            cached.append(was_cached)
+        by_id = {m.id: m for m in updated}
+        self.media = [by_id.get(m.id, m) for m in self.media]
+        self._save_media()
         result = envelope(True, store.timeline, [])
         result["paths"] = paths
+        result["cached"] = cached
         return result
 
     # --- edit ---
@@ -669,10 +690,11 @@ class Editor:
 
     def caption_lint(self) -> dict:
         store = self._need()
-        errors = timeline_caption_issues(store.timeline, media=self.media, project=store.project)
+        lint_media = self._lint_media()
+        errors = timeline_caption_issues(store.timeline, media=lint_media, project=store.project)
         warns = density_warnings(store.timeline, store.project)
         cards = []
-        media_map = {m.id: m for m in self.media}
+        media_map = {m.id: m for m in lint_media}
         clips = {c.id: c for c in store.timeline.clips}
         proof_path = None
         proof_issues: list[str] = []
@@ -873,7 +895,7 @@ class Editor:
 
     def review_report(self) -> dict:
         store = self._need()
-        errors = review_blockers(store.timeline, store.project, media=self.media)
+        errors = review_blockers(store.timeline, store.project, media=self._lint_media())
         warns = review_warnings(store.timeline, store.project)
         dur = timeline_duration(store.timeline)
         ok = len(errors) == 0

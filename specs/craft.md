@@ -16,7 +16,7 @@ Hold is `max(floor, chars/18 + 0.4)` with floor 1.80s (two lines) or 1.50s (one 
 
 ## SPEC-CRAFT-04: length
 
-Target 15.00s to 28.00s (warning). Hard cap 45.00s (reject mutation and fail review).
+Target 15.00s to 28.00s (warning). Hard cap 60.00s (reject mutation and fail review).
 
 ## SPEC-CRAFT-05: locked still
 

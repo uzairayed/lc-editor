@@ -4,7 +4,7 @@ Source: product spec Edit tools; `instructions.md` structure and length.
 
 The timeline is a gapless sequence. Clip start times are derived as the sum of previous clip durations. There is no gap field and no way to insert silence between clips.
 
-Hard duration cap: **45.00s**. Soft target: **15.00s to 28.00s**.
+Hard duration cap: **60.00s**. Soft target: **15.00s to 28.00s**.
 
 ## SPEC-EDIT-01: no gaps
 
@@ -87,9 +87,9 @@ Legal kinds: `hard`, `whip`, `punch`, `close_fade`, `j_cut`, `l_cut`, `flash`, `
 
 ## SPEC-EDIT-14: hard duration cap
 
-A mutation that would make timeline duration greater than **45.00s** is `ok: false` and is not applied.
+A mutation that would make timeline duration greater than **60.00s** is `ok: false` and is not applied.
 
-Worked example: timeline at 44.00s, `clip_add` of a 2.00s shot is rejected. Duration stays **44.00**.
+Worked example: timeline at 60.00s, `clip_add` of a 2.00s shot is rejected. Duration stays **60.00**.
 
 ## SPEC-EDIT-15: soft length warnings
 

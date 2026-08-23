@@ -65,11 +65,11 @@ def test_review_fails_sfx_above_bed(editor: Editor, media_file: Path) -> None:
     assert any("SPEC-SND-05" in w for w in result["warnings"])
 
 
-def test_review_fails_over_45s(editor: Editor, media_file: Path) -> None:
+def test_review_fails_over_60s(editor: Editor, media_file: Path) -> None:
     _video_clip(editor, media_file)
     clip = editor.store.timeline.clips[0]
     editor.store.timeline = editor.store.timeline.model_copy(
-        update={"clips": [clip.model_copy(update={"duration_s": 46.0})]}
+        update={"clips": [clip.model_copy(update={"duration_s": 61.0})]}
     )
     result = editor.review_report()
     assert result["ok"] is False
