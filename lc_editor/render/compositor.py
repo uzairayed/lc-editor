@@ -126,6 +126,7 @@ def build_assemble_command(
     bed_file: Path | None,
     hero: bool,
     preprocessed: bool = False,
+    loudnorm: bool = True,
 ) -> list[str]:
     media = media_map(items)
     args = [ffmpeg, "-y"]
@@ -222,7 +223,9 @@ def build_assemble_command(
     natural_labels = []
     for clip in timeline.clips:
         item = media[clip.media_id]
-        if clip.muted or item.kind == "image" or not item.has_audio:
+        if not item.has_audio:
+            continue
+        if not preprocessed and (clip.muted or item.kind == "image"):
             continue
         clip_index = next(i for i, c in enumerate(timeline.clips) if c.id == clip.id)
         delay = int(round(clip.start_s * 1000))
@@ -305,12 +308,20 @@ def build_assemble_command(
             else:
                 filter_parts.append("".join(audio_labels) + f"amix=inputs={n}:normalize=0:duration=longest[amix]")
         tail = limiter_filter()
-        if hero:
+        if hero and loudnorm:
             tail = f"{tail},{loudnorm_hero()}"
-        filter_parts.append(f"[amix]{tail}[aout]")
+        pad = f"apad,atrim=0:{timeline_duration(timeline):.4f},asetpts=PTS-STARTPTS"
+        filter_parts.append(f"[amix]{pad},{tail}[aout]")
         map_audio = ["-map", "[aout]"]
     else:
-        args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+        args += [
+            "-f",
+            "lavfi",
+            "-t",
+            f"{timeline_duration(timeline):.4f}",
+            "-i",
+            "anullsrc=r=48000:cl=stereo",
+        ]
         map_audio = ["-map", f"{input_index}:a"]
 
     graph = ";".join(filter_parts)

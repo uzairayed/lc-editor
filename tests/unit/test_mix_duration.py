@@ -65,6 +65,33 @@ def test_preview_clip_stays_muted(editor, tmp_path: Path) -> None:
     assert "anullsrc" not in " ".join(last)
 
 
+def test_assemble_keeps_still_silence_in_the_mix(editor, tmp_path: Path) -> None:
+    video = touch_media(tmp_path / "src", "talk", ".mp4")
+    still = touch_media(tmp_path / "src", "card", ".jpg")
+    editor.import_file(str(video))
+    editor.import_file(str(still))
+    editor.clip_add(media_id=editor.media[0].id, duration_s=3.0)
+    editor.clip_add(media_id=editor.media[1].id, duration_s=2.5)
+    assert editor.review_report()["ok"] is True
+    assert editor.export()["ok"] is True
+    assemble = None
+    for args in editor.runner.calls:
+        out = (args[-1] if args else "").replace("\\", "/")
+        if not out.endswith("/reel.mp4"):
+            continue
+        if "-filter_complex" in args:
+            assemble = args
+    assert assemble is not None
+    graph = assemble[assemble.index("-filter_complex") + 1]
+    assert "[0:a]" in graph
+    assert "[1:a]" in graph
+    assert "apad" in graph
+    assert "5.5000" in graph
+    assert "-t" in assemble
+    assert assemble[assemble.index("-t") + 1] == "5.5000"
+    assert "loudnorm=" in graph
+
+
 def test_export_sidecar_has_verify_block(editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
     editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)

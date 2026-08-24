@@ -417,6 +417,20 @@ def preview_stills(
     return paths
 
 
+def _source_has_live_audio(timeline: Timeline, items: list[MediaItem]) -> bool:
+    by_id = {item.id: item for item in items}
+    for clip in timeline.clips:
+        src = by_id.get(clip.media_id)
+        if src is None:
+            continue
+        if clip.muted or src.kind == "image" or not src.has_audio:
+            continue
+        return True
+    if timeline.music or timeline.sfx:
+        return True
+    return timeline.bed_kind not in ("none", "")
+
+
 def assemble(
     runner: Runner,
     store: Store,
@@ -434,6 +448,7 @@ def assemble(
                 update={"adjustment": project.adjustment.model_copy(update={"cube_path": project.cube_path})}
             )
     dest.parent.mkdir(parents=True, exist_ok=True)
+    loudnorm = (not proxy) and _source_has_live_audio(timeline, items)
     intermediates: list[Path] = []
     prepared_items: list[MediaItem] = []
     prepared_clips: list[Clip] = []
@@ -453,7 +468,7 @@ def assemble(
                     "id": mid,
                     "path": str(path),
                     "kind": "video",
-                    "has_audio": media.has_audio and not clip.muted and not proxy,
+                    "has_audio": not proxy,
                 }
             )
         )
@@ -500,6 +515,7 @@ def assemble(
         bed_file=bed,
         hero=not proxy,
         preprocessed=True,
+        loudnorm=loudnorm,
     )
     runner.run(cmd)
     if not dest.exists():
