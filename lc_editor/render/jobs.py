@@ -15,7 +15,7 @@ from lc_editor.models import (
     is_layout_clip,
     timeline_duration,
 )
-from lc_editor.render.captions import write_textfile
+from lc_editor.render.captions import caption_textfile_body, write_textfile
 from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
 from lc_editor.assets.pack import sfx_path
 from lc_editor.render.audio import bed_asset_name
@@ -182,7 +182,7 @@ def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
     caps = []
     for cap in timeline.captions:
         path = store.caption_dir / f"{cap.id}.txt"
-        write_textfile(path, cap.text)
+        write_textfile(path, caption_textfile_body(cap))
         caps.append(cap.model_copy(update={"textfile": str(path)}))
     layers = []
     for layer in timeline.layers:

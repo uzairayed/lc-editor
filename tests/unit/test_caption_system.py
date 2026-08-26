@@ -3,11 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.app import Editor
-from lc_editor.lint.captions import hold_s, wrap_text
-from lc_editor.models import Caption
-from lc_editor.render.captions import drawtext_filter
-from lc_editor.render.jobs import overlay_filters
-from lc_editor.models import OverlayFlags, Project
+from lc_editor.lint.captions import caption_issues, estimate_bbox, hold_s, wrap_text
+from lc_editor.models import Caption, OverlayFlags, Project
+from lc_editor.render.captions import caption_textfile_body, drawtext_filter
+from lc_editor.render.jobs import overlay_filters, prepare_caption_files
 
 
 def _long_clip(editor: Editor, media_file: Path, duration_s: float = 5.0) -> str:
@@ -69,7 +68,8 @@ def test_spec_cap_08_lint_structured_phone_proof(editor: Editor, media_file: Pat
     assert lint["bbox"] is not None
     assert lint["bbox"]["y"] >= 270
     assert lint["bbox"]["y2"] <= 1248
-    assert lint["bbox"]["cx"] == 540
+    assert lint["bbox"]["x"] >= 64
+    assert lint["bbox"]["x2"] <= 853
     assert "contrast" in lint
     proof = Path(lint["phone_proof"])
     assert proof.exists()
@@ -83,3 +83,39 @@ def test_spec_cap_01_title_default_enter(editor: Editor, media_file: Path) -> No
     cap = editor.timeline_get()["timeline"]["captions"][0]
     assert cap["role"] == "title"
     assert cap["enter"] == "punch"
+
+
+def test_spec_cap_03_bbox_band_fail_on_low_anchor() -> None:
+    text = "600-year-old city of tombs, 2 hours from Karachi"
+    lines = wrap_text(text)
+    assert len(lines) == 3
+    cap = Caption(id="t1", clip_id="c1", text=text, role="body", y_pct=0.45, lines=lines, hold_s=hold_s(text, lines))
+    bbox = estimate_bbox(cap)
+    assert bbox["y2"] > 960
+    issues = caption_issues(text, y_pct=0.45, clip=None, lines=lines, role="body", caption=cap)
+    assert any("22-50%" in w for w in issues)
+    assert any("Never add a box" in w for w in issues)
+
+
+def test_spec_cap_03_unwrapped_line_fails_spatial() -> None:
+    text = "600-year-old city of tombs, 2 hours from Karachi"
+    issues = caption_issues(text, y_pct=0.36, clip=None, lines=[text], role="body")
+    assert any("frame" in w or "action column" in w or "safe rect" in w for w in issues)
+
+
+def test_prepare_caption_writes_wrapped_textfile(editor: Editor, media_file: Path) -> None:
+    clip_id = _long_clip(editor, media_file)
+    text = "600-year-old city of tombs, 2 hours from Karachi"
+    added = editor.caption_add(clip_id, text)
+    assert added["ok"] is True
+    store = editor._need()
+    tl = prepare_caption_files(store, store.timeline)
+    cap = tl.captions[0]
+    body = Path(cap.textfile).read_text(encoding="utf-8")
+    assert "\n" in body
+    assert body == caption_textfile_body(cap)
+    assert not body.endswith("\n")
+    filt = drawtext_filter(cap, Path(cap.textfile), None)
+    assert "boxw=789" in filt
+    assert "box=1" not in filt
+    assert "expansion=none" in filt

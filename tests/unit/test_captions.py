@@ -40,10 +40,23 @@ def test_spec_cap_04_two_line_floor() -> None:
     assert hold_s(text, lines) == 1.80
 
 
-def test_spec_cap_05_wrap_rejects_three_lines(editor: Editor, media_file: Path) -> None:
+def test_spec_cap_05_three_line_explainer_ok(editor: Editor, media_file: Path) -> None:
     clip_id = _long_clip(editor, media_file)
     text = "600-year-old city of tombs, 2 hours from Karachi"
     assert len(text) == 48
+    lines = wrap_text(text)
+    assert len(lines) == 3
+    result = editor.caption_add(clip_id, text)
+    assert result["ok"] is True
+    cap = editor.timeline_get()["timeline"]["captions"][0]
+    assert len(cap["lines"]) == 3
+    assert cap["hold_s"] >= 1.80
+
+
+def test_spec_cap_05_wrap_rejects_four_lines(editor: Editor, media_file: Path) -> None:
+    clip_id = _long_clip(editor, media_file)
+    text = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar"
+    assert len(wrap_text(text)) > 3
     result = editor.caption_add(clip_id, text)
     assert result["ok"] is False
     assert any("SPEC-CAP-02" in w for w in result["warnings"])
@@ -59,9 +72,12 @@ def test_spec_cap_05_twenty_six_chars_one_line(editor: Editor, media_file: Path)
     assert cap["lines"] == [text]
 
 
-def test_spec_cap_06_eleven_words(editor: Editor, media_file: Path) -> None:
+def test_spec_cap_06_seventeen_words(editor: Editor, media_file: Path) -> None:
     clip_id = _long_clip(editor, media_file)
-    bad = editor.caption_add(clip_id, "one two three four five six seven eight nine ten eleven")
+    bad = editor.caption_add(
+        clip_id,
+        "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen",
+    )
     assert bad["ok"] is False
     assert any("SPEC-CAP-02" in w for w in bad["warnings"])
     good = editor.caption_add(clip_id, "2 hours, one fuel stop")

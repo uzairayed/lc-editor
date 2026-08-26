@@ -15,8 +15,9 @@ This file is the **Sites to visit in Karachi** series preset: optional branding,
 ## Timing (readability first)
 
 - Target **18 characters per second** on screen, then add **0.4s** for the text to land.
-- Floor: **1.8s** for any two-line card. Never hold a readable caption under **1.5s**.
-- Max **2 lines**, **~10 words**, wrap at ~26 characters.
+- Floor: **1.8s** for any 2 or 3 line card. Never hold a readable caption under **1.5s**.
+- Max **3 lines**, **~16 words**, wrap at ~26 characters. Body can be a short 2 to 3 line explainer; titles stay shorter.
+- The whole glyph block must stay inside the 22 to 50% band and the frame. Move or wrap; never add a box.
 - Stretch the clip to the caption hold, or drop the text. Never speed-ramp a clip just to fit a caption.
 - Not every shot needs a caption. If the shot says it, stay silent.
 

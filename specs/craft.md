@@ -14,7 +14,7 @@ Any background, box, banner, bar, blur pad, or scrim behind text is `ok: false`.
 
 ## SPEC-CRAFT-03: caption hold and safe zone
 
-Hold is `max(floor, chars/18 + 0.4)` with floor 1.80s (two lines) or 1.50s (one line), capped at 5.0s. Caption center Y is 22% to 50%. A hold that is shorter than required is a review failure. See `specs/captions.md`.
+Hold is `max(floor, chars/18 + 0.4)` with floor 1.80s (2 or 3 lines) or 1.50s (one line), capped at 5.0s. The **glyph block** (not only the `y_pct` anchor) must stay inside the 22% to 50% band and inside the 1080x1920 frame. A hold that is shorter than required, or a bbox that clips the frame or the band, is a review failure. See `specs/captions.md`.
 
 ## SPEC-CRAFT-04: length
 

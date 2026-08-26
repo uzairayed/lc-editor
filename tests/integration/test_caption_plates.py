@@ -36,6 +36,43 @@ def _plate(dest: Path, color: str) -> Path:
 
 
 @skip_no_ffmpeg
+def test_dark_plate_three_line_explainer(tmp_path: Path) -> None:
+    plate = _plate(tmp_path / "cap_dark3.jpg", "0x1A1410")
+    editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel3"))
+    editor.import_file(str(plate))
+    editor.clip_add(media_id=editor.media[0].id, duration_s=4.0)
+    clip_id = editor.timeline_get()["timeline"]["clips"][0]["id"]
+    text = "600-year-old city of tombs, 2 hours from Karachi"
+    added = editor.caption_add(clip_id, text)
+    assert added["ok"], added
+    lint = editor.caption_lint()
+    assert lint["ok"], lint
+    assert len(lint["lines"]) == 3
+    assert lint["hold_s"] >= 1.80
+    assert lint["bbox"]["x"] >= 64
+    assert lint["bbox"]["x2"] <= 853
+    assert lint["bbox"]["y"] >= 422
+    assert lint["bbox"]["y2"] <= 960
+    proof = Path(lint["phone_proof"])
+    assert proof.exists() and proof.stat().st_size > 2000
+
+
+@skip_no_ffmpeg
+def test_three_line_short_clip_rejected(tmp_path: Path) -> None:
+    plate = _plate(tmp_path / "cap_short.jpg", "0x1A1410")
+    editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel_short"))
+    editor.import_file(str(plate))
+    editor.clip_add(media_id=editor.media[0].id, duration_s=1.2)
+    clip_id = editor.timeline_get()["timeline"]["clips"][0]["id"]
+    text = "600-year-old city of tombs, 2 hours from Karachi"
+    added = editor.caption_add(clip_id, text)
+    assert added["ok"] is False
+    assert any("SPEC-CAP-02" in w for w in added["warnings"])
+
+
+@skip_no_ffmpeg
 def test_dark_plate_lint_ok(tmp_path: Path) -> None:
     plate = _plate(tmp_path / "cap_dark.jpg", "0x1A1410")
     editor = Editor(workspace=tmp_path, runner=FfmpegRunner())

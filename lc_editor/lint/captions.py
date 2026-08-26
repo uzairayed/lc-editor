@@ -8,14 +8,19 @@ from lc_editor.fonts import font_for
 from lc_editor.models import (
     CANVAS_H,
     CANVAS_W,
+    CAPTION_BAND_Y0,
+    CAPTION_BAND_Y1,
+    CAPTION_BOXW,
     CAPTION_HOLD_CAP_S,
     CAPTION_LINE_MAX,
     CAPTION_MAX_LINES,
     CAPTION_MAX_WORDS,
     CAPTION_PROTECT_PX,
+    CAPTION_SAFE_X0,
     CAPTION_SAFE_X1,
     CAPTION_SAFE_Y0,
     CAPTION_SAFE_Y1,
+    CAPTION_SIZE_MIN,
     CAPTION_WRAP,
     CAPTION_Y_MAX,
     CAPTION_Y_MIN,
@@ -54,7 +59,7 @@ def word_count(text: str) -> int:
 
 def hold_s(text: str, lines: list[str]) -> float:
     chars = len(text.rstrip())
-    floor = 1.8 if len(lines) == 2 else 1.5
+    floor = 1.8 if len(lines) >= 2 else 1.5
     raw = chars / 18 + 0.4
     return round(min(CAPTION_HOLD_CAP_S, max(floor, raw)), 2)
 
@@ -66,7 +71,7 @@ def is_all_caps(text: str) -> bool:
     return all(c.isupper() for c in letters)
 
 
-def fontsize_for(caption: Caption) -> int:
+def base_fontsize(caption: Caption) -> int:
     if caption.role == "title" and len(caption.text) <= 12:
         return 84
     if caption.role == "title":
@@ -74,20 +79,22 @@ def fontsize_for(caption: Caption) -> int:
     return 64
 
 
-def _font(caption: Caption, size: int | None = None) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    path = font_for(caption.role)
-    px = size or fontsize_for(caption)
+def _stroke_pad(role: str) -> int:
+    return (4 if role == "title" else 3) + 2
+
+
+def _font_at(role: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    path = font_for(role if role in ("title", "body") else "body")
     if path:
         try:
-            return ImageFont.truetype(str(path), px)
+            return ImageFont.truetype(str(path), size)
         except OSError:
             pass
     return ImageFont.load_default()
 
 
-def estimate_bbox(caption: Caption) -> dict:
-    lines = caption.lines or wrap_text(caption.text)
-    font = _font(caption)
+def _measure(lines: list[str], role: str, size: int) -> tuple[float, float]:
+    font = _font_at(role, size)
     widths: list[int] = []
     heights: list[int] = []
     for line in lines:
@@ -95,22 +102,50 @@ def estimate_bbox(caption: Caption) -> dict:
         widths.append(box[2] - box[0])
         heights.append(box[3] - box[1])
     width = max(widths) if widths else 0
-    line_h = max(heights) if heights else fontsize_for(caption)
-    gap = int(fontsize_for(caption) * 0.18)
+    line_h = max(heights) if heights else size
+    gap = int(size * 0.18)
     height = line_h * len(lines) + gap * max(0, len(lines) - 1)
-    cx = CANVAS_W / 2
+    pad = _stroke_pad(role)
+    return float(width + 2 * pad), float(height + 2 * pad)
+
+
+def fontsize_for(caption: Caption) -> int:
+    lines = caption.lines or wrap_text(caption.text)
+    base = base_fontsize(caption)
+    for size in range(base, CAPTION_SIZE_MIN - 1, -2):
+        width, _ = _measure(lines, caption.role, size)
+        if width <= CAPTION_BOXW:
+            return size
+    return CAPTION_SIZE_MIN
+
+
+def _font(caption: Caption, size: int | None = None) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    return _font_at(caption.role, size or fontsize_for(caption))
+
+
+def estimate_bbox(caption: Caption) -> dict:
+    lines = caption.lines or wrap_text(caption.text)
+    size = fontsize_for(caption)
+    width, height = _measure(lines, caption.role, size)
     cy = CANVAS_H * caption.y_pct
-    x0 = cx - width / 2
     y0 = cy - height / 2
+    y2 = cy + height / 2
+    preferred_x0 = (CANVAS_W - width) / 2
+    if width <= CAPTION_BOXW:
+        x0 = min(max(preferred_x0, float(CAPTION_SAFE_X0)), float(CAPTION_SAFE_X1) - width)
+    else:
+        x0 = preferred_x0
+    x2 = x0 + width
     return {
         "x": round(x0, 1),
         "y": round(y0, 1),
         "w": round(width, 1),
         "h": round(height, 1),
-        "x2": round(x0 + width, 1),
-        "y2": round(y0 + height, 1),
-        "cx": round(cx, 1),
+        "x2": round(x2, 1),
+        "y2": round(y2, 1),
+        "cx": round((x0 + x2) / 2, 1),
         "cy": round(cy, 1),
+        "size": size,
     }
 
 
@@ -185,9 +220,9 @@ def caption_issues(
         warnings.append("SPEC-CAP-04: ALL CAPS is rejected; use sentence case")
     wrapped = lines if lines is not None else wrap_text(text)
     if len(wrapped) > CAPTION_MAX_LINES:
-        warnings.append("SPEC-CAP-02: caption wraps past 2 lines")
+        warnings.append("SPEC-CAP-02: caption wraps past 3 lines")
     if word_count(text) > CAPTION_MAX_WORDS:
-        warnings.append("SPEC-CAP-02: caption exceeds ~10 words")
+        warnings.append("SPEC-CAP-02: caption exceeds ~16 words")
     if any(len(line) > CAPTION_LINE_MAX for line in wrapped):
         warnings.append("SPEC-CAP-02: wrapped line exceeds 28 characters")
     if any(line.strip() == "" for line in wrapped):
@@ -210,10 +245,23 @@ def caption_issues(
         lines=wrapped,
     )
     bbox = estimate_bbox(probe)
-    if bbox["y"] < CAPTION_SAFE_Y0 or bbox["y2"] > CAPTION_SAFE_Y1:
+    if bbox["x"] < 0 or bbox["y"] < 0 or bbox["x2"] > CANVAS_W or bbox["y2"] > CANVAS_H:
+        warnings.append(
+            "SPEC-CAP-03: caption bbox clips the 1080x1920 frame; "
+            "caption_move / wrap / smaller size. Never add a box."
+        )
+    if bbox["y"] < CAPTION_BAND_Y0 or bbox["y2"] > CAPTION_BAND_Y1:
+        warnings.append(
+            "SPEC-CAP-03: caption block leaves the 22-50% band; "
+            "caption_move / wrap / smaller size. Never add a box."
+        )
+    if bbox["x"] < CAPTION_SAFE_X0 or bbox["y"] < CAPTION_SAFE_Y0 or bbox["y2"] > CAPTION_SAFE_Y1:
         warnings.append("SPEC-CAP-03: caption bbox leaves the cross-post safe rect")
-    if bbox["x"] > CAPTION_SAFE_X1:
-        warnings.append("SPEC-CAP-03: caption sits in the right action column")
+    if bbox["x2"] > CAPTION_SAFE_X1:
+        warnings.append(
+            "SPEC-CAP-03: caption bbox crosses the right action column (x2 > 853); "
+            "wrap / smaller size. Never add a box."
+        )
     if _protect_overlap(bbox, clip):
         warnings.append("SPEC-CAP-03: caption overlaps a protected focus point")
     luma = sample_underlay_luma(underlay_path, bbox)
@@ -284,17 +332,19 @@ def card_report(
 def draw_caption_card(im: Image.Image, caption: Caption) -> Image.Image:
     canvas = im.copy()
     draw = ImageDraw.Draw(canvas)
-    font = _font(caption)
+    size = fontsize_for(caption)
+    font = _font(caption, size)
     lines = caption.lines or wrap_text(caption.text)
     bbox = estimate_bbox(caption)
-    size = fontsize_for(caption)
     stroke = 4 if caption.role == "title" else 3
-    y = bbox["y"]
-    line_h = bbox["h"] / max(1, len(lines))
+    y = bbox["y"] + _stroke_pad(caption.role)
+    line_count = max(1, len(lines))
+    inner_h = bbox["h"] - 2 * _stroke_pad(caption.role)
+    line_h = inner_h / line_count
     for line in lines:
         box = font.getbbox(line)
         w = box[2] - box[0]
-        x = (CANVAS_W - w) / 2
+        x = bbox["x"] + (bbox["w"] - w) / 2
         draw.text(
             (x, y),
             line,
@@ -304,7 +354,6 @@ def draw_caption_card(im: Image.Image, caption: Caption) -> Image.Image:
             stroke_fill=(26, 20, 16),
         )
         y += line_h
-    _ = size
     return canvas
 
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.fonts import body_font, title_font
-from lc_editor.models import SAND, STROKE, Caption
+from lc_editor.lint.captions import fontsize_for, wrap_text
+from lc_editor.models import CAPTION_BOXW, CAPTION_SAFE_X0, CAPTION_SAFE_X1, SAND, STROKE, Caption
 from lc_editor.render.paths import ffmpeg_path
 
 
@@ -16,12 +17,9 @@ def write_textfile(path: Path, text: str) -> Path:
     return path
 
 
-def fontsize_for(caption: Caption) -> int:
-    if caption.role == "title" and len(caption.text) <= 12:
-        return 84
-    if caption.role == "title":
-        return 70
-    return 64
+def caption_textfile_body(caption: Caption) -> str:
+    lines = caption.lines or wrap_text(caption.text)
+    return "\n".join(lines)
 
 
 def stroke_w(caption: Caption) -> int:
@@ -47,10 +45,15 @@ def drawtext_filter(caption: Caption, textfile: Path, fontfile: Path | None) -> 
     size = fontsize_for(caption)
     size_expr, alpha = enter_exprs(caption, size)
     y = f"h*{caption.y_pct:.2f}-text_h/2"
+    # Prefer canvas center; bias left so the glyph block stays in x 64-853.
+    x = (
+        f"max({CAPTION_SAFE_X0}\\,min((w-text_w)/2\\,{CAPTION_SAFE_X1}-text_w))"
+    )
     return (
         f"drawtext=textfile='{tf}':expansion=none{font}:"
         f"fontsize={size_expr}:fontcolor={SAND}:"
         f"bordercolor={STROKE}:borderw={stroke_w(caption)}:"
         f"shadowcolor=black@0.5:shadowx=2:shadowy=2:"
-        f"x=(w-text_w)/2:y={y}{alpha}"
+        f"boxw={CAPTION_BOXW}:"
+        f"x={x}:y={y}{alpha}"
     )
