@@ -20,6 +20,8 @@ The road proves the journey. It is punctuation, not the destination. A reel that
 
 Cut on motion: into a corner, an overtake, a landmark sliding out. Enter already at speed. Exit mid-motion into the next journey clip or the site.
 
+Two highway or helmet POVs in one slot are a **two-up** (`ride-pair.md`), not a second road clip and not `pair.md`.
+
 ## Caption
 
 Distance, time, or route. Numbers. One line for the whole journey block, not one line per road clip.

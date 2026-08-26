@@ -47,4 +47,10 @@ Each pane cover-crops into its cell, then `vstack` / `hstack` builds the frame. 
 
 ## When to use
 
-Two named places, two signs, or two plates that are a list: `stack_v`. Three of that kind: `stack_v3`. Four: `grid_2x2`. Two tall portraits: `stack_h`. A vista or a reveal keeps the whole frame. See `context/scenes/pair.md`.
+Kinds and pane counts are above. Which card you open is editorial:
+
+- One two-up of named things, then a different beat: `context/scenes/pair.md` (`stack_v` / `stack_v3` / `grid_2x2`; `stack_h` for tall portraits only).
+- A reel that is mostly stacks, or **caption-must**: `context/scenes/collage.md`.
+- Two highway or helmet POVs in one slot: `context/scenes/ride-pair.md` (`stack_h`).
+
+A vista or a reveal keeps the whole frame. Caption y on a layout is SPEC-CAP-09.

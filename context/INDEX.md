@@ -38,6 +38,7 @@ Read a card only when a keyframe or shot contains that subject. Process is `cont
 
 - **Helmet** (visor, rider POV, mirrors) → `scenes/helmet.md`
 - **Wheel** (tire, spokes, wheel-spin) → `scenes/wheel.md`
+- **Two-up** (two helmet POVs, two N-5 wides, two overtake lanes at once) → `scenes/ride-pair.md`
 
 ## Place
 
@@ -49,7 +50,8 @@ Read a card only when a keyframe or shot contains that subject. Process is `cont
 
 ## Pair
 
-- **Pair** (two signs, two named walls, two plates of one kind) → `scenes/pair.md`
+- **Pair** (two signs, two named walls, two plates of one kind, one beat then leave) → `scenes/pair.md`
+- **Collage** (layout-heavy reel, stacked details, 2x2, caption-must) → `scenes/collage.md`
 
 ## Close
 

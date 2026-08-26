@@ -28,3 +28,11 @@ Subdivision `1` snaps to beats, `1/2` to half-beats, `1/4` to quarter-beats deri
 ## SPEC-MUS-05: dry run
 
 `beat_sync_preview` returns `{ ok, proposal, warnings }` and does not bump timeline version. `beat_sync_apply` commits the same proposal under `op_id`.
+
+## SPEC-MUS-06: layout in-point
+
+A layout is one clip (`SPEC-LAYO-02`). Snap the layout **in** (and its shared duration) as one item. Panes do not snap separately.
+
+Caption hold still wins: a snap that drops a caption below SPEC-CAP-02 is rejected (SPEC-MUS-04). On a **caption-must** collage, stay at `max(detail, caption hold)` rather than a 1/4-beat trim.
+
+`allow_music` stays owner opt-in. Cards that mention a bed or a track: `context/scenes/collage.md`, `ride-pair.md`.

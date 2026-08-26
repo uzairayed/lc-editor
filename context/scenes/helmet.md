@@ -18,6 +18,8 @@ The cockpit is the rider's body in the frame without a selfie. Visor-down is the
 
 Enter on a stable visor or mirror frame. Exit as the reflection or the road ahead becomes the next picture. Hard cut, or match the reflection to the site.
 
+Two cockpit or road POVs in one slot: `ride-pair.md`.
+
 ## Caption
 
 Journey numbers can sit here if the road is too busy to read type.

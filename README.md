@@ -99,9 +99,10 @@ show me beat_sync_preview, then beat_sync_apply only after I confirm.
 Work in passes: analyze the footage first, pick the strongest shots, then
 match what you see in the keyframes to context/INDEX.md and read only those
 scene cards (process in context/HOW.md) before you set durations or roles.
-Build the timeline, add a layout when two shots belong on one frame
-(two signs, two named places), add layers or a template if needed, then
-run review_report and fix every warning before you export. Show me
+Build the timeline. An occasional two-up is context/scenes/pair.md.
+A reel that is mostly stacks is collage.md. Two ride POVs is
+ride-pair.md. Add layers or a template if needed, then run
+review_report and fix every warning before you export. Show me
 preview stills at each pass.
 ```
 
