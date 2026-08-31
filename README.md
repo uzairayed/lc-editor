@@ -54,7 +54,7 @@ On Windows the path looks like `C:/Users/you/my-reel`.
 
 Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail out loud. Same `op_id` twice does not duplicate. `review_report` must pass before `export`. Preview stills and the contact sheet are JPEG files on disk, not base64.
 
-The primary track is still the gapless `clips` list (`clip_add`, trim, split, reorder, motion, transitions). Two or more sources can share one slot (`layout_add`). Overlays, look, and music sit beside it:
+The primary track is still the gapless `clips` list (`clip_add`, trim, split, reorder, motion, transitions). `motion_zoom_in` / `motion_zoom_out` are a 12-frame scale hit (not Ken Burns). Two or more sources can share one slot (`layout_add`). Overlays, look, and music sit beside it:
 
 - Layers: `layer_add` / `layer_update` / `layer_remove` / `layer_reorder` / `layer_transform` / `layer_keyframe` for timed video, image, or text. `text_style` sets fade, pop, slide, or type-on. `effect_add` / `effect_update` / `effect_remove` attach `blur`, `sharpen`, `glow`, `grain`, `vignette`, `lut`, or `color`. Raw ffmpeg filter strings are rejected.
 - Templates: `template_list`, `template_apply("editorial"|"karachi", bindings=...)`, `template_save`. Apply writes ordinary layers and look; the project stays editable.
@@ -69,13 +69,13 @@ Optional: `project_create(..., preset="karachi")` loads series branding. Other r
 | Area | In this version |
 | --- | --- |
 | Canvas | 1080x1920, 30fps, MCP only |
-| Primary track | Gapless clips, trim/split/reorder, kenburns/punch |
+| Primary track | Gapless clips, trim/split/reorder, kenburns/punch/zoom_in/zoom_out |
 | Layouts | `stack_v`, `stack_h`, `stack_v3`, `grid_2x2`. One timeline slot |
 | Layers | Timed video, image, and text overlays with z-order, transform, keyframes |
 | Effects | Registry: blur, sharpen, glow, grain, vignette, lut, color |
 | Text | Stroke-and-shadow only. Motion: fade, pop, slide, type-on |
 | Templates | `editorial`, `karachi`; apply expands to ordinary layers |
-| Sound | Natural audio, beds, SFX. Music is opt-in via `project_set(allow_music=true)` then `music_add` |
+| Sound | Natural audio, beds, SFX (ride kinds plus reel `sparkle`/`swipe`/`bubble`/`button`/`paper`/`cash`/`click`/`correct`/`success`). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
 | Beat sync | `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply` |
 | Look | One adjustment layer (LUT, grain, vignette) after the cut |
 

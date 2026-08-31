@@ -12,6 +12,10 @@ Ken Burns is a slow zoom of about **106%** over the clip duration. The zoom uses
 
 Punch is a 100 to 108% scale-in over **4 frames** at 30fps (4/30 = 0.133...s), then holds. Not a speed-ramp.
 
+## SPEC-RND-19: zoom hit
+
+`zoom_in` scales 1.00 to `zoom_amount` (default 1.14) over `zoom_frames` (default 12), then holds. `zoom_out` starts at `zoom_amount` and eases back to 1.00 over the same window. Not Ken Burns. Not the 4-frame punch.
+
 ## SPEC-RND-03: whip
 
 Whip is a short directional blur + slide between two clips (about 6 to 10 frames). It is not `xfade=transition=wiperight` or any wipe preset. Golden string is locked in `tests/render/`.

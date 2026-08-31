@@ -73,7 +73,9 @@ Worked example: one 6.00s clip (in 0, out 6). Split at 2.00. First: in 0 out 2 d
 
 ## SPEC-EDIT-12: motion
 
-Exactly one of `none`, `kenburns` (~106% over the clip), `punch` (100 to 108% over 3 to 4 frames at 30fps). Stills default to `kenburns`. A still left on `none` for 3.00s or longer warns: locked still is a slideshow.
+Exactly one of `none`, `kenburns` (~106% over the clip), `punch` (100 to 108% over 3 to 4 frames at 30fps), `zoom_in`, or `zoom_out`. Stills default to `kenburns`. A still left on `none` for 3.00s or longer warns: locked still is a slideshow.
+
+`zoom_in` / `zoom_out` are a sudden scale hit of **1.12–1.16** over **10–15 frames** (0.35–0.50s at 30fps), default 12 frames and 1.14. Then the scale holds. This is not a 1s+ Ken Burns and not the 4-frame `punch`. Alternate in and out; do not zoom every clip the same way. `motion_zoom_in` / `motion_zoom_out` accept optional `frames` and `amount`.
 
 ## SPEC-EDIT-13: transitions
 

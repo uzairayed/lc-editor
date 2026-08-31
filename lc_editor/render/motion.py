@@ -7,6 +7,8 @@ from lc_editor.models import (
     KENBURNS_ZOOM,
     PUNCH_FRAMES,
     PUNCH_ZOOM,
+    ZOOM_HIT_AMOUNT,
+    ZOOM_HIT_FRAMES,
     Clip,
 )
 
@@ -67,9 +69,28 @@ def punch_filter() -> str:
     )
 
 
+def zoom_hit_filter(
+    motion: str,
+    frames: int = ZOOM_HIT_FRAMES,
+    amount: float = ZOOM_HIT_AMOUNT,
+) -> str:
+    n = max(1, int(frames))
+    delta = round(amount - 1.0, 4)
+    if motion == "zoom_out":
+        z = f"1+{delta}*(1-min(1,n/{n}))"
+    else:
+        z = f"1+{delta}*min(1,n/{n})"
+    return (
+        f"scale=w='iw*({z})':h='ih*({z})':eval=frame,"
+        f"crop={CANVAS_W}:{CANVAS_H}"
+    )
+
+
 def motion_chain(clip: Clip, frames: int) -> str:
     if clip.motion == "kenburns":
         return kenburns_filter(frames, clip.kenburns_amount)
     if clip.motion == "punch":
         return punch_filter()
+    if clip.motion in ("zoom_in", "zoom_out"):
+        return zoom_hit_filter(clip.motion, clip.zoom_frames, clip.zoom_amount)
     return f"scale={CANVAS_W}:{CANVAS_H}"

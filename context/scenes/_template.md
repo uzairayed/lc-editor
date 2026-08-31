@@ -24,7 +24,7 @@ When the picture is enough. If you write one, the line itself, not a topic.
 
 ## Motion
 
-`none`, `kenburns`, or `punch`, and when.
+`none`, `kenburns`, `punch`, `zoom_in`, or `zoom_out`, and when.
 
 ## Done
 

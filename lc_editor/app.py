@@ -952,6 +952,24 @@ class Editor:
     def motion_punch(self, clip_id: str, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "punch"))
 
+    def motion_zoom_in(
+        self,
+        clip_id: str,
+        amount: float | None = None,
+        frames: int | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "zoom_in", amount, frames))
+
+    def motion_zoom_out(
+        self,
+        clip_id: str,
+        amount: float | None = None,
+        frames: int | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "zoom_out", amount, frames))
+
     def motion_none(self, clip_id: str, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "none"))
 
@@ -1179,6 +1197,25 @@ class Editor:
                     continue
                 extra.append(
                     SfxPlacement(id=new_id("s"), kind="whoosh", at_s=clip.start_s + clip.duration_s, gain_db=-12.0, auto=True, key=key)
+                )
+            return tl.model_copy(update={"sfx": [*tl.sfx, *extra]}) if extra else tl
+
+        return self._mutate(op_id, apply)
+
+    def sfx_zoom_auto(self, op_id: str | None = None) -> dict:
+        def apply(tl: Timeline) -> Timeline:
+            from lc_editor.models import SfxPlacement
+
+            existing = {s.key for s in tl.sfx}
+            extra = []
+            for clip in tl.clips:
+                if clip.motion not in ("zoom_in", "zoom_out"):
+                    continue
+                key = f"swipe:{clip.id}"
+                if key in existing:
+                    continue
+                extra.append(
+                    SfxPlacement(id=new_id("s"), kind="swipe", at_s=clip.start_s, gain_db=-12.0, auto=True, key=key)
                 )
             return tl.model_copy(update={"sfx": [*tl.sfx, *extra]}) if extra else tl
 

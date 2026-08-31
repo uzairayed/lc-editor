@@ -10,9 +10,29 @@ Placing a music/melody/drum-loop asset as SFX, or adding a cinematic/ambient mus
 
 ## SPEC-SND-02: shipped SFX only
 
-Bundled kinds: `tick`, `pop`, `whoosh`, `impact`, `riser` (300ms noise riser), `wind`, `room`, `steps_snow`, `steps_gravel`, `engine`.
+Ride / cinematic kinds: `tick`, `pop`, `whoosh`, `impact`, `riser` (300ms noise riser), `wind`, `room`, `steps_snow`, `steps_gravel`, `engine`.
+
+Reel / UI kinds (original wavs, not a vendor pack):
+
+| kind | job |
+| --- | --- |
+| `sparkle` | bright idea / twinkle hit (~200–400 ms) |
+| `swipe` | short air swipe, lighter than `whoosh` |
+| `bubble` | soft bubble / pop-up |
+| `button` | soft UI tap (`button` ≠ `tick`) |
+| `paper` | paper rustle / page |
+| `cash` | coin / register clink |
+| `click` | mouse click |
+| `correct` | quiz right-answer ding |
+| `success` | longer success chime than `correct` |
+
+`swipe` ≠ `whoosh`. `button` ≠ `tick`. `bubble` ≠ `pop`. `correct` and `success` are distinct wavs.
+
+Each bundled item has `duration_s`, `file`, `kind`, and a one-line `license` (`original` or `CC0`). No vendor id field. Review warns if a placed SFX has an empty license (same spirit as music `source_name`).
 
 `sfx_list` returns bundled items plus any files in the project user-sfx folder. No melody, no drum loop in the bundled manifest.
+
+`sfx_zoom_auto` places a `swipe` at the start of each `zoom_in` / `zoom_out` clip. It is opt-in (speech reels stay quiet unless the agent calls it). Same call twice does not duplicate.
 
 `steps_snow` and `steps_gravel` are different waveforms (different SHA-256). Snow is a soft crunch. Gravel is a sharper multi-grain impact.
 
