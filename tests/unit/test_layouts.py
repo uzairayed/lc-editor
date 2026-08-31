@@ -162,8 +162,8 @@ def test_layout_hash_includes_panes() -> None:
 
 def test_crop_cover_and_stack_graph() -> None:
     cover = crop_cover(1920, 1080, 1080, 960, 0.5, 0.5)
-    assert cover.startswith("crop=")
-    assert "scale=1080:960" in cover
+    assert "force_original_aspect_ratio=increase" in cover
+    assert "crop=1080:960" in cover
     assert layout_cells("stack_v")[0] == (0, 0, 1080, 960)
     clip = Clip(
         id="c1",
