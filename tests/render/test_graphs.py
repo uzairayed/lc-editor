@@ -33,16 +33,17 @@ def test_spec_rnd_02_punch_108_four_frames() -> None:
     assert "4" in graph
 
 
-def test_spec_rnd_19_zoom_hit_twelve_frames() -> None:
+def test_spec_rnd_19_zoom_hit_is_cubic_ramp() -> None:
     graph = zoom_hit_filter("zoom_in")
-    assert "1.14" in graph or "0.14" in graph
-    assert "12" in graph
-    out = zoom_hit_filter("zoom_out", frames=12, amount=1.14)
-    assert "1.14" in out or "0.14" in out
-    clip = Clip(id="c1", media_id="m1", motion="zoom_in", duration_s=2.4, zoom_frames=12, zoom_amount=1.14)
+    assert "pow" in graph
+    assert "27" in graph
+    assert "0.1" in graph
+    out = zoom_hit_filter("zoom_out", frames=27, amount=1.10)
+    assert "pow" in out
+    clip = Clip(id="c1", media_id="m1", motion="zoom_in", duration_s=2.4, zoom_frames=27, zoom_amount=1.10)
     media = MediaItem(id="m1", path="x.mp4", original_path="x.mp4", width=1920, height=1080)
     filt = clip_video_filters(clip, media, [], Project(id="p", name="n"))
-    assert "1.14" in filt or "0.14" in filt
+    assert "pow" in filt
 
 
 def test_spec_rnd_04_close_fade_four_frames() -> None:

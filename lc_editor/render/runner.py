@@ -30,7 +30,7 @@ class FfmpegRunner:
                 capture_output=True,
                 text=True,
                 stdin=subprocess.DEVNULL,
-                timeout=90,
+                timeout=3600,
             )
         except subprocess.TimeoutExpired as exc:
             return RunResult(1, exc.stdout or "", exc.stderr or "ffmpeg timed out")

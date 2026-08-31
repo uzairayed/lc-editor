@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from lc_editor.assets.pack import cube_path as bundled_cube
@@ -16,6 +19,7 @@ from lc_editor.models import (
     timeline_duration,
 )
 from lc_editor.render.captions import caption_textfile_body, write_textfile
+from lc_editor.render.motion import even_expr
 from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
 from lc_editor.assets.pack import sfx_path
 from lc_editor.render.audio import bed_asset_name
@@ -27,6 +31,7 @@ from lc_editor.render.graph import (
     clip_video_filters,
     concat_list,
     hero_encode_args,
+    hero_encode_legal,
     proxy_encode_args,
 )
 from lc_editor.render.runner import FakeRunner, Runner, find_tool
@@ -35,6 +40,52 @@ from lc_editor.store import Store
 
 THUMB_W = 270
 THUMB_H = 480
+HERO_LOCK_PATH = Path("/tmp/lc-editor-hero-export.lock")
+
+
+class AssembleError(RuntimeError):
+    pass
+
+
+class HeroExportBusy(RuntimeError):
+    pass
+
+
+def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool) -> None:
+    if preview:
+        if result.returncode != 0 and not dest.exists():
+            dest.write_bytes(b"")
+        return
+    failed = result.returncode != 0 or not dest.exists() or dest.stat().st_size == 0
+    if failed:
+        if dest.exists() and dest.stat().st_size == 0:
+            dest.unlink(missing_ok=True)
+        tail = ""
+        for line in reversed((result.stderr or "").splitlines()):
+            line = line.strip()
+            if line:
+                tail = line
+                break
+        detail = f" ({tail})" if tail else ""
+        raise AssembleError(f"SPEC-EXPORT-08: hero encode failed{detail}")
+    if not hero_encode_legal(encode):
+        dest.unlink(missing_ok=True)
+        raise AssembleError("SPEC-EXPORT-08: hero encode is not medium/crf<=18 1080x1920")
+
+
+@contextmanager
+def hero_export_lock(wait: bool = True):
+    fd = os.open(HERO_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        flags = fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB
+        try:
+            fcntl.flock(fd, flags)
+        except BlockingIOError as exc:
+            raise HeroExportBusy("hero_export_busy") from exc
+        yield
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def extract_frame_args(
@@ -111,7 +162,9 @@ def source_proxy_hash(path: Path) -> str:
 def source_proxy_vf() -> str:
     return (
         f"scale={SOURCE_PROXY_W}:{SOURCE_PROXY_H}:force_original_aspect_ratio=increase,"
-        f"crop={SOURCE_PROXY_W}:{SOURCE_PROXY_H}"
+        f"crop={SOURCE_PROXY_W}:{SOURCE_PROXY_H}:"
+        f"'{even_expr(f'(iw-{SOURCE_PROXY_W})/2')}':"
+        f"'{even_expr(f'(ih-{SOURCE_PROXY_H})/2')}'"
     )
 
 
@@ -183,6 +236,9 @@ def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
     for cap in timeline.captions:
         path = store.caption_dir / f"{cap.id}.txt"
         write_textfile(path, caption_textfile_body(cap))
+        if cap.style == "karaoke":
+            for i, word in enumerate(cap.words):
+                write_textfile(store.caption_dir / f"{cap.id}_w{i}.txt", word.text)
         caps.append(cap.model_copy(update={"textfile": str(path)}))
     layers = []
     for layer in timeline.layers:
@@ -304,8 +360,7 @@ def render_clip_intermediate(
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
     args += ["-vf", vf, *encode[:-1], str(dest)]
     result = runner.run(args)
-    if result.returncode != 0 and not dest.exists():
-        dest.write_bytes(b"")
+    _finish_hero_run(result, dest, encode, preview=preview)
     return dest
 
 
@@ -366,8 +421,7 @@ def _render_layout_intermediate(
         args += ["-map", "0:a", "-af", f"{chain},{pad}" if chain else pad]
     args += [*encode[:-1], str(dest)]
     result = runner.run(args)
-    if result.returncode != 0 and not dest.exists():
-        dest.write_bytes(b"")
+    _finish_hero_run(result, dest, encode, preview=preview)
     return dest
 
 
@@ -517,9 +571,8 @@ def assemble(
         preprocessed=True,
         loudnorm=loudnorm,
     )
-    runner.run(cmd)
-    if not dest.exists():
-        dest.write_bytes(b"")
+    result = runner.run(cmd)
+    _finish_hero_run(result, dest, encode_flags + [str(dest)], preview=proxy)
     return dest
 
 

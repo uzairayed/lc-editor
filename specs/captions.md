@@ -85,6 +85,17 @@ On caption in, optional **2–4 frame** scale 100→102% (or opacity 0→1). Mus
 
 Independent text layers also accept `motion="none"|"fade"|"pop"|"slide"|"type_on"`. Pop is a 2–4 frame scale (same as punch). Slide is a short vertical ease-in. Type-on reveals characters inside the 0.4s land window via `enable`/`text` drawtext, still using a textfile (never inline apostrophes). All four stay box-free.
 
+## SPEC-CAP-10: opt-in karaoke
+
+`caption_style="karaoke"` is opt-in. Default phrase cards stay. Karaoke is not the house style.
+
+- Spoken word fill `#FFE14A`, rest sand `#F6EBD4`
+- No box, Clash Display, y 22–50%
+- Word timings: `words: [{text, start_s, end_s}]`
+- Textfiles / ASS, never apostrophes inline
+- SPEC-CAP-04 / no-box / no-ALL-CAPS still apply
+- `caption_add(..., style="karaoke", words=...)` is `ok: false` without timings
+
 ## SPEC-CAP-06: contrast lint
 
 After placing a card, sample the underlay in the text bbox on the midpoint still.

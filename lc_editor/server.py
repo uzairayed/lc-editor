@@ -43,6 +43,8 @@ TOOLS = [
     "motion_punch",
     "motion_zoom_in",
     "motion_zoom_out",
+    "motion_zoom_pair",
+    "motion_zoom_suggest",
     "motion_none",
     "motion_hold",
     "motion_speed",

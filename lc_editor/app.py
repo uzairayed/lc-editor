@@ -28,13 +28,14 @@ from lc_editor.lint.captions import (
 )
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import mix_issues, mix_preview_payload, sfx_too_hot
-from lc_editor.lint.review import review_blockers, review_warnings
+from lc_editor.lint.review import review_blockers, review_warnings, zoom_suggestions
 from lc_editor.presets import load_preset
 from lc_editor.analysis.beats import analyze_beats
 from lc_editor.migrate import sync_caption_layers
 from lc_editor.models import (
     CAPTION_Y_DEFAULT,
     DEFAULT_STILL_S,
+    FPS,
     SHOT_ACK_MIN_S,
     SOURCE_PROXY_H,
     SOURCE_PROXY_W,
@@ -42,6 +43,7 @@ from lc_editor.models import (
     AdjustmentLayer,
     BeatGrid,
     Caption,
+    CaptionWord,
     Clip,
     EffectInstance,
     Keyframe,
@@ -100,15 +102,20 @@ from lc_editor.ops.timeline import (
     set_speed,
     set_transition,
     set_wrap,
+    set_zoom_pair,
     split_clip,
     trim_clip,
 )
 from lc_editor.render.effects import validate_effect
+from lc_editor.render.graph import hero_encode_args, hero_encode_record
 from lc_editor.render.jobs import (
     assemble,
+    AssembleError,
     contact_sheet,
     ensure_source_proxy,
     extract_frame_args,
+    hero_export_lock,
+    HeroExportBusy,
     preview_stills,
     source_proxy_hash,
     verify_hero_av,
@@ -117,6 +124,21 @@ from lc_editor.render.jobs import (
 from lc_editor.render.runner import FakeRunner, FfmpegRunner, Runner, find_tool
 from lc_editor.render.transitions import banned_transition
 from lc_editor.store import Store
+
+
+def _caption_words(words: list | None) -> list[CaptionWord]:
+    if not words:
+        return []
+    out: list[CaptionWord] = []
+    for item in words:
+        if isinstance(item, CaptionWord):
+            out.append(item)
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        out.append(CaptionWord(text=text, start_s=float(item.get("start_s") or 0.0), end_s=float(item.get("end_s") or 0.0)))
+    return out
 
 
 class Editor:
@@ -970,6 +992,27 @@ class Editor:
     ) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "zoom_out", amount, frames))
 
+    def motion_zoom_pair(
+        self,
+        clip_id: str,
+        amount: float | None = None,
+        frames_in: int | None = None,
+        frames_out: int | None = None,
+        at_s: float | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        return self._mutate(
+            op_id,
+            lambda tl: set_zoom_pair(tl, clip_id, amount, frames_in, frames_out, at_s),
+        )
+
+    def motion_zoom_suggest(self) -> dict:
+        store = self._need()
+        suggestions = zoom_suggestions(store.timeline)
+        result = envelope(True, store.timeline, [])
+        result["suggestions"] = suggestions
+        return result
+
     def motion_none(self, clip_id: str, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "none"))
 
@@ -1016,12 +1059,22 @@ class Editor:
         box: bool = False,
         background: str | None = None,
         enter: str | None = None,
+        style: str = "phrase",
+        words: list | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
         clip = self._clip(clip_id)
+        resolved_style = style if style in ("phrase", "karaoke") else "phrase"
+        parsed_words = _caption_words(words)
+        if resolved_style == "karaoke" and not parsed_words:
+            return envelope(False, store.timeline, ["SPEC-CAP-10: karaoke needs word timings"])
         resolved_role = role if role in ("title", "body") else "body"
+        if resolved_style == "karaoke":
+            resolved_role = "title"
         resolved_enter = enter if enter in ("none", "fade", "punch") else ("punch" if resolved_role == "title" else "fade")
+        if resolved_style == "karaoke":
+            resolved_enter = "none"
         issues = caption_issues(
             text,
             y_pct=y_pct,
@@ -1033,6 +1086,8 @@ class Editor:
             return envelope(False, store.timeline, issues)
         lines = wrap_text(text)
         hold = hold_s(text, lines)
+        if parsed_words:
+            hold = max(hold, round(parsed_words[-1].end_s, 2))
 
         def apply(tl: Timeline) -> Timeline:
             cap = Caption(
@@ -1044,6 +1099,8 @@ class Editor:
                 lines=lines,
                 hold_s=hold,
                 enter=resolved_enter,
+                style=resolved_style,
+                words=parsed_words,
             )
             return tl.model_copy(update={"captions": [*tl.captions, cap]})
 
@@ -1209,14 +1266,21 @@ class Editor:
             existing = {s.key for s in tl.sfx}
             extra = []
             for clip in tl.clips:
-                if clip.motion not in ("zoom_in", "zoom_out"):
+                if clip.motion not in ("zoom_in", "zoom_out", "zoom_pair"):
                     continue
-                key = f"swipe:{clip.id}"
-                if key in existing:
-                    continue
-                extra.append(
-                    SfxPlacement(id=new_id("s"), kind="swipe", at_s=clip.start_s, gain_db=-12.0, auto=True, key=key)
-                )
+                in_at = clip.start_s + (clip.zoom_at_s or 0.0)
+                key_in = f"swipe:{clip.id}:in"
+                if key_in not in existing:
+                    extra.append(
+                        SfxPlacement(id=new_id("s"), kind="swipe", at_s=in_at, gain_db=-12.0, auto=True, key=key_in)
+                    )
+                if clip.motion == "zoom_pair":
+                    out_at = clip.start_s + clip.duration_s - (clip.zoom_frames_out / FPS)
+                    key_out = f"swipe:{clip.id}:out"
+                    if key_out not in existing:
+                        extra.append(
+                            SfxPlacement(id=new_id("s"), kind="swipe", at_s=max(0.0, out_at), gain_db=-16.0, auto=True, key=key_out)
+                        )
             return tl.model_copy(update={"sfx": [*tl.sfx, *extra]}) if extra else tl
 
         return self._mutate(op_id, apply)
@@ -1417,13 +1481,22 @@ class Editor:
             "in_target_length": 15.0 <= dur <= 28.0,
             "errors": errors,
             "warnings": warns,
+            "zoom": {
+                "pairs": sum(1 for c in store.timeline.clips if c.motion == "zoom_pair"),
+                "punches": sum(1 for c in store.timeline.clips if c.motion == "punch"),
+                "skipped": [
+                    {"id": row["clip_id"], "reason": row["reason"]}
+                    for row in zoom_suggestions(store.timeline)
+                    if row["action"] == "none"
+                ],
+            },
         }
         result = envelope(ok, store.timeline, errors + warns)
         result["errors"] = errors
         result["report"] = report
         return result
 
-    def export(self, op_id: str | None = None) -> dict:
+    def export(self, op_id: str | None = None, wait: bool = True) -> dict:
         store = self._need()
         replay = store.replay(op_id)
         if replay is not None:
@@ -1433,7 +1506,13 @@ class Editor:
         hero = store.output_dir / "reel.mp4"
         proxy = store.output_dir / "reel_proxy.mp4"
         sidecar = store.output_dir / "reel.json"
-        assemble(self.runner, store, store.project, store.timeline, self.media, hero, proxy=False)
+        try:
+            with hero_export_lock(wait=wait):
+                assemble(self.runner, store, store.project, store.timeline, self.media, hero, proxy=False)
+        except HeroExportBusy:
+            return envelope(False, store.timeline, ["hero_export_busy"])
+        except AssembleError as exc:
+            return envelope(False, store.timeline, [str(exc)])
         assemble(self.runner, store, store.project, store.timeline, self.media, proxy, proxy=True)
         media_map = {m.id: m for m in self.media}
         payload = {
@@ -1476,6 +1555,7 @@ class Editor:
             ],
             "beat_grid": store.timeline.beat_grid.model_dump() if store.timeline.beat_grid else None,
             "template_id": store.timeline.template_id,
+            "encode": hero_encode_record(hero_encode_args(hero)),
         }
         verify = verify_hero_av(self.runner, hero)
         payload["verify"] = verify

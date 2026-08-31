@@ -32,7 +32,7 @@ Each bundled item has `duration_s`, `file`, `kind`, and a one-line `license` (`o
 
 `sfx_list` returns bundled items plus any files in the project user-sfx folder. No melody, no drum loop in the bundled manifest.
 
-`sfx_zoom_auto` places a `swipe` at the start of each `zoom_in` / `zoom_out` clip. It is opt-in (speech reels stay quiet unless the agent calls it). Same call twice does not duplicate.
+`sfx_zoom_auto` places a `swipe` at the in of each `zoom_in` / `zoom_out` / `zoom_pair` clip, and a quieter swipe at the out of a `zoom_pair`. It is opt-in (speech reels stay quiet unless the agent calls it). Same call twice does not duplicate.
 
 `steps_snow` and `steps_gravel` are different waveforms (different SHA-256). Snow is a soft crunch. Gravel is a sharper multi-grain impact.
 
