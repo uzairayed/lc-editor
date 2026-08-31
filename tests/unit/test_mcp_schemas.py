@@ -65,6 +65,18 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "kind" in layout
     assert "panes" in layout
     assert "kwargs" not in layout
+    zoom_pair = schemas["motion_zoom_pair"].get("properties") or {}
+    assert "clip_id" in zoom_pair
+    assert "frames_in" in zoom_pair
+    assert "kwargs" not in zoom_pair
+    suggest = schemas["motion_zoom_suggest"].get("properties") or {}
+    assert "kwargs" not in suggest
+    caption = schemas["caption_add"]
+    cprops = caption.get("properties") or {}
+    assert "style" in cprops
+    assert "words" in cprops
+    export = schemas["export"].get("properties") or {}
+    assert "wait" in export
 
 
 def test_spec_ses_11_python_311_ok() -> None:

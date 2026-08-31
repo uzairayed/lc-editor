@@ -157,14 +157,14 @@ def test_spec_edit_12_zoom_in_out(editor: Editor, media_file: Path) -> None:
     assert zoomed["ok"] is True
     clip = editor.timeline_get()["timeline"]["clips"][-1]
     assert clip["motion"] == "zoom_in"
-    assert clip["zoom_frames"] == 12
-    assert clip["zoom_amount"] == 1.14
-    out = editor.motion_zoom_out(clip_id, frames=15, amount=1.16)
+    assert clip["zoom_frames"] == 27
+    assert clip["zoom_amount"] == 1.10
+    out = editor.motion_zoom_out(clip_id, frames=30, amount=1.12)
     assert out["ok"] is True
     clip = editor.timeline_get()["timeline"]["clips"][-1]
     assert clip["motion"] == "zoom_out"
-    assert clip["zoom_frames"] == 15
-    assert clip["zoom_amount"] == 1.16
+    assert clip["zoom_frames"] == 30
+    assert clip["zoom_amount"] == 1.12
     bad = editor.motion_zoom_in(clip_id, frames=4)
     assert bad["ok"] is False
 

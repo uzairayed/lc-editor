@@ -23,7 +23,7 @@ The timeline preview encode is 540x960, `-preset veryfast`, `-crf 30`. Edit/lint
 
 ## SPEC-EXPORT-04: review_report
 
-`review_report` returns duration, clip count, caption lint summary, mix lint summary, transition count, grade name, whether length is in 15-28s, plus structured `errors` and `warnings`.
+`review_report` returns duration, clip count, caption lint summary, mix lint summary, transition count, grade name, whether length is in 15-28s, zoom `{pairs, punches, skipped}`, plus structured `errors` and `warnings`.
 
 `ok` is false and `reviewed_version` is **not** set when any of these hold:
 
@@ -51,3 +51,27 @@ A successful `export` writes the hero reel and a proxy alongside it. Both apply 
 ## SPEC-EXPORT-07: sidecar
 
 A successful `export` writes `reel.json` next to the hero. The sidecar lists shots (source, in, out, duration, motion, crop, layout, panes), captions, layers, SFX (kind, at, gain), music (source name, gain, in/out), beat-grid BPM if present, total duration, grade, preset, template id, timeline version, and the hero/proxy paths. Replay of the same `op_id` returns the same sidecar path.
+
+## SPEC-EXPORT-08: hero encode is fixed
+
+Hero `export` is only valid if the ffmpeg graph contains:
+
+- `-c:v libx264`
+- `-preset medium` (or slower: `slow` / `veryslow`)
+- `-crf` ≤ 18
+- `-s 1080x1920` (or scale to 1080x1920)
+- `-pix_fmt yuv420p`
+
+Banned as the delivered hero: `veryfast`, `ultrafast`, `superfast`, CRF > 18, 540×960 / 360×640 canvas, a source-proxy path written to `reel.mp4`.
+
+If the runner cannot hold that (timeout, OOM, killed), `export` is `ok: false` with a clear error. Do not substitute the preview proxy or a faster preset and return success.
+
+The sidecar records `encode: {preset, crf, width, height, pix_fmt}`.
+
+## SPEC-EXPORT-09: one hero encode per machine
+
+`export` takes a process-wide lock (`/tmp/lc-editor-hero-export.lock`).
+
+- A second `export` waits, or returns `ok: false` with `hero_export_busy` if `wait=false`.
+- Default: wait.
+- Source-proxy builds and 360p/540p previews do not take this lock. The 1080 hero does.

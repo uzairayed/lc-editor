@@ -14,6 +14,8 @@ from lc_editor.models import (
     MUSIC_KINDS,
     SHOT_ACK_MIN_S,
     STILL_ACK_MIN_S,
+    ZOOM_PAIR_MIN_CLIP_S,
+    ZOOM_SUGGEST_SKIP_S,
     MediaItem,
     Project,
     Timeline,
@@ -104,6 +106,55 @@ def acknowledge_warnings(timeline: Timeline, media: list[MediaItem] | None) -> l
     return warnings
 
 
+def zoom_pair_issues(timeline: Timeline) -> list[str]:
+    if not timeline.clips:
+        return []
+    last_id = timeline.clips[-1].id
+    errors: list[str] = []
+    for clip in timeline.clips:
+        if clip.motion == "zoom_in" and clip.id != last_id:
+            errors.append(f"SPEC-RND-20: clip {clip.id} has zoom_in with no matching zoom_out")
+    return errors
+
+
+def zoom_suggestions(timeline: Timeline) -> list[dict]:
+    rows: list[dict] = []
+    prev_pair = False
+    pairs = 0
+    dur = timeline_duration(timeline)
+    budget = max(1, int(dur * 3 / 60.0 + 0.999)) if dur else 1
+    for clip in timeline.clips:
+        reasons: list[str] = []
+        action = "none"
+        if clip.duration_s < ZOOM_SUGGEST_SKIP_S:
+            reasons.append("clip shorter than 2.5s")
+        elif clip.protect:
+            reasons.append("protect/face margin at 1.10")
+        elif clip.is_still and clip.start_s < 1.2:
+            reasons.append("open still kenburns")
+        elif clip.duration_s + 1e-9 < ZOOM_PAIR_MIN_CLIP_S:
+            reasons.append("clip shorter than 3.5s")
+        elif prev_pair:
+            reasons.append("previous clip is a pair")
+        elif pairs >= budget:
+            reasons.append("pair budget")
+        else:
+            action = "pair"
+            reasons.append("stable clip with room for in/hold/out")
+        rows.append(
+            {
+                "clip_id": clip.id,
+                "action": action,
+                "at_s": round(0.15 * clip.duration_s, 3) if action == "pair" else None,
+                "reason": reasons,
+            }
+        )
+        prev_pair = action == "pair"
+        if action == "pair":
+            pairs += 1
+    return rows
+
+
 def review_blockers(
     timeline: Timeline,
     project: Project | None,
@@ -121,6 +172,7 @@ def review_blockers(
     errors.extend(layout_issues(timeline, media))
     errors.extend(decorated_transition_issues(timeline))
     errors.extend(wipe_graph_issues(timeline))
+    errors.extend(zoom_pair_issues(timeline))
     errors.extend(acknowledge_errors(timeline, media, allow_dense=allow_dense))
     cap = reject_duration(timeline)
     if cap:

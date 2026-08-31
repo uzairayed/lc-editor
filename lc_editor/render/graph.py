@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.models import CANVAS_H, CANVAS_W, FPS, AdjustmentLayer, Caption, Clip, MediaItem, Project
-from lc_editor.render.captions import drawtext_filter, fontfile_for
-from lc_editor.render.motion import crop_9_16, motion_chain
+from lc_editor.render.captions import drawtext_filter, fontfile_for, karaoke_filters, word_textfiles
+from lc_editor.render.motion import crop_9_16, even_expr, motion_chain
 from lc_editor.render.paths import ffmpeg_path
 from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter, whip_filter
 
@@ -17,7 +17,9 @@ def preview_video_filters(clip: Clip, media: MediaItem) -> str:
 
     return (
         f"scale={PROXY_W}:{PROXY_H}:force_original_aspect_ratio=increase,"
-        f"crop={PROXY_W}:{PROXY_H}"
+        f"crop={PROXY_W}:{PROXY_H}:"
+        f"'{even_expr(f'(iw-{PROXY_W})/2')}':"
+        f"'{even_expr(f'(ih-{PROXY_H})/2')}'"
     )
 
 
@@ -43,6 +45,11 @@ def clip_video_filters(
     elif composed:
         parts.append(f"scale={CANVAS_W}:{CANVAS_H}")
     for cap in captions:
+        if cap.style == "karaoke" and cap.words:
+            files = word_textfiles(cap)
+            if files and all(path.exists() for path in files):
+                parts.extend(karaoke_filters(cap, files, fontfile_for(cap)))
+                continue
         if cap.textfile:
             parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap)))
     if last and project.overlays.end_card:
@@ -60,6 +67,53 @@ def clip_video_filters(
     if transition == "punch":
         parts.append(punch_in_filter())
     return ",".join(parts)
+
+
+HERO_PRESETS = frozenset({"medium", "slow", "slower", "veryslow"})
+BANNED_HERO_PRESETS = frozenset({"ultrafast", "superfast", "veryfast", "faster", "fast"})
+
+
+def _flag_value(args: list[str], name: str) -> str | None:
+    try:
+        return args[args.index(name) + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def hero_encode_legal(args: list[str]) -> bool:
+    blob = " ".join(args)
+    if "libx264" not in args:
+        return False
+    preset = _flag_value(args, "-preset")
+    if preset in BANNED_HERO_PRESETS or preset not in HERO_PRESETS:
+        return False
+    crf_raw = _flag_value(args, "-crf")
+    try:
+        crf = int(crf_raw) if crf_raw is not None else 99
+    except ValueError:
+        return False
+    if crf > 18:
+        return False
+    if "540x960" in blob or "360x640" in blob:
+        return False
+    size = _flag_value(args, "-s")
+    if size != "1080x1920" and "1080x1920" not in blob:
+        return False
+    if _flag_value(args, "-pix_fmt") != "yuv420p":
+        return False
+    return True
+
+
+def hero_encode_record(args: list[str]) -> dict:
+    size = _flag_value(args, "-s") or "1080x1920"
+    width, _, height = size.partition("x")
+    return {
+        "preset": _flag_value(args, "-preset") or "medium",
+        "crf": int(_flag_value(args, "-crf") or 18),
+        "width": int(width or CANVAS_W),
+        "height": int(height or CANVAS_H),
+        "pix_fmt": _flag_value(args, "-pix_fmt") or "yuv420p",
+    }
 
 
 def hero_encode_args(output: Path) -> list[str]:
@@ -129,10 +183,12 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "kenburns_amount": clip.kenburns_amount,
         "zoom_frames": clip.zoom_frames,
         "zoom_amount": clip.zoom_amount,
+        "zoom_frames_out": clip.zoom_frames_out,
+        "zoom_at_s": clip.zoom_at_s,
         "effects": [e.model_dump() for e in clip.effects],
         "layout": clip.layout,
         "panes": [pane.model_dump() for pane in clip.panes],
-        "captions": [(c.text, c.y_pct, c.role, c.enter) for c in captions if c.clip_id == clip.id],
+        "captions": [(c.text, c.y_pct, c.role, c.enter, c.style, tuple((w.text, w.start_s, w.end_s) for w in c.words)) for c in captions if c.clip_id == clip.id],
         "preview": preview,
     }
     return payload

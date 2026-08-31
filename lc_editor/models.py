@@ -39,6 +39,8 @@ CAPTION_PROTECT_PX = 80
 PHONE_PROOF_W = 270
 PHONE_PROOF_H = 480
 CaptionEnter = Literal["none", "fade", "punch"]
+CaptionStyle = Literal["phrase", "karaoke"]
+KARAOKE_FILL = "0xFFE14A"
 TextMotion = Literal["none", "fade", "pop", "slide", "type_on"]
 LayerKind = Literal["video", "image", "text"]
 LayoutKind = Literal["stack_v", "stack_h", "stack_v3", "grid_2x2"]
@@ -63,17 +65,20 @@ WHIP_FRAMES = 8
 CLOSE_FADE_FRAMES = 4
 KENBURNS_ZOOM = 1.06
 PUNCH_ZOOM = 1.08
-ZOOM_HIT_FRAMES = 12
-ZOOM_HIT_AMOUNT = 1.14
-ZOOM_HIT_MIN_FRAMES = 10
-ZOOM_HIT_MAX_FRAMES = 15
-ZOOM_HIT_MIN_AMOUNT = 1.12
-ZOOM_HIT_MAX_AMOUNT = 1.16
+ZOOM_HIT_FRAMES = 27
+ZOOM_HIT_AMOUNT = 1.10
+ZOOM_HIT_MIN_FRAMES = 18
+ZOOM_HIT_MAX_FRAMES = 42
+ZOOM_HIT_MIN_AMOUNT = 1.06
+ZOOM_HIT_MAX_AMOUNT = 1.14
+ZOOM_PAIR_MIN_HOLD_S = 0.40
+ZOOM_PAIR_MIN_CLIP_S = 3.5
+ZOOM_SUGGEST_SKIP_S = 2.5
 SAND = "0xF6EBD4"
 STROKE = "0x1A1410"
 STROKE_W = 3
 
-MotionKind = Literal["none", "kenburns", "punch", "zoom_in", "zoom_out"]
+MotionKind = Literal["none", "kenburns", "punch", "zoom_in", "zoom_out", "zoom_pair"]
 TransitionKind = Literal["hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match"]
 DenoiseProfile = Literal["off", "outdoor", "indoor", "auto"]
 LEGAL_TRANSITIONS = ("hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
@@ -223,6 +228,8 @@ class Clip(BaseModel):
     kenburns_amount: float = KENBURNS_ZOOM
     zoom_frames: int = ZOOM_HIT_FRAMES
     zoom_amount: float = ZOOM_HIT_AMOUNT
+    zoom_frames_out: int = ZOOM_HIT_FRAMES
+    zoom_at_s: float | None = None
     effects: list[EffectInstance] = Field(default_factory=list)
     layout: LayoutKind | None = None
     panes: list[LayoutPane] = Field(default_factory=list)
@@ -238,6 +245,12 @@ def clip_media_ids(clip: Clip) -> list[str]:
     return [clip.media_id]
 
 
+class CaptionWord(BaseModel):
+    text: str
+    start_s: float
+    end_s: float
+
+
 class Caption(BaseModel):
     id: str
     clip_id: str
@@ -248,6 +261,8 @@ class Caption(BaseModel):
     hold_s: float = 1.5
     textfile: str = ""
     enter: CaptionEnter = "fade"
+    style: CaptionStyle = "phrase"
+    words: list[CaptionWord] = Field(default_factory=list)
 
 
 class SfxPlacement(BaseModel):

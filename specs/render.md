@@ -14,7 +14,35 @@ Punch is a 100 to 108% scale-in over **4 frames** at 30fps (4/30 = 0.133...s), t
 
 ## SPEC-RND-19: zoom hit
 
-`zoom_in` scales 1.00 to `zoom_amount` (default 1.14) over `zoom_frames` (default 12), then holds. `zoom_out` starts at `zoom_amount` and eases back to 1.00 over the same window. Not Ken Burns. Not the 4-frame punch.
+`zoom_in` / `zoom_out` use a **cubic ease-in-out** ramp, not a linear `min(1,n/N)` hit. Default T is **0.90s** (27 frames) and amount **1.10**. `punch` stays the 4-frame 108% hit. See SPEC-RND-20.
+
+## SPEC-RND-20: phone ramp / zoom pair
+
+Zoom factor over a ramp of duration T:
+
+```
+t = clamp(elapsed / T, 0, 1)
+u = ease_in_out_cubic(t)
+scale = 1 + (amount - 1) * u
+```
+
+| | Default | Clamp |
+| --- | --- | --- |
+| Ramp T | 0.90s (27 frames @ 30fps) | 0.60–1.40s (18–42 frames) |
+| Amount | 1.10 | 1.06–1.14 |
+| Hold at peak | allowed | only between in and out on the same clip |
+
+`zoom_pair` is the preferred motion: in, hold, out, returning to 1.00 on the same clip.
+
+```
+in  : t0 .. t0+T     1.00 → amount
+hold: t0+T .. t1     amount
+out : t1 .. t1+T     amount → 1.00
+```
+
+`T_in + T_out + 0.40s hold` must fit in the clip. Next clip starts at scale 1.00. `motion_zoom_pair(clip_id, amount?, frames_in?, frames_out?, at_s?)`. One-sided `motion_zoom_in` / `motion_zoom_out` remain for an end-card out. `review_report` fails a mid-reel `zoom_in` with no matching out.
+
+Filtergraph uses cubic ease in `scale=...:eval=frame`. Linear `min(1,n/12)` is `ok: false` for zoom_in / zoom_out.
 
 ## SPEC-RND-03: whip
 

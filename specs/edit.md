@@ -73,9 +73,15 @@ Worked example: one 6.00s clip (in 0, out 6). Split at 2.00. First: in 0 out 2 d
 
 ## SPEC-EDIT-12: motion
 
-Exactly one of `none`, `kenburns` (~106% over the clip), `punch` (100 to 108% over 3 to 4 frames at 30fps), `zoom_in`, or `zoom_out`. Stills default to `kenburns`. A still left on `none` for 3.00s or longer warns: locked still is a slideshow.
+Exactly one of `none`, `kenburns` (~106% over the clip), `punch` (100 to 108% over 3 to 4 frames at 30fps), `zoom_in`, `zoom_out`, or `zoom_pair`. Stills default to `kenburns`. A still left on `none` for 3.00s or longer warns: locked still is a slideshow.
 
-`zoom_in` / `zoom_out` are a sudden scale hit of **1.12–1.16** over **10–15 frames** (0.35–0.50s at 30fps), default 12 frames and 1.14. Then the scale holds. This is not a 1s+ Ken Burns and not the 4-frame `punch`. Alternate in and out; do not zoom every clip the same way. `motion_zoom_in` / `motion_zoom_out` accept optional `frames` and `amount`.
+`zoom_in` / `zoom_out` / `zoom_pair` use a cubic phone ramp of **1.06–1.14** over **18–42 frames** (0.60–1.40s at 30fps), default 27 frames and 1.10. This is not a 1s+ Ken Burns and not the 4-frame `punch`. Prefer `zoom_pair` so the scale returns to 1.00 on the same clip. `motion_zoom_in` / `motion_zoom_out` remain for one-sided end-card cases.
+
+## SPEC-EDIT-22: when to zoom
+
+`motion_zoom_suggest()` returns per clip `{clip_id, action: "pair"|"punch"|"none", at_s?, reason[]}`. Default is `none`.
+
+Do pair when most of these hold: duration ≥ 3.5s, picture is stable, a payoff inside the clip, face/protect still has margin at 1.10, previous clip was not a pair, at most 3 pairs per 60s. Clip < 2.5s, tight protect, or an opening still Ken Burns: `none`. `review_report` includes `zoom: {pairs, punches, skipped}` and fails a mid-reel `zoom_in` with no out.
 
 ## SPEC-EDIT-13: transitions
 
