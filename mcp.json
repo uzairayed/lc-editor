@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "lc-editor": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/uzairayed/lc-editor.git",
+        "lc-editor",
+        "serve"
+      ]
+    }
+  }
+}
