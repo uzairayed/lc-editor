@@ -63,11 +63,17 @@ WHIP_FRAMES = 8
 CLOSE_FADE_FRAMES = 4
 KENBURNS_ZOOM = 1.06
 PUNCH_ZOOM = 1.08
+ZOOM_HIT_FRAMES = 12
+ZOOM_HIT_AMOUNT = 1.14
+ZOOM_HIT_MIN_FRAMES = 10
+ZOOM_HIT_MAX_FRAMES = 15
+ZOOM_HIT_MIN_AMOUNT = 1.12
+ZOOM_HIT_MAX_AMOUNT = 1.16
 SAND = "0xF6EBD4"
 STROKE = "0x1A1410"
 STROKE_W = 3
 
-MotionKind = Literal["none", "kenburns", "punch"]
+MotionKind = Literal["none", "kenburns", "punch", "zoom_in", "zoom_out"]
 TransitionKind = Literal["hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match"]
 DenoiseProfile = Literal["off", "outdoor", "indoor", "auto"]
 LEGAL_TRANSITIONS = ("hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
@@ -86,6 +92,15 @@ SfxKind = Literal[
     "steps_snow",
     "steps_gravel",
     "engine",
+    "sparkle",
+    "swipe",
+    "bubble",
+    "button",
+    "paper",
+    "cash",
+    "click",
+    "correct",
+    "success",
 ]
 MEDIA_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
 MEDIA_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
@@ -206,6 +221,8 @@ class Clip(BaseModel):
     speed: float = 1.0
     wrap: Literal["off", "soft"] = "off"
     kenburns_amount: float = KENBURNS_ZOOM
+    zoom_frames: int = ZOOM_HIT_FRAMES
+    zoom_amount: float = ZOOM_HIT_AMOUNT
     effects: list[EffectInstance] = Field(default_factory=list)
     layout: LayoutKind | None = None
     panes: list[LayoutPane] = Field(default_factory=list)

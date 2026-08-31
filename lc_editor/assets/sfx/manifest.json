@@ -3,52 +3,116 @@
     {
       "kind": "tick",
       "file": "tick.wav",
-      "duration_s": 0.04
+      "duration_s": 0.04,
+      "license": "original"
     },
     {
       "kind": "pop",
       "file": "pop.wav",
-      "duration_s": 0.06
+      "duration_s": 0.06,
+      "license": "original"
     },
     {
       "kind": "whoosh",
       "file": "whoosh.wav",
-      "duration_s": 0.22
+      "duration_s": 0.22,
+      "license": "original"
     },
     {
       "kind": "impact",
       "file": "impact.wav",
-      "duration_s": 0.12
+      "duration_s": 0.12,
+      "license": "original"
     },
     {
       "kind": "riser",
       "file": "riser.wav",
-      "duration_s": 0.3
+      "duration_s": 0.3,
+      "license": "original"
     },
     {
       "kind": "wind",
       "file": "wind.wav",
-      "duration_s": 1.0
+      "duration_s": 1.0,
+      "license": "original"
     },
     {
       "kind": "room",
       "file": "room.wav",
-      "duration_s": 1.0
+      "duration_s": 1.0,
+      "license": "original"
     },
     {
       "kind": "steps_snow",
       "file": "steps_snow.wav",
-      "duration_s": 0.28
+      "duration_s": 0.28,
+      "license": "original"
     },
     {
       "kind": "steps_gravel",
       "file": "steps_gravel.wav",
-      "duration_s": 0.22
+      "duration_s": 0.22,
+      "license": "original"
     },
     {
       "kind": "engine",
       "file": "engine.wav",
-      "duration_s": 1.0
+      "duration_s": 1.0,
+      "license": "original"
+    },
+    {
+      "kind": "sparkle",
+      "file": "sparkle.wav",
+      "duration_s": 0.3,
+      "license": "original"
+    },
+    {
+      "kind": "swipe",
+      "file": "swipe.wav",
+      "duration_s": 0.16,
+      "license": "original"
+    },
+    {
+      "kind": "bubble",
+      "file": "bubble.wav",
+      "duration_s": 0.18,
+      "license": "original"
+    },
+    {
+      "kind": "button",
+      "file": "button.wav",
+      "duration_s": 0.08,
+      "license": "original"
+    },
+    {
+      "kind": "paper",
+      "file": "paper.wav",
+      "duration_s": 0.24,
+      "license": "original"
+    },
+    {
+      "kind": "cash",
+      "file": "cash.wav",
+      "duration_s": 0.2,
+      "license": "original"
+    },
+    {
+      "kind": "click",
+      "file": "click.wav",
+      "duration_s": 0.05,
+      "license": "original"
+    },
+    {
+      "kind": "correct",
+      "file": "correct.wav",
+      "duration_s": 0.22,
+      "license": "original"
+    },
+    {
+      "kind": "success",
+      "file": "success.wav",
+      "duration_s": 0.4,
+      "license": "original"
     }
   ],
   "music": false

@@ -21,7 +21,17 @@ SFX_KINDS = [
     ("steps_snow", 0.28),
     ("steps_gravel", 0.22),
     ("engine", 1.00),
+    ("sparkle", 0.30),
+    ("swipe", 0.16),
+    ("bubble", 0.18),
+    ("button", 0.08),
+    ("paper", 0.24),
+    ("cash", 0.20),
+    ("click", 0.05),
+    ("correct", 0.22),
+    ("success", 0.40),
 ]
+SFX_LICENSE = "original"
 
 RATE = 48000
 LUT_SIZE = 17
@@ -115,6 +125,60 @@ def generate_sfx(kind: str, seconds: float) -> list[float]:
             0.15 * math.sin(2 * math.pi * 70 * i / RATE) + nse * 0.04
             for i, nse in enumerate(_noise(n, 1.0, 19))
         ]
+    if kind == "sparkle":
+        env = [math.exp(-i / 1800) for i in range(n)]
+        high = _tone(n, 1864, 0.35)
+        higher = _tone(n, 2489, 0.22)
+        shimmer = [math.sin(2 * math.pi * 12 * i / RATE) * 0.08 for i in range(n)]
+        return [(high[i] + higher[i] + shimmer[i]) * env[i] for i in range(n)]
+    if kind == "swipe":
+        noise = _highpass(_noise(n, 0.28, 41), 0.72)
+        env = [math.sin(math.pi * i / n) ** 1.4 for i in range(n)]
+        return [a * b for a, b in zip(noise, env)]
+    if kind == "bubble":
+        env = [math.exp(-i / 900) for i in range(n)]
+        return [
+            0.4 * math.sin(2 * math.pi * (420 + 380 * i / n) * i / RATE) * env[i] for i in range(n)
+        ]
+    if kind == "button":
+        env = [math.exp(-i / 90) for i in range(n)]
+        return [a * b for a, b in zip(_tone(n, 880, 0.45), env)]
+    if kind == "paper":
+        rustle = _highpass(_lowpass(_noise(n, 0.5, 67), 0.35), 0.25)
+        flutter = [0.4 + 0.6 * abs(math.sin(2 * math.pi * 18 * i / RATE)) for i in range(n)]
+        fade = [min(1.0, i / 200, (n - i) / 400) for i in range(n)]
+        return [rustle[i] * flutter[i] * fade[i] * 0.55 for i in range(n)]
+    if kind == "cash":
+        samples = [0.0] * n
+        for start, hz, amp in ((0, 2400, 0.5), (int(0.04 * RATE), 3200, 0.35)):
+            for i in range(n - start):
+                samples[start + i] += amp * math.sin(2 * math.pi * hz * i / RATE) * math.exp(-i / 700)
+        return samples
+    if kind == "click":
+        samples = [0.0] * n
+        for i in range(min(30, n)):
+            samples[i] = 0.55 if i < 8 else 0.0
+        gap = min(80, n - 1)
+        for i in range(min(40, max(0, n - gap))):
+            samples[gap + i] = 0.35 if i < 6 else 0.0
+        return samples
+    if kind == "correct":
+        env = [math.exp(-i / 1400) for i in range(n)]
+        first = _tone(n, 987, 0.4)
+        second = [0.0] * n
+        offset = min(n - 1, int(0.06 * RATE))
+        ding = _tone(max(1, n - offset), 1318, 0.35)
+        for i, sample in enumerate(ding):
+            if offset + i < n:
+                second[offset + i] = sample
+        return [(first[i] + second[i]) * env[i] for i in range(n)]
+    if kind == "success":
+        samples = [0.0] * n
+        notes = ((0, 523, 0.32), (int(0.08 * RATE), 659, 0.32), (int(0.16 * RATE), 784, 0.36))
+        for start, hz, amp in notes:
+            for i in range(n - start):
+                samples[start + i] += amp * math.sin(2 * math.pi * hz * i / RATE) * math.exp(-i / 2200)
+        return samples
     return _noise(n, 0.05, 3)
 
 
@@ -196,7 +260,10 @@ def ensure_assets() -> Path:
         if _cube_stale(path):
             write_cube(path, name)
     manifest = {
-        "items": [{"kind": k, "file": f"{k}.wav", "duration_s": s} for k, s in SFX_KINDS],
+        "items": [
+            {"kind": k, "file": f"{k}.wav", "duration_s": s, "license": SFX_LICENSE}
+            for k, s in SFX_KINDS
+        ],
         "music": False,
     }
     (SFX_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

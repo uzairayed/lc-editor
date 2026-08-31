@@ -4,6 +4,12 @@ from lc_editor.models import (
     LEGAL_TRANSITIONS,
     SPEED_MAX,
     SPEED_MIN,
+    ZOOM_HIT_AMOUNT,
+    ZOOM_HIT_FRAMES,
+    ZOOM_HIT_MAX_AMOUNT,
+    ZOOM_HIT_MAX_FRAMES,
+    ZOOM_HIT_MIN_AMOUNT,
+    ZOOM_HIT_MIN_FRAMES,
     Clip,
     MediaItem,
     Timeline,
@@ -150,15 +156,30 @@ def mute_clip(timeline: Timeline, clip_id: str, muted: bool) -> Timeline:
     return timeline.model_copy(update={"clips": clips})
 
 
-def set_motion(timeline: Timeline, clip_id: str, motion: str, amount: float | None = None) -> Timeline:
+def set_motion(
+    timeline: Timeline,
+    clip_id: str,
+    motion: str,
+    amount: float | None = None,
+    frames: int | None = None,
+) -> Timeline:
     if motion == "hold":
         motion = "none"
-    if motion not in ("none", "kenburns", "punch"):
-        raise Reject("SPEC-EDIT-12: motion must be none, kenburns, or punch")
+    if motion not in ("none", "kenburns", "punch", "zoom_in", "zoom_out"):
+        raise Reject("SPEC-EDIT-12: motion must be none, kenburns, punch, zoom_in, or zoom_out")
     i = _clip_index(timeline, clip_id)
     clips = list(timeline.clips)
     update: dict = {"motion": motion}
-    if amount is not None:
+    if motion in ("zoom_in", "zoom_out"):
+        zoom_frames = ZOOM_HIT_FRAMES if frames is None else int(frames)
+        zoom_amount = ZOOM_HIT_AMOUNT if amount is None else float(amount)
+        if zoom_frames < ZOOM_HIT_MIN_FRAMES or zoom_frames > ZOOM_HIT_MAX_FRAMES:
+            raise Reject("SPEC-EDIT-12: zoom frames must be 10-15 (0.35-0.50s)")
+        if zoom_amount < ZOOM_HIT_MIN_AMOUNT or zoom_amount > ZOOM_HIT_MAX_AMOUNT:
+            raise Reject("SPEC-EDIT-12: zoom amount must be 1.12-1.16")
+        update["zoom_frames"] = zoom_frames
+        update["zoom_amount"] = zoom_amount
+    elif amount is not None:
         update["kenburns_amount"] = amount
     clips[i] = clips[i].model_copy(update=update)
     return timeline.model_copy(update={"clips": clips})

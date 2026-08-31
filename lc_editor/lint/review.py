@@ -20,6 +20,7 @@ from lc_editor.models import (
     decorated_transition_count,
     timeline_duration,
 )
+from lc_editor.assets.pack import sfx_manifest
 from lc_editor.render.transitions import banned_transition, graph_has_wipe, transition_video
 
 
@@ -152,6 +153,14 @@ def review_warnings(
             warns.append("SPEC-SND-15: music is present without source attribution")
         if any(track.gain_db > -3.0 for track in timeline.music):
             warns.append("SPEC-SND-15: music gain is hotter than -3 dB")
+    licenses = {item["kind"]: str(item.get("license") or "").strip() for item in sfx_manifest()}
+    seen_sfx: set[str] = set()
+    for sfx in timeline.sfx:
+        if sfx.kind in seen_sfx:
+            continue
+        seen_sfx.add(sfx.kind)
+        if not licenses.get(sfx.kind):
+            warns.append(f"SPEC-SND-02: SFX {sfx.kind} has no license")
     if timeline.beat_grid and timeline.beat_grid.confidence < BEAT_CONFIDENCE_WARN:
         warns.append(f"SPEC-SND-13: beat grid confidence {timeline.beat_grid.confidence:.2f} is low")
     return warns
