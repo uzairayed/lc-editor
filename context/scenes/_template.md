@@ -4,7 +4,7 @@ Triggers: the subjects that should open this file. Keep them on INDEX too.
 
 ## Intent
 
-Why this shot exists in a 15 to 28s place reel.
+Why this shot exists in the reel.
 
 ## Hold
 
@@ -12,7 +12,7 @@ Which hold word from `context/HOW.md`, plus the branch that picks it (reveal vs 
 
 ## Role
 
-One of `hook`, `journey`, `site_wide`, `site_detail`, `closer`.
+One of `hook`, `motion` (`journey`), `wide` (`site_wide`), `detail` (`site_detail`), `closer`.
 
 ## Cut
 

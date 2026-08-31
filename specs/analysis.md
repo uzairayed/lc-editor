@@ -60,14 +60,14 @@ One JPEG per shot at source-proxy resolution under `cache/analysis/keyframes/{sh
 
 ## SPEC-ANA-07: role ranking
 
-`shots_rank(role, top_k=5, sheet=false)` with roles `hook`, `journey`, `site_wide`, `site_detail`, `closer`.
+`shots_rank(role, top_k=5, sheet=false)` with roles `hook`, `journey`, `site_wide`, `site_detail`, `closer`. Aliases: `motion` / `body` → `journey`, `wide` → `site_wide`, `detail` → `site_detail`. Prefer the aliases in new cuts. Old names stay valid.
 
 Scoring (higher wins):
 
-- `hook`: sharpness + mid-range luma energy. High-motion shots on the first imported file are penalized (highway openers).
-- `journey`: motion, plus a bonus when `audio_class` is `engine`.
-- `site_wide`: low motion + high luma spread.
-- `site_detail`: high sharpness + low motion.
+- `hook`: sharpness + mid-range luma energy. High-motion shots on the first imported file are penalized.
+- `journey` / `motion`: motion only. No engine-audio bonus.
+- `site_wide` / `wide`: low motion + high luma spread.
+- `site_detail` / `detail`: high sharpness + low motion.
 - `closer`: low motion + longer duration.
 
 Unknown role: `ok: false`. `top_k` larger than the pool returns the whole pool, still `ok`. Ties break by `id` ascending. Response includes keyframe paths. `sheet: true` writes a contact sheet of only those keyframes under `output/rank_{role}.jpg` and returns `path`.

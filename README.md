@@ -2,7 +2,7 @@
 
 A local video editor for a computer use agent, made for grokbot. You drive it from an MCP client; there is no timeline UI to click. You send tool calls; ffmpeg renders the file.
 
-Built for short 9:16 reels (1080x1920, 30fps). Captions are stroke-and-shadow text, never a box. Sound is the owner's call, not the editor's: ask before assuming music or natural audio. This version composites multiple layers, applies a small effect pack, expands templates into ordinary timeline items, and can mix owner-imported music with beat sync. Engine rules live in `specs/craft.md`. Karachi episode structure is an optional preset, not the default.
+Built for short 9:16 reels (1080x1920, 30fps). Captions are stroke-and-shadow text, never a box. Sound, duration, and caption density are the owner's call: ask before you cut. This version composites multiple layers, applies a small effect pack, expands templates into ordinary timeline items, and can mix owner-imported music with beat sync. Engine rules live in `specs/craft.md`. Series branding (for example Karachi) is an optional preset, not the default.
 
 ## Needs
 
@@ -75,7 +75,7 @@ Optional: `project_create(..., preset="karachi")` loads series branding. Other r
 | Effects | Registry: blur, sharpen, glow, grain, vignette, lut, color |
 | Text | Stroke-and-shadow only. Motion: fade, pop, slide, type-on |
 | Templates | `editorial`, `karachi`; apply expands to ordinary layers |
-| Sound | Natural audio, beds, SFX (ride kinds plus reel `sparkle`/`swipe`/`bubble`/`button`/`paper`/`cash`/`click`/`keyboard`/`correct`/`success`). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
+| Sound | Natural audio, beds, SFX (`tick`, `whoosh`, `swipe`, `button`, `keyboard`, and the rest of the bundled pack). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
 | Beat sync | `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply` |
 | Look | One adjustment layer (LUT, grain, vignette) after the cut |
 
@@ -87,28 +87,35 @@ Once the MCP server is in grokbot's config, hand it a prompt like this:
 You have an MCP server called lc-editor. It is a video editor you control
 entirely through tool calls; ffmpeg does the rendering.
 
-My raw clips are in <folder>. Cut a 9:16 reel of <subject>, 15 to 28 seconds.
-Follow the craft rules in specs/craft.md: stroke-and-shadow captions with no
-background box, hard cuts on motion.
+My raw clips are in <folder>. Cut a 9:16 reel.
 
-Before you touch the timeline, ask me what I want for sound: music or natural
-audio only. Do not assume either way. If I ask for music, call
-project_set(allow_music=true), import my track, music_add it, beat_analyze,
-show me beat_sync_preview, then beat_sync_apply only after I confirm.
+Follow specs/craft.md: stroke-and-shadow captions with no background box,
+hard cuts on motion.
 
-Work in passes: analyze the footage first, pick the strongest shots, then
-match what you see in the keyframes to context/INDEX.md and read only those
-scene cards (process in context/HOW.md) before you set durations or roles.
-Build the timeline. An occasional two-up is context/scenes/pair.md.
-A reel that is mostly stacks is collage.md. Two ride POVs is
-ride-pair.md. Add layers or a template if needed, then run
-review_report and fix every warning before you export. Show me
-preview stills at each pass.
+Before you import or cut, ask me:
+1. What is this reel about?
+2. How long should it be? (default 15 to 28s, cap 60s)
+3. Music, or natural audio only?
+4. Sparse captions, or a line on every clip?
+
+Store the answers with project_set (subject, target_duration_s,
+caption_mode). If I want music, project_set(allow_music=true), import
+my track, music_add it, beat_analyze, show beat_sync_preview, then
+beat_sync_apply only after I confirm.
+
+Do not assume a travel series, a motorcycle cut, or a grade. Work in
+passes: analyze the footage, pick the strongest shots, match what you
+see in the keyframes to context/INDEX.md and read only those scene
+cards (context/HOW.md). If nothing matches, use ack. Build the
+timeline. An occasional two-up is context/scenes/pair.md. A reel that
+is mostly stacks is collage.md. Add layers or a template if needed,
+then run review_report and fix every warning before you export. Show
+me preview stills at each pass.
 ```
 
-Swap the folder, subject, and any series preset (for example `preset="karachi"`) into the prompt as needed.
+Swap the folder into the prompt as needed. Add `preset="karachi"` only for that series.
 
-Scene holds (door as a reveal, tile as a detail, highway as punctuation) live in `context/`. The agent looks up subjects in `context/INDEX.md` and reads only the matching cards. That library is editorial judgment. Engine floors in `specs/craft.md` still win when they conflict.
+Scene holds live in `context/`. The agent looks up subjects in `context/INDEX.md` and reads only the matching cards. Ride cards stay on the shelf unless those subjects are in the footage. Engine floors in `specs/craft.md` still win when they conflict.
 
 ## Not in this version
 

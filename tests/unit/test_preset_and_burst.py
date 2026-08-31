@@ -7,6 +7,23 @@ from lc_editor.render.runner import FakeRunner
 from tests.conftest import touch_media
 
 
+def test_spec_ses_15_brief_fields(editor: Editor) -> None:
+    project = editor.project_get()["project"]
+    assert project["subject"] == ""
+    assert project["target_duration_s"] is None
+    assert project["caption_mode"] == "sparse"
+    set_ok = editor.project_set(subject="Cafe cursor demo", target_duration_s=20.0, caption_mode="caption_must")
+    assert set_ok["ok"] is True
+    got = editor.project_get()["project"]
+    assert got["subject"] == "Cafe cursor demo"
+    assert got["target_duration_s"] == 20.0
+    assert got["caption_mode"] == "caption_must"
+    bad = editor.project_set(target_duration_s=90.0)
+    assert bad["ok"] is False
+    mode = editor.project_set(caption_mode="boxes")
+    assert mode["ok"] is False
+
+
 def test_spec_ses_12_karachi_is_optional(tmp_path: Path) -> None:
     ed = Editor(workspace=tmp_path, runner=FakeRunner())
     ed.project_create(name="plain", project_dir=str(tmp_path / "plain"))

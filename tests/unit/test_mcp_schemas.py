@@ -61,6 +61,10 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "kwargs" not in rank
     review = schemas["review_report"].get("properties") or {}
     assert "allow_dense" in review
+    project_set = schemas["project_set"].get("properties") or {}
+    assert "subject" in project_set
+    assert "target_duration_s" in project_set
+    assert "caption_mode" in project_set
     layout = schemas["layout_add"].get("properties") or {}
     assert "kind" in layout
     assert "panes" in layout

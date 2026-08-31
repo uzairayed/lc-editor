@@ -1,6 +1,6 @@
 # SPEC-CRAFT: Engine invariants
 
-These rules belong to the editor. They apply to every project, including Murree. Series branding is not here.
+These rules belong to the editor. They apply to every project. Series branding is not here.
 
 ## SPEC-CRAFT-01: sound policy belongs to the owner
 
@@ -30,7 +30,7 @@ SFX must sit at least 6 dB under the bed (bed treated as 0 dB when none is set).
 
 ## SPEC-CRAFT-08: outdoor audio is denoised
 
-Ride wind is not a highpass-only problem. Outdoor audio uses SPEC-SND-10. SPEC-CRAFT-01 still applies.
+Outdoor wind is not a highpass-only problem. Outdoor audio uses SPEC-SND-10. SPEC-CRAFT-01 still applies.
 
 ## SPEC-CRAFT-07: series is a preset
 

@@ -35,6 +35,16 @@ def test_journey_prefers_highest_motion() -> None:
     assert ranked[0].id == "hash_01"
 
 
+def test_journey_does_not_prefer_engine() -> None:
+    shots = [
+        _shot("m1", 0, metrics=ShotMetrics(motion=0.5, audio_class="engine")),
+        _shot("m1", 1, metrics=ShotMetrics(motion=0.5, audio_class="speech")),
+    ]
+    ranked = rank_shots(shots, "motion", 2)
+    assert score_shot(shots[0], "journey") == score_shot(shots[1], "journey")
+    assert [s.id for s in ranked] == ["hash_00", "hash_01"]
+
+
 def test_closer_prefers_calm_long_shot() -> None:
     shots = [
         _shot("m1", 0, metrics=ShotMetrics(motion=0.9), length=8.0),
@@ -66,6 +76,8 @@ def test_shots_rank_unknown_role_and_top_k(editor: Editor, media_file: Path) -> 
     write_manifest(editor._manifest_for(editor.media[0]), shots)
     bad = editor.shots_rank("highway")
     assert bad["ok"] is False
+    wide = editor.shots_rank("wide", top_k=2)
+    assert wide["ok"] is True
     all_roles = editor.shots_rank("hook", top_k=99)
     assert all_roles["ok"] is True
     assert len(all_roles["shots"]) == 3

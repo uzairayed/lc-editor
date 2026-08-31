@@ -260,6 +260,9 @@ class Editor:
         allow_music: bool | None = None,
         name: str | None = None,
         preset: str | None = None,
+        subject: str | None = None,
+        target_duration_s: float | None = None,
+        caption_mode: str | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -270,6 +273,16 @@ class Editor:
             update["allow_music"] = allow_music
         if name:
             update["name"] = name
+        if subject is not None:
+            update["subject"] = subject.strip()
+        if target_duration_s is not None:
+            if target_duration_s <= 0 or target_duration_s > 60.0:
+                return envelope(False, store.timeline, ["SPEC-SES-15: target_duration_s must be in (0, 60]"])
+            update["target_duration_s"] = float(target_duration_s)
+        if caption_mode is not None:
+            if caption_mode not in ("sparse", "caption_must"):
+                return envelope(False, store.timeline, ["SPEC-SES-15: caption_mode must be sparse or caption_must"])
+            update["caption_mode"] = caption_mode
         if preset is not None:
             if preset == "":
                 update["preset"] = None

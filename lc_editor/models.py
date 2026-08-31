@@ -79,6 +79,7 @@ DenoiseProfile = Literal["off", "outdoor", "indoor", "auto"]
 LEGAL_TRANSITIONS = ("hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
 DECORATED_TRANSITIONS = ("whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
 CaptionRole = Literal["title", "body"]
+CaptionMode = Literal["sparse", "caption_must"]
 BedKind = Literal["wind", "room", "none"]
 GradePreset = Literal["motovlog", "winter_trip", "neutral"]
 SfxKind = Literal[
@@ -330,6 +331,9 @@ class Project(BaseModel):
     overlays: OverlayFlags = Field(default_factory=OverlayFlags)
     reviewed_version: int | None = None
     preset: str | None = None
+    subject: str = ""
+    target_duration_s: float | None = None
+    caption_mode: CaptionMode = "sparse"
     grain: float = 0.0
     vignette: float = 0.0
     adjustment: AdjustmentLayer = Field(default_factory=AdjustmentLayer)

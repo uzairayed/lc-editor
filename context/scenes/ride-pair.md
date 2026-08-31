@@ -1,6 +1,8 @@
 # Ride pair
 
-Triggers: two-up ride, two helmet POVs, two N-5 wides, two overtake lanes seen at once, two highway or cockpit frames in one slot.
+Use this card only when those subjects are in the frame, or with `preset="karachi"`. It is not the default two-up.
+
+Triggers: two-up ride, two helmet POVs, two road wides, two overtake lanes seen at once, two highway or cockpit frames in one slot.
 
 ## Intent
 

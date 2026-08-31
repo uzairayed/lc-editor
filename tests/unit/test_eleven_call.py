@@ -13,6 +13,8 @@ def test_spec_ses_08_eleven_call_session(editor: Editor, tmp_path: Path) -> None
 
     created = editor.project_get()
     assert created["project"]["aspect"] == "9:16"
+    brief = editor.project_set(subject="demo reel", target_duration_s=22.0, caption_mode="sparse")
+    assert brief["ok"] is True
 
     imported = editor.import_folder(str(inbox))
     assert imported["ok"] is True
@@ -41,22 +43,22 @@ def test_spec_ses_08_eleven_call_session(editor: Editor, tmp_path: Path) -> None
         assert editor.motion_kenburns(clip_id)["ok"] is True
 
     captions = [
-        "Sites Karachi Ep 1",
-        "100 km down the N-5",
-        "Cafe Imran, Gharo",
-        "Makli necropolis",
-        "Full route in Ep 2",
+        "Hook in one line",
+        "Second beat",
+        "What it does",
+        "The detail",
+        "Save this",
     ]
     for clip_id, text in zip(ids[:5], captions):
         added = editor.caption_add(clip_id, text)
         assert added["ok"] is True, added
 
-    assert editor.audio_bed("wind")["ok"] is True
+    assert editor.audio_bed("room")["ok"] is True
     assert editor.sfx_caption_auto()["ok"] is True
-    assert editor.sfx_place("whoosh", at_s=4.0, gain_db=-12.0)["ok"] is True
+    assert editor.sfx_place("button", at_s=4.0, gain_db=-12.0)["ok"] is True
     assert editor.sfx_place("whoosh", at_s=12.0, gain_db=-12.0)["ok"] is True
 
-    assert editor.grade_preset("winter_trip")["ok"] is True
+    assert editor.grade_preset("neutral")["ok"] is True
     assert editor.overlay_preview("ig")["ok"] is True
 
     stills = editor.preview_stills()

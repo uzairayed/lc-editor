@@ -86,12 +86,13 @@ def test_spec_ses_08_eleven_call_real_ffmpeg(tmp_path: Path) -> None:
 
     editor.clip_refocus(ids[0], 0.5, 0.4)
     editor.motion_kenburns(ids[1])
-    assert editor.caption_add(ids[0], "Cafe Imran, Gharo")["ok"]
+    assert editor.caption_add(ids[0], "Hook in one line")["ok"]
 
-    editor.audio_bed("wind")
+    editor.project_set(subject="demo reel", target_duration_s=20.0, caption_mode="sparse")
+    editor.audio_bed("room")
     editor.sfx_caption_auto()
     editor.sfx_place("whoosh", 2.0, -12.0)
-    editor.grade_preset("winter_trip")
+    editor.grade_preset("neutral")
     editor.overlay_preview("ig")
     editor.preview_stills()
     editor.preview_proxy()
