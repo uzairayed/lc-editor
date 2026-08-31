@@ -75,7 +75,7 @@ Optional: `project_create(..., preset="karachi")` loads series branding. Other r
 | Effects | Registry: blur, sharpen, glow, grain, vignette, lut, color |
 | Text | Stroke-and-shadow only. Motion: fade, pop, slide, type-on |
 | Templates | `editorial`, `karachi`; apply expands to ordinary layers |
-| Sound | Natural audio, beds, SFX (ride kinds plus reel `sparkle`/`swipe`/`bubble`/`button`/`paper`/`cash`/`click`/`correct`/`success`). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
+| Sound | Natural audio, beds, SFX (ride kinds plus reel `sparkle`/`swipe`/`bubble`/`button`/`paper`/`cash`/`click`/`keyboard`/`correct`/`success`). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
 | Beat sync | `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply` |
 | Look | One adjustment layer (LUT, grain, vignette) after the cut |
 

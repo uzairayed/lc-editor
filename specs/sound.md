@@ -23,10 +23,11 @@ Reel / UI kinds (original wavs, not a vendor pack):
 | `paper` | paper rustle / page |
 | `cash` | coin / register clink |
 | `click` | mouse click |
+| `keyboard` | three key clacks (`keyboard` ≠ `click` / `tick`) |
 | `correct` | quiz right-answer ding |
 | `success` | longer success chime than `correct` |
 
-`swipe` ≠ `whoosh`. `button` ≠ `tick`. `bubble` ≠ `pop`. `correct` and `success` are distinct wavs.
+`swipe` ≠ `whoosh`. `button` ≠ `tick`. `bubble` ≠ `pop`. `keyboard` ≠ `click`. `correct` and `success` are distinct wavs.
 
 Each bundled item has `duration_s`, `file`, `kind`, and a one-line `license` (`original` or `CC0`). No vendor id field. Review warns if a placed SFX has an empty license (same spirit as music `source_name`).
 

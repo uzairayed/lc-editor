@@ -29,6 +29,7 @@ REEL_SFX = (
     "paper",
     "cash",
     "click",
+    "keyboard",
     "correct",
     "success",
 )

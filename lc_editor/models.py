@@ -99,6 +99,7 @@ SfxKind = Literal[
     "paper",
     "cash",
     "click",
+    "keyboard",
     "correct",
     "success",
 ]

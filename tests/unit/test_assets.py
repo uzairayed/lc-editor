@@ -17,14 +17,22 @@ def test_spec_snd_02_snow_and_gravel_differ() -> None:
 
 def test_spec_snd_02_reel_pack_waveforms_distinct() -> None:
     ensure_assets()
-    pairs = (("swipe", "whoosh"), ("button", "tick"), ("bubble", "pop"), ("correct", "success"))
+    pairs = (
+        ("swipe", "whoosh"),
+        ("button", "tick"),
+        ("bubble", "pop"),
+        ("correct", "success"),
+        ("keyboard", "click"),
+        ("keyboard", "tick"),
+        ("keyboard", "button"),
+    )
     for left, right in pairs:
         a = sfx_path(left).read_bytes()
         b = sfx_path(right).read_bytes()
         assert hashlib.sha256(a).hexdigest() != hashlib.sha256(b).hexdigest()
         assert generate_sfx(left, 0.2) != generate_sfx(right, 0.2)
     kinds = {item["kind"] for item in sfx_manifest()}
-    for kind in ("sparkle", "swipe", "bubble", "button", "paper", "cash", "click", "correct", "success"):
+    for kind in ("sparkle", "swipe", "bubble", "button", "paper", "cash", "click", "keyboard", "correct", "success"):
         assert kind in kinds
         item = next(i for i in sfx_manifest() if i["kind"] == kind)
         assert item.get("license") in ("original", "CC0")

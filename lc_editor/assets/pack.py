@@ -28,6 +28,7 @@ SFX_KINDS = [
     ("paper", 0.24),
     ("cash", 0.20),
     ("click", 0.05),
+    ("keyboard", 0.28),
     ("correct", 0.22),
     ("success", 0.40),
 ]
@@ -162,6 +163,19 @@ def generate_sfx(kind: str, seconds: float) -> list[float]:
         for i in range(min(40, max(0, n - gap))):
             samples[gap + i] = 0.35 if i < 6 else 0.0
         return samples
+    if kind == "keyboard":
+        samples = [0.0] * n
+        grit = _highpass(_noise(n, 0.7, 97), 0.55)
+        hits = ((0, 0.62), (int(0.09 * RATE), 0.48), (int(0.19 * RATE), 0.55))
+        for start, amp in hits:
+            if start >= n:
+                continue
+            for i in range(min(900, n - start)):
+                click = 0.85 if i < 18 else 0.0
+                body = 0.22 * math.sin(2 * math.pi * 190 * i / RATE)
+                samples[start + i] += (click + body + grit[start + i] * 0.35) * amp * math.exp(-i / 70)
+        peak = max(abs(s) for s in samples) or 1.0
+        return [s / peak * 0.65 for s in samples]
     if kind == "correct":
         env = [math.exp(-i / 1400) for i in range(n)]
         first = _tone(n, 987, 0.4)

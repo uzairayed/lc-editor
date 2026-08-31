@@ -103,6 +103,12 @@
       "license": "original"
     },
     {
+      "kind": "keyboard",
+      "file": "keyboard.wav",
+      "duration_s": 0.28,
+      "license": "original"
+    },
+    {
       "kind": "correct",
       "file": "correct.wav",
       "duration_s": 0.22,
