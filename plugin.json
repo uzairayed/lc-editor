@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "lc-editor",
+  "version": "0.1.0",
+  "description": "Local MCP video editor for 9:16 reels. ffmpeg renders; you drive it with tool calls.",
+  "author": {
+    "name": "LC Reel Craft"
+  },
+  "repository": "https://github.com/uzairayed/lc-editor",
+  "license": "MIT",
+  "keywords": ["video", "editor", "mcp", "ffmpeg", "reels", "9:16"]
+}

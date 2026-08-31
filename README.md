@@ -31,11 +31,22 @@ pipx install git+https://github.com/uzairayed/lc-editor.git
 lc-editor serve --project ./my-reel
 ```
 
-`--web` starts a page on 127.0.0.1:8765 that can show stills. It only reads.
+`--project` defaults to `./reel` if omitted. `--web` starts a page on 127.0.0.1:8765 that can show stills. It only reads.
 
-## Cursor
+## Cursor Marketplace Plugin
 
-Add this to your MCP config. Use an absolute project path.
+This repo is packaged as a Cursor Agent Plugin. Install the `lc-editor` plugin from the Cursor Marketplace and the MCP server is ready to use—no manual pipx install needed.
+
+**Requirements still apply:** ffmpeg, ffprobe, and Python 3.11+ must be on your PATH. The plugin uses `uvx` to run the server, which requires Python.
+
+The plugin includes:
+- `plugin.json` — Agent Plugins manifest
+- `mcp.json` — MCP server configuration (stdio transport)
+- `skills/lc-editor/SKILL.md` — guidance for agents on when/how to use the editor
+
+## Cursor (manual MCP config)
+
+If you prefer manual configuration instead of the marketplace plugin, add this to your MCP config:
 
 ```json
 {
@@ -49,6 +60,19 @@ Add this to your MCP config. Use an absolute project path.
 ```
 
 On Windows the path looks like `C:/Users/you/my-reel`.
+
+You can also use `uvx` to run without installing first:
+
+```json
+{
+  "mcpServers": {
+    "lc-editor": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/uzairayed/lc-editor.git", "lc-editor", "serve"]
+    }
+  }
+}
+```
 
 ## Tools
 
@@ -113,3 +137,13 @@ Scene holds (door as a reveal, tile as a detail, highway as punctuation) live in
 ## Not in this version
 
 Multicam, speech-to-captions, a stock music catalog, Drive import, or a browser you edit in.
+
+## Submitting to the Cursor Marketplace
+
+To publish this plugin to the Cursor Marketplace or Cursor Directory:
+
+1. **Cursor Marketplace:** Go to https://cursor.com/marketplace/publish, sign in, and submit the plugin using this repo's URL.
+
+2. **Cursor Directory:** Go to https://cursor.directory/plugins/new and follow the submission steps.
+
+Once published, Grok Bot templates and other agents can reference this plugin by its marketplace ID.

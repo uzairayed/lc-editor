@@ -12,7 +12,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lc-editor")
     sub = parser.add_subparsers(dest="cmd", required=True)
     serve = sub.add_parser("serve", help="MCP stdio server")
-    serve.add_argument("--project", required=True)
+    serve.add_argument("--project", default="./reel")
     serve.add_argument("--web", action="store_true")
     serve.add_argument("--web-port", type=int, default=8765)
     args = parser.parse_args(argv)
