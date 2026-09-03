@@ -22,8 +22,9 @@ from lc_editor.models import (
     Timeline,
     timeline_duration,
 )
-from lc_editor.render.audio import denoise_chain, limiter_filter, loudnorm_hero, resolve_denoise_profile
-from lc_editor.render.captions import drawtext_filter, fontfile_for
+from lc_editor.render.audio import denoise_chain, limiter_filter, loudnorm_hero, loudnorm_profile, resolve_denoise_profile
+from lc_editor.render.captions import combined_pop_ass, drawtext_filter, fontfile_for
+from lc_editor.fonts import title_font
 from lc_editor.render.effects import compile_effects
 from lc_editor.render.motion import crop_9_16, motion_chain
 from lc_editor.render.textfx import layer_drawtext
@@ -53,11 +54,12 @@ def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
                 "grade_intensity": c.grade_intensity,
                 "layout": c.layout,
                 "panes": [pane.model_dump() for pane in c.panes],
+                "cam_pip": c.cam_pip.model_dump() if c.cam_pip else None,
             }
             for c in timeline.clips
         ],
         "transitions": dict(timeline.transitions),
-        "captions": [(c.id, c.text, c.y_pct, c.role, c.enter) for c in timeline.captions],
+        "captions": [(c.id, c.text, c.y_pct, c.role, c.enter, c.style, tuple((w.text, w.start_s, w.end_s, w.emphasis) for w in c.words)) for c in timeline.captions],
         "layers": [layer.model_dump() for layer in timeline.layers],
         "music": [m.model_dump() for m in timeline.music],
         "sfx": [(s.kind, s.at_s, s.gain_db) for s in timeline.sfx],
@@ -83,6 +85,8 @@ def _clip_base_filters(clip: Clip, media: MediaItem, captions, project: Project,
     bound_ids = {layer.caption_id for layer in getattr(project, "_bound_skip", [])}
     for cap in captions:
         if cap.caption_id if hasattr(cap, "caption_id") else False:
+            continue
+        if getattr(cap, "style", "phrase") == "pop":
             continue
         if cap.textfile:
             parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap)))
@@ -138,7 +142,7 @@ def build_assemble_command(
     for clip in timeline.clips:
         item = media[clip.media_id]
         if _is_image_file(item) and not preprocessed:
-            args += ["-loop", "1", "-i", item.path, "-t", str(clip.duration_s)]
+            args += ["-loop", "1", "-t", str(clip.duration_s), "-i", item.path]
         else:
             args += ["-i", item.path]
         caps = [c for c in timeline.captions if c.clip_id == clip.id and c.id not in bound_caption_ids]
@@ -205,10 +209,29 @@ def build_assemble_command(
         filter_parts.append(f"{current}[ly{idx}]overlay={x}:{y}:{enable}{nxt}")
         current = nxt
 
-    text_layers = [layer for layer in timeline.layers if layer.kind == "text" and layer.textfile]
+    text_layers = [
+        layer
+        for layer in timeline.layers
+        if layer.kind == "text" and layer.textfile and layer.caption_id not in {c.id for c in timeline.captions if c.style == "pop"}
+    ]
     for layer in text_layers:
         filter_parts.append(f"{current}{layer_drawtext(layer, Path(layer.textfile))}[tx{layer.id}]")
         current = f"[tx{layer.id}]"
+
+    pop_caps = [c for c in timeline.captions if c.style == "pop" and c.words]
+    if pop_caps:
+        clip_start = {clip.id: clip.start_s for clip in timeline.clips}
+        ass_path = store_caption_dir / "pop.ass"
+        ass_path.parent.mkdir(parents=True, exist_ok=True)
+        ass_path.write_text(combined_pop_ass(pop_caps, clip_start, fontfile_for(pop_caps[0])), encoding="utf-8")
+        font = title_font()
+        fontsdir = font.parent if font else store_caption_dir
+        from lc_editor.render.paths import ffmpeg_path
+
+        filter_parts.append(
+            f"{current}ass='{ffmpeg_path(ass_path)}':fontsdir='{ffmpeg_path(fontsdir)}'[popc]"
+        )
+        current = "[popc]"
 
     if overlay_extra:
         filter_parts.append(f"{current}{','.join(overlay_extra)}[ovl]")
@@ -309,7 +332,7 @@ def build_assemble_command(
                 filter_parts.append("".join(audio_labels) + f"amix=inputs={n}:normalize=0:duration=longest[amix]")
         tail = limiter_filter()
         if hero and loudnorm:
-            tail = f"{tail},{loudnorm_hero()}"
+            tail = f"{tail},{loudnorm_hero(loudnorm_profile(project))}"
         pad = f"apad,atrim=0:{timeline_duration(timeline):.4f},asetpts=PTS-STARTPTS"
         filter_parts.append(f"[amix]{pad},{tail}[aout]")
         map_audio = ["-map", "[aout]"]
@@ -325,9 +348,10 @@ def build_assemble_command(
         map_audio = ["-map", f"{input_index}:a"]
 
     graph = ";".join(filter_parts)
-    cmd = args + ["-filter_complex", graph, "-map", "[vout]", *map_audio, "-shortest", *encode_args]
+    cmd = args + ["-filter_complex", graph, "-map", "[vout]", *map_audio]
     if proxy:
-        pass
+        cmd.append("-shortest")
+    cmd += list(encode_args)
     return cmd
 
 

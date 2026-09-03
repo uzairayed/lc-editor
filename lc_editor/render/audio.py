@@ -36,8 +36,18 @@ def limiter_filter() -> str:
     return f"alimiter=limit={limit:.5f}:level=false"
 
 
-def loudnorm_hero() -> str:
-    return "loudnorm=I=-16:TP=-1.5:LRA=8"
+def loudnorm_profile(project=None) -> str:
+    if project is not None and getattr(project, "loudnorm", "cinema") == "speech":
+        return "speech"
+    return "cinema"
+
+
+def loudnorm_hero(profile: str = "cinema") -> str:
+    if profile == "speech":
+        ln = "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=summary"
+    else:
+        ln = "loudnorm=I=-16:TP=-1.5:LRA=8:print_format=summary"
+    return f"{ln},aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
 
 
 def hard_cut_audio_xfade(ms: float) -> str:

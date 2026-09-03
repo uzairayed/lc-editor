@@ -150,3 +150,7 @@ Snapshots store `schema_version`. Missing or `1` loads as v1 and is migrated on 
 ## SPEC-EDIT-23: layouts
 
 `layout_add(kind, panes)` appends one clip that shows two or more sources at once. The clip stays on the gapless primary track. Kinds, pane counts, review, and render live in `specs/layouts.md`. `clip_split` on a layout is `ok: false`.
+
+## SPEC-EDIT-24: facecam PiP
+
+`cam_pip(clip_id, x, y, w, h)` crops a rect from the clip's own 16:9 media and pins it as a PiP (default overlay 632:72, ~420 wide, 3px black pad on 1080×1920). Skip when the source already fills 9:16 (`clip_refocus` COVER is enough). `cam_pip_clear` removes it. `cam_pip_suggest` returns a top-right box for 16:9.

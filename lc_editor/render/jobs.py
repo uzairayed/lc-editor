@@ -18,7 +18,7 @@ from lc_editor.models import (
     is_layout_clip,
     timeline_duration,
 )
-from lc_editor.render.captions import caption_textfile_body, write_textfile
+from lc_editor.render.captions import caption_textfile_body, write_pop_ass, write_textfile
 from lc_editor.render.motion import even_expr
 from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
 from lc_editor.assets.pack import sfx_path
@@ -47,11 +47,34 @@ class AssembleError(RuntimeError):
     pass
 
 
+def require_clip_audio(probe: dict, clip_id: str) -> None:
+    if not probe.get("has_audio"):
+        raise AssembleError(f"clip {clip_id} has no audio stream")
+
+
+def probe_has_audio(runner: Runner, path: Path) -> dict:
+    if isinstance(runner, FakeRunner):
+        return {"has_audio": bool(runner.has_audio)}
+    try:
+        probe = _ffprobe(runner)
+    except FileNotFoundError:
+        return {"has_audio": True}
+    result = runner.run(
+        [probe, "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", str(path)]
+    )
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"has_audio": False}
+    kinds = {stream.get("codec_type") for stream in payload.get("streams") or []}
+    return {"has_audio": "audio" in kinds}
+
+
 class HeroExportBusy(RuntimeError):
     pass
 
 
-def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool) -> None:
+def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool, full_args: list[str] | None = None) -> None:
     if preview:
         if result.returncode != 0 and not dest.exists():
             dest.write_bytes(b"")
@@ -68,7 +91,8 @@ def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool) ->
                 break
         detail = f" ({tail})" if tail else ""
         raise AssembleError(f"SPEC-EXPORT-08: hero encode failed{detail}")
-    if not hero_encode_legal(encode):
+    check = full_args if full_args is not None else encode
+    if not hero_encode_legal(check):
         dest.unlink(missing_ok=True)
         raise AssembleError("SPEC-EXPORT-08: hero encode is not medium/crf<=18 1080x1920")
 
@@ -232,6 +256,7 @@ def ensure_source_proxy(runner: Runner, store: Store, item: MediaItem) -> tuple[
 
 
 def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
+    clips = {c.id: c.start_s for c in timeline.clips}
     caps = []
     for cap in timeline.captions:
         path = store.caption_dir / f"{cap.id}.txt"
@@ -239,6 +264,8 @@ def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
         if cap.style == "karaoke":
             for i, word in enumerate(cap.words):
                 write_textfile(store.caption_dir / f"{cap.id}_w{i}.txt", word.text)
+        if cap.style == "pop":
+            write_pop_ass(path.with_suffix(".ass"), cap, clips.get(cap.clip_id, 0.0))
         caps.append(cap.model_copy(update={"textfile": str(path)}))
     layers = []
     for layer in timeline.layers:
@@ -330,18 +357,23 @@ def render_clip_intermediate(
         preview=preview,
     )
     if extra and not preview:
-        vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
+        if ";" in vf:
+            vf = f"{vf},{','.join(extra)}"
+        else:
+            vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
     args = [ff, "-y"]
     if media.kind == "image":
-        args += ["-loop", "1", "-i", media.path, "-t", str(clip.duration_s)]
+        args += ["-loop", "1", "-t", str(clip.duration_s), "-i", media.path]
     else:
-        args += ["-i", media.path, "-ss", str(clip.in_s), "-t", str(clip.duration_s)]
+        args += ["-ss", str(clip.in_s), "-t", str(clip.duration_s), "-i", media.path]
     if preview:
         args += ["-an"]
     elif clip.muted or media.kind == "image" or not media.has_audio:
         args += [
             "-f",
             "lavfi",
+            "-t",
+            f"{clip.duration_s:.4f}",
             "-i",
             "anullsrc=r=48000:cl=stereo",
             "-map",
@@ -350,18 +382,42 @@ def render_clip_intermediate(
             "1:a",
             "-af",
             f"atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS",
-            "-shortest",
         ]
     else:
         profile = resolve_denoise_profile(clip, timeline)
         chain = denoise_chain(profile, gated=clip.gate, highpass_hz=timeline.highpass_hz)
         pad = f"apad,atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS"
-        args += ["-af", f"{chain},{pad}" if chain else pad]
+        args += ["-map", "0:v", "-map", "0:a", "-af", f"{chain},{pad}" if chain else pad]
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
-    args += ["-vf", vf, *encode[:-1], str(dest)]
+    if not preview:
+        encode = ["-t", f"{clip.duration_s:.4f}", *encode]
+    args = _finish_clip_args(args, vf, encode, dest, complex_graph=bool(clip.cam_pip) and not preview)
     result = runner.run(args)
-    _finish_hero_run(result, dest, encode, preview=preview)
+    _finish_hero_run(result, dest, encode, preview=preview, full_args=None if preview else args)
     return dest
+
+
+def _finish_clip_args(args: list[str], vf: str, encode: list[str], dest: Path, *, complex_graph: bool) -> list[str]:
+    if not complex_graph:
+        return args + ["-vf", vf, *encode[:-1], str(dest)]
+    graph = vf if vf.endswith("[vout]") else f"{vf}[vout]"
+    rebuilt: list[str] = []
+    audio_maps: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "-map":
+            label = args[i + 1]
+            if ":a" in label:
+                audio_maps.append(label)
+            i += 2
+            continue
+        rebuilt.append(args[i])
+        i += 1
+    rebuilt += ["-filter_complex", graph, "-map", "[vout]"]
+    for label in audio_maps:
+        rebuilt += ["-map", label]
+    rebuilt += [*encode[:-1], str(dest)]
+    return rebuilt
 
 
 def _render_layout_intermediate(
@@ -402,9 +458,11 @@ def _render_layout_intermediate(
     if preview:
         args += ["-an"]
     elif clip.muted or media.kind == "image" or not media.has_audio:
-        args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+        args += ["-f", "lavfi", "-t", f"{clip.duration_s:.4f}", "-i", "anullsrc=r=48000:cl=stereo"]
         audio_idx = len(clip.panes)
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
+    if not preview:
+        encode = ["-t", f"{clip.duration_s:.4f}", *encode]
     args += ["-filter_complex", graph, "-map", "[vout]"]
     if audio_idx is not None:
         args += [
@@ -412,7 +470,6 @@ def _render_layout_intermediate(
             f"{audio_idx}:a",
             "-af",
             f"atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS",
-            "-shortest",
         ]
     elif not preview:
         profile = resolve_denoise_profile(clip, timeline)
@@ -421,7 +478,7 @@ def _render_layout_intermediate(
         args += ["-map", "0:a", "-af", f"{chain},{pad}" if chain else pad]
     args += [*encode[:-1], str(dest)]
     result = runner.run(args)
-    _finish_hero_run(result, dest, encode, preview=preview)
+    _finish_hero_run(result, dest, encode, preview=preview, full_args=None if preview else args)
     return dest
 
 
@@ -513,6 +570,8 @@ def assemble(
         path = render_clip_intermediate(
             runner, store, project, timeline, clip, media, items, preview=proxy
         )
+        if not proxy:
+            require_clip_audio(probe_has_audio(runner, path), clip.id)
         intermediates.append(path)
         mid = f"{clip.id}__src"
         prepared_clips.append(clip.model_copy(update={"media_id": mid, "in_s": 0.0, "out_s": clip.duration_s}))
@@ -572,7 +631,7 @@ def assemble(
         loudnorm=loudnorm,
     )
     result = runner.run(cmd)
-    _finish_hero_run(result, dest, encode_flags + [str(dest)], preview=proxy)
+    _finish_hero_run(result, dest, encode_flags + [str(dest)], preview=proxy, full_args=None if proxy else cmd)
     return dest
 
 

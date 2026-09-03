@@ -42,6 +42,7 @@ from lc_editor.models import (
     MUSIC_KINDS,
     AdjustmentLayer,
     BeatGrid,
+    CamPip,
     Caption,
     CaptionWord,
     Clip,
@@ -95,6 +96,7 @@ from lc_editor.ops.timeline import (
     reorder_clip,
     ripple_trim_clip,
     set_audio_xfade,
+    set_cam_pip,
     set_denoise,
     set_duration_clip,
     set_gate,
@@ -106,6 +108,7 @@ from lc_editor.ops.timeline import (
     split_clip,
     trim_clip,
 )
+from lc_editor.render.captions import expand_contractions
 from lc_editor.render.effects import validate_effect
 from lc_editor.render.graph import hero_encode_args, hero_encode_record
 from lc_editor.render.jobs import (
@@ -137,7 +140,19 @@ def _caption_words(words: list | None) -> list[CaptionWord]:
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        out.append(CaptionWord(text=text, start_s=float(item.get("start_s") or 0.0), end_s=float(item.get("end_s") or 0.0)))
+        emphasis = str(item.get("emphasis") or "pop")
+        if emphasis not in ("pop", "enlarge", "scream"):
+            emphasis = "pop"
+        wid = str(item.get("id") or "")
+        out.append(
+            CaptionWord(
+                id=wid,
+                text=text,
+                start_s=float(item.get("start_s") or 0.0),
+                end_s=float(item.get("end_s") or 0.0),
+                emphasis=emphasis,  # type: ignore[arg-type]
+            )
+        )
     return out
 
 
@@ -282,6 +297,7 @@ class Editor:
         allow_music: bool | None = None,
         name: str | None = None,
         preset: str | None = None,
+        loudnorm: str | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -304,6 +320,10 @@ class Editor:
                 grade = data.get("grade")
                 if grade in ("motovlog", "winter_trip", "neutral"):
                     update["grade_preset"] = grade
+        if loudnorm is not None:
+            if loudnorm not in ("cinema", "speech"):
+                return envelope(False, store.timeline, ["loudnorm must be cinema or speech"])
+            update["loudnorm"] = loudnorm
         if update:
             store.project = store.project.model_copy(update=update)
             store.persist()
@@ -968,6 +988,52 @@ class Editor:
         """Turn a layout clip into a full-frame clip of pane 0."""
         return self._mutate(op_id, lambda tl: clear_layout(tl, clip_id))
 
+    def cam_pip(
+        self,
+        clip_id: str,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        overlay_x: int = 632,
+        overlay_y: int = 72,
+        overlay_w: int = 420,
+        pad: int = 3,
+        op_id: str | None = None,
+    ) -> dict:
+        """Pin a webcam crop from this clip's own 16:9 media as a Reels PiP."""
+        clip = self._clip(clip_id)
+        media = self._media(clip.media_id)
+        if w <= 0 or h <= 0:
+            return envelope(False, self._need().timeline, ["SPEC-EDIT-24: crop rect must be positive"])
+        src_w, src_h = media.width or 0, media.height or 0
+        if src_w > 0 and src_h > 0 and src_h / src_w >= 1.5:
+            return envelope(
+                False,
+                self._need().timeline,
+                ["SPEC-EDIT-24: source already fills 9:16; use clip_refocus COVER instead of cam_pip"],
+            )
+        pip = CamPip(x=x, y=y, w=w, h=h, overlay_x=overlay_x, overlay_y=overlay_y, overlay_w=overlay_w, pad=pad)
+        return self._mutate(op_id, lambda tl: set_cam_pip(tl, clip_id, pip))
+
+    def cam_pip_clear(self, clip_id: str, op_id: str | None = None) -> dict:
+        self._clip(clip_id)
+        return self._mutate(op_id, lambda tl: set_cam_pip(tl, clip_id, None))
+
+    def cam_pip_suggest(self, clip_id: str) -> dict:
+        clip = self._clip(clip_id)
+        media = self._media(clip.media_id)
+        src_w, src_h = media.width or 1920, media.height or 1080
+        result = envelope(True, self._need().timeline, [])
+        if src_w > 0 and src_h / max(src_w, 1) >= 1.5:
+            result["ok"] = False
+            result["warnings"] = ["SPEC-EDIT-24: source already fills 9:16"]
+            return result
+        box_w = min(400, max(160, int(src_w * 0.21)))
+        box_h = min(280, max(120, int(src_h * 0.26)))
+        result["rect"] = {"x": max(0, src_w - box_w), "y": 0, "w": box_w, "h": box_h}
+        return result
+
     def motion_kenburns(self, clip_id: str, amount: float | None = None, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "kenburns", amount))
 
@@ -1065,33 +1131,54 @@ class Editor:
     ) -> dict:
         store = self._need()
         clip = self._clip(clip_id)
-        resolved_style = style if style in ("phrase", "karaoke") else "phrase"
+        resolved_style = style if style in ("phrase", "karaoke", "pop") else "phrase"
         parsed_words = _caption_words(words)
-        if resolved_style == "karaoke" and not parsed_words:
-            return envelope(False, store.timeline, ["SPEC-CAP-10: karaoke needs word timings"])
+        if resolved_style in ("karaoke", "pop") and not parsed_words:
+            spec = "SPEC-CAP-10" if resolved_style == "karaoke" else "SPEC-CAP-11"
+            return envelope(False, store.timeline, [f"{spec}: {resolved_style} needs word timings"])
+        if resolved_style == "pop":
+            parsed_words = expand_contractions(parsed_words)
+            if not text.strip():
+                text = " ".join(w.text for w in parsed_words)
         resolved_role = role if role in ("title", "body") else "body"
-        if resolved_style == "karaoke":
+        if resolved_style in ("karaoke", "pop"):
             resolved_role = "title"
         resolved_enter = enter if enter in ("none", "fade", "punch") else ("punch" if resolved_role == "title" else "fade")
-        if resolved_style == "karaoke":
+        if resolved_style in ("karaoke", "pop"):
             resolved_enter = "none"
+        probe_cap = Caption(
+            id="tmp",
+            clip_id=clip_id,
+            text=text,
+            role=resolved_role,  # type: ignore[arg-type]
+            y_pct=y_pct,
+            style=resolved_style,  # type: ignore[arg-type]
+            words=parsed_words,
+        )
         issues = caption_issues(
             text,
             y_pct=y_pct,
             clip=clip,
             box=box or bool(background),
             role=resolved_role,
+            caption=probe_cap,
         )
         if issues:
             return envelope(False, store.timeline, issues)
-        lines = wrap_text(text)
+        lines = wrap_text(text) if resolved_style != "pop" else [text]
         hold = hold_s(text, lines)
-        if parsed_words:
+        if resolved_style == "pop" and parsed_words:
+            hold = round(max(w.end_s for w in parsed_words), 2)
+        elif parsed_words:
             hold = max(hold, round(parsed_words[-1].end_s, 2))
 
         def apply(tl: Timeline) -> Timeline:
+            cid = new_id("t")
+            numbered = [
+                w.model_copy(update={"id": w.id or f"{cid}_w{i}"}) for i, w in enumerate(parsed_words)
+            ]
             cap = Caption(
-                id=new_id("t"),
+                id=cid,
                 clip_id=clip_id,
                 text=text,
                 role=resolved_role,
@@ -1100,7 +1187,7 @@ class Editor:
                 hold_s=hold,
                 enter=resolved_enter,
                 style=resolved_style,
-                words=parsed_words,
+                words=numbered,
             )
             return tl.model_copy(update={"captions": [*tl.captions, cap]})
 
@@ -1114,11 +1201,11 @@ class Editor:
         new_text = cap.text if text is None else text
         new_y = cap.y_pct if y_pct is None else y_pct
         clip = self._clip(cap.clip_id)
-        issues = caption_issues(new_text, y_pct=new_y, clip=clip, box=box)
+        issues = caption_issues(new_text, y_pct=new_y, clip=clip, box=box, caption=cap)
         if issues:
             return envelope(False, store.timeline, issues)
-        lines = wrap_text(new_text)
-        hold = hold_s(new_text, lines)
+        lines = wrap_text(new_text) if cap.style != "pop" else [new_text]
+        hold = cap.hold_s if cap.style == "pop" else hold_s(new_text, lines)
 
         def apply(tl: Timeline) -> Timeline:
             caps = []
@@ -1139,12 +1226,35 @@ class Editor:
         new_clip_id = clip_id or cap.clip_id
         new_y = cap.y_pct if y_pct is None else y_pct
         clip = self._clip(new_clip_id)
-        issues = caption_issues(cap.text, y_pct=new_y, clip=clip)
+        issues = caption_issues(cap.text, y_pct=new_y, clip=clip, caption=cap)
         if issues:
             return envelope(False, store.timeline, issues)
 
         def apply(tl: Timeline) -> Timeline:
             caps = [c.model_copy(update={"clip_id": new_clip_id, "y_pct": new_y}) if c.id == caption_id else c for c in tl.captions]
+            return tl.model_copy(update={"captions": caps})
+
+        return self._mutate(op_id, apply)
+
+    def caption_emphasis(self, word_id: str, kind: str, op_id: str | None = None) -> dict:
+        store = self._need()
+        if kind not in ("pop", "enlarge", "scream"):
+            return envelope(False, store.timeline, ["SPEC-CAP-12: emphasis must be pop, enlarge, or scream"])
+        found = False
+        for cap in store.timeline.captions:
+            if any(w.id == word_id for w in cap.words):
+                found = True
+                break
+        if not found:
+            return envelope(False, store.timeline, [f"unknown word {word_id}"])
+
+        def apply(tl: Timeline) -> Timeline:
+            caps = []
+            for cap in tl.captions:
+                words = [
+                    w.model_copy(update={"emphasis": kind}) if w.id == word_id else w for w in cap.words
+                ]
+                caps.append(cap.model_copy(update={"words": words}))
             return tl.model_copy(update={"captions": caps})
 
         return self._mutate(op_id, apply)
@@ -1171,7 +1281,8 @@ class Editor:
             item = media_map.get(clip.media_id) if clip else None
             dest = (store.output_dir / "phone_proof.jpg").resolve()
             proof_path, proof_issues = write_phone_proof(dest, first, item.path if item else None)
-            errors.extend(proof_issues)
+            if first.style != "pop":
+                errors.extend(proof_issues)
             for cap in store.timeline.captions:
                 c = clips.get(cap.clip_id)
                 cards.append(card_report(cap, c, media_map.get(c.media_id) if c else None))
@@ -1229,6 +1340,8 @@ class Editor:
             extra = []
             clips = {c.id: c for c in tl.clips}
             for cap in tl.captions:
+                if cap.style == "pop":
+                    continue
                 key = f"tick:{cap.id}"
                 if key in existing:
                     continue

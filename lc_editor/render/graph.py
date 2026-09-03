@@ -45,6 +45,8 @@ def clip_video_filters(
     elif composed:
         parts.append(f"scale={CANVAS_W}:{CANVAS_H}")
     for cap in captions:
+        if cap.style == "pop":
+            continue
         if cap.style == "karaoke" and cap.words:
             files = word_textfiles(cap)
             if files and all(path.exists() for path in files):
@@ -66,6 +68,15 @@ def clip_video_filters(
         parts.append(match_filter())
     if transition == "punch":
         parts.append(punch_in_filter())
+    if clip.cam_pip and not composed and not preview:
+        pip = cam_pip_filters(clip, media)
+        main = ",".join(parts) if parts else f"scale={CANVAS_W}:{CANVAS_H}"
+        return (
+            f"[0:v]split[main][cam];"
+            f"[cam]{pip}[pip];"
+            f"[main]{main}[bg];"
+            f"[bg][pip]overlay={int(clip.cam_pip.overlay_x)}:{int(clip.cam_pip.overlay_y)}"
+        )
     return ",".join(parts)
 
 
@@ -80,8 +91,23 @@ def _flag_value(args: list[str], name: str) -> str | None:
         return None
 
 
+def cam_pip_filters(clip: Clip, media: MediaItem) -> str:
+    pip = clip.cam_pip
+    if pip is None:
+        return ""
+    pad = int(pip.pad)
+    inner_w = max(2, int(pip.overlay_w) - 2 * pad)
+    return (
+        f"crop={int(pip.w)}:{int(pip.h)}:{int(pip.x)}:{int(pip.y)},"
+        f"scale={inner_w}:-2,"
+        f"pad={int(pip.overlay_w)}:ih+{2 * pad}:{pad}:{pad}:black"
+    )
+
+
 def hero_encode_legal(args: list[str]) -> bool:
     blob = " ".join(args)
+    if "-shortest" in args:
+        return False
     if "libx264" not in args:
         return False
     preset = _flag_value(args, "-preset")
@@ -100,6 +126,10 @@ def hero_encode_legal(args: list[str]) -> bool:
     if size != "1080x1920" and "1080x1920" not in blob:
         return False
     if _flag_value(args, "-pix_fmt") != "yuv420p":
+        return False
+    if _flag_value(args, "-c:a") != "aac":
+        return False
+    if _flag_value(args, "-ar") != "48000":
         return False
     return True
 
@@ -136,6 +166,12 @@ def hero_encode_args(output: Path) -> list[str]:
         f"{CANVAS_W}x{CANVAS_H}",
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
         "-movflags",
         "+faststart",
         str(output),
@@ -188,7 +224,12 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "effects": [e.model_dump() for e in clip.effects],
         "layout": clip.layout,
         "panes": [pane.model_dump() for pane in clip.panes],
-        "captions": [(c.text, c.y_pct, c.role, c.enter, c.style, tuple((w.text, w.start_s, w.end_s) for w in c.words)) for c in captions if c.clip_id == clip.id],
+        "captions": [
+            (c.text, c.y_pct, c.role, c.enter, c.style, tuple((w.text, w.start_s, w.end_s, w.emphasis) for w in c.words))
+            for c in captions
+            if c.clip_id == clip.id and c.style != "pop"
+        ],
+        "cam_pip": clip.cam_pip.model_dump() if clip.cam_pip else None,
         "preview": preview,
     }
     return payload
