@@ -108,6 +108,16 @@ Independent text layers also accept `motion="none"|"fade"|"pop"|"slide"|"type_on
 - SPEC-CAP-02 hold floors (1.5s / 1.8s), 16-word cap, and 3-line wrap do **not** apply. A 0.2s word is correct if it matches speech
 - `caption_add(..., style="pop")` is `ok: false` without timings
 
+## SPEC-CAP-12: per-word emphasis
+
+Pop words accept `emphasis`: `pop` (default), `enlarge`, or `scream`. `caption_emphasis(word_id, kind)` sets it.
+
+| kind | spelling | scale | when |
+| --- | --- | --- | --- |
+| `pop` | as spoken | 128→100 | every word |
+| `enlarge` | as spoken, no extra letters | land ~1.45x, stay big | puns / punchlines |
+| `scream` | drag a vowel/letter (`ohhhh`, `noooo`) | normal pop scale | a real yell. Do not auto-scream long words (`homeless`) |
+
 ## SPEC-CAP-06: contrast lint
 
 After placing a card, sample the underlay in the text bbox on the midpoint still.
@@ -142,6 +152,7 @@ Editorial cards: `context/scenes/pair.md`, `collage.md`, `ride-pair.md`.
 ## Tools
 
 - `caption_add(clip_id, text, role, enter?, style?, words?)` — phrase cards, opt-in karaoke, or word-pop
+- `caption_emphasis(word_id, "enlarge"|"scream"|"pop")` — per-word pop emphasis
 - `caption_edit` / `caption_move(y_pct)` — still center-x
 - `caption_lint` → `{ ok, errors[], warnings[], hold_s, lines, bbox, contrast }` with bbox tested against frame + 22–50% + cross-post
 - `clip_fit` still wins over a short clip

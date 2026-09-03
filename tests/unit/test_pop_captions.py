@@ -141,6 +141,59 @@ def test_spec_cap_11_export_uses_one_ass_overlay(editor: Editor, media_file: Pat
     assert graph.count("drawtext=") < 8
 
 
+def test_spec_cap_12_enlarge_keeps_spelling(editor: Editor, media_file: Path) -> None:
+    clip_id = _clip(editor, media_file)
+    words = [
+        {"text": "homeless", "start_s": 0.1, "end_s": 0.6, "emphasis": "enlarge"},
+        {"text": "AHHH", "start_s": 0.6, "end_s": 1.3, "emphasis": "scream"},
+    ]
+    added = editor.caption_add(clip_id, "homeless AHHH", style="pop", words=words)
+    assert added["ok"] is True
+    stored = editor.timeline_get()["timeline"]["captions"][0]["words"]
+    assert stored[0]["text"] == "homeless"
+    assert stored[0]["emphasis"] == "enlarge"
+    assert stored[1]["emphasis"] == "scream"
+
+
+def test_spec_cap_12_caption_emphasis_tool(editor: Editor, media_file: Path) -> None:
+    clip_id = _clip(editor, media_file)
+    editor.caption_add(clip_id, "need homeless", style="pop", words=WORDS)
+    word_id = editor.timeline_get()["timeline"]["captions"][0]["words"][1]["id"]
+    marked = editor.caption_emphasis(word_id, "enlarge")
+    assert marked["ok"] is True
+    word = editor.timeline_get()["timeline"]["captions"][0]["words"][1]
+    assert word["emphasis"] == "enlarge"
+    assert word["text"] == "need"
+
+
+def test_spec_cap_12_scream_stretches_letters() -> None:
+    stretch = getattr(captions_mod, "scream_stretch", None)
+    assert callable(stretch)
+    assert stretch("no") == "noooo"
+    assert stretch("oh") == "ohhhh"
+    assert stretch("homeless") == "homeless"
+
+
+def test_spec_cap_12_ass_enlarge_lands_big(tmp_path: Path) -> None:
+    ass_body = getattr(captions_mod, "pop_ass_body", None)
+    assert callable(ass_body)
+    cap = Caption(
+        id="t1",
+        clip_id="c1",
+        text="need homeless",
+        style="pop",
+        words=[
+            CaptionWord(id="w0", text="need", start_s=0.0, end_s=0.2, emphasis="pop"),
+            CaptionWord(id="w1", text="homeless", start_s=0.2, end_s=0.6, emphasis="enlarge"),
+            CaptionWord(id="w2", text="AHHH", start_s=0.6, end_s=1.2, emphasis="scream"),
+        ],
+    )
+    body = ass_body(cap, clip_start_s=0.0)
+    assert "homeless" in body
+    assert "fscx14" in body or "fscx15" in body
+    assert "noooo" in body or "AHHH" in body or "AHHHHH" in body
+
+
 def test_spec_cap_11_prepare_writes_ass(editor: Editor, media_file: Path) -> None:
     clip_id = _clip(editor, media_file)
     editor.caption_add(clip_id, "I need this", style="pop", words=WORDS)

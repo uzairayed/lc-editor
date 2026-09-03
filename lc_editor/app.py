@@ -1183,6 +1183,29 @@ class Editor:
 
         return self._mutate(op_id, apply)
 
+    def caption_emphasis(self, word_id: str, kind: str, op_id: str | None = None) -> dict:
+        store = self._need()
+        if kind not in ("pop", "enlarge", "scream"):
+            return envelope(False, store.timeline, ["SPEC-CAP-12: emphasis must be pop, enlarge, or scream"])
+        found = False
+        for cap in store.timeline.captions:
+            if any(w.id == word_id for w in cap.words):
+                found = True
+                break
+        if not found:
+            return envelope(False, store.timeline, [f"unknown word {word_id}"])
+
+        def apply(tl: Timeline) -> Timeline:
+            caps = []
+            for cap in tl.captions:
+                words = [
+                    w.model_copy(update={"emphasis": kind}) if w.id == word_id else w for w in cap.words
+                ]
+                caps.append(cap.model_copy(update={"words": words}))
+            return tl.model_copy(update={"captions": caps})
+
+        return self._mutate(op_id, apply)
+
     def caption_remove(self, caption_id: str, op_id: str | None = None) -> dict:
         return self._mutate(
             op_id,

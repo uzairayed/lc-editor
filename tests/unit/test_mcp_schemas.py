@@ -75,6 +75,9 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     cprops = caption.get("properties") or {}
     assert "style" in cprops
     assert "words" in cprops
+    emphasis = schemas["caption_emphasis"].get("properties") or {}
+    assert "word_id" in emphasis
+    assert "kind" in emphasis
     export = schemas["export"].get("properties") or {}
     assert "wait" in export
 

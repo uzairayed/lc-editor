@@ -57,6 +57,7 @@ TOOLS = [
     "caption_edit",
     "caption_move",
     "caption_remove",
+    "caption_emphasis",
     "caption_lint",
     "sfx_list",
     "sfx_place",
