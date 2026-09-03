@@ -295,6 +295,7 @@ class Editor:
         allow_music: bool | None = None,
         name: str | None = None,
         preset: str | None = None,
+        loudnorm: str | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -317,6 +318,10 @@ class Editor:
                 grade = data.get("grade")
                 if grade in ("motovlog", "winter_trip", "neutral"):
                     update["grade_preset"] = grade
+        if loudnorm is not None:
+            if loudnorm not in ("cinema", "speech"):
+                return envelope(False, store.timeline, ["loudnorm must be cinema or speech"])
+            update["loudnorm"] = loudnorm
         if update:
             store.project = store.project.model_copy(update=update)
             store.persist()

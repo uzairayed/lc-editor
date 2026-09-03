@@ -41,6 +41,7 @@ PHONE_PROOF_H = 480
 CaptionEnter = Literal["none", "fade", "punch"]
 CaptionStyle = Literal["phrase", "karaoke", "pop"]
 WordEmphasis = Literal["pop", "enlarge", "scream"]
+LoudnormProfile = Literal["cinema", "speech"]
 KARAOKE_FILL = "0xFFE14A"
 POP_FILL = "0xFFE14A"
 TextMotion = Literal["none", "fade", "pop", "slide", "type_on"]
@@ -348,6 +349,7 @@ class Project(BaseModel):
     overlays: OverlayFlags = Field(default_factory=OverlayFlags)
     reviewed_version: int | None = None
     preset: str | None = None
+    loudnorm: LoudnormProfile = "cinema"
     grain: float = 0.0
     vignette: float = 0.0
     adjustment: AdjustmentLayer = Field(default_factory=AdjustmentLayer)

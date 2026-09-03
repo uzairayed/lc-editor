@@ -105,6 +105,10 @@ def hero_encode_legal(args: list[str]) -> bool:
         return False
     if _flag_value(args, "-pix_fmt") != "yuv420p":
         return False
+    if _flag_value(args, "-c:a") != "aac":
+        return False
+    if _flag_value(args, "-ar") != "48000":
+        return False
     return True
 
 
@@ -140,6 +144,12 @@ def hero_encode_args(output: Path) -> list[str]:
         f"{CANVAS_W}x{CANVAS_H}",
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
         "-movflags",
         "+faststart",
         str(output),

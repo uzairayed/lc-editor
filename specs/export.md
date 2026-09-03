@@ -61,6 +61,7 @@ Hero `export` is only valid if the ffmpeg graph contains:
 - `-crf` ≤ 18
 - `-s 1080x1920` (or scale to 1080x1920)
 - `-pix_fmt yuv420p`
+- `-c:a aac` `-ar 48000` `-ac 2`
 
 Banned as the delivered hero: `veryfast`, `ultrafast`, `superfast`, CRF > 18, 540×960 / 360×640 canvas, a source-proxy path written to `reel.mp4`, `-shortest` on a 1080 hero.
 

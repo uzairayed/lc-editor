@@ -22,7 +22,7 @@ from lc_editor.models import (
     Timeline,
     timeline_duration,
 )
-from lc_editor.render.audio import denoise_chain, limiter_filter, loudnorm_hero, resolve_denoise_profile
+from lc_editor.render.audio import denoise_chain, limiter_filter, loudnorm_hero, loudnorm_profile, resolve_denoise_profile
 from lc_editor.render.captions import combined_pop_ass, drawtext_filter, fontfile_for
 from lc_editor.fonts import title_font
 from lc_editor.render.effects import compile_effects
@@ -331,7 +331,7 @@ def build_assemble_command(
                 filter_parts.append("".join(audio_labels) + f"amix=inputs={n}:normalize=0:duration=longest[amix]")
         tail = limiter_filter()
         if hero and loudnorm:
-            tail = f"{tail},{loudnorm_hero()}"
+            tail = f"{tail},{loudnorm_hero(loudnorm_profile(project))}"
         pad = f"apad,atrim=0:{timeline_duration(timeline):.4f},asetpts=PTS-STARTPTS"
         filter_parts.append(f"[amix]{pad},{tail}[aout]")
         map_audio = ["-map", "[aout]"]

@@ -66,7 +66,7 @@ When no bed is set, treat bed as `0.0` dB (clip/engine bed), so SFX must be `<= 
 
 ## SPEC-SND-09: mix lint true peak
 
-`mix_preview` reports pre and post true peak. Post must be **≤ −1.0 dBTP**. The mix ends with `alimiter`. Optional `loudnorm` I=−16, TP=−1.5, LRA=8 on the hero only.
+`mix_preview` reports pre and post true peak. Post must be **≤ −1.0 dBTP**. The mix ends with `alimiter`. Optional `loudnorm` on the hero only: cinema/karachi `I=-16:TP=-1.5:LRA=8`, spoken-word `I=-14:TP=-1.5:LRA=11` via `project_set(loudnorm="speech")`. After loudnorm, resample to 48 kHz stereo.
 
 ## SPEC-SND-10: denoise chain
 
@@ -103,6 +103,10 @@ Every hero intermediate, including stills and muted clips, emits audio of exactl
 ## SPEC-SND-16: hero intermediates keep audio
 
 Every non-muted hero clip intermediate carries AAC 48 kHz stereo, duration padded to the clip. Assemble fail-closed with `clip X has no audio stream` instead of ffmpeg `[0:a]` bind death. Preview stays `-an`.
+
+## SPEC-SND-17: hero loudnorm stays AAC LC 48 kHz
+
+Hero audio after loudnorm is `aac` LC, `48000`, stereo. `hero_encode_legal` fails if `-shortest` is present, sample rate is not 48000, or codec is not aac. `loudnorm="cinema"` (default, karachi) is I=-16. `loudnorm="speech"` is I=-14 / LRA=11.
 
 ## SPEC-SND-13: beat analysis
 
