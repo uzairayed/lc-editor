@@ -62,7 +62,7 @@ Hero `export` is only valid if the ffmpeg graph contains:
 - `-s 1080x1920` (or scale to 1080x1920)
 - `-pix_fmt yuv420p`
 
-Banned as the delivered hero: `veryfast`, `ultrafast`, `superfast`, CRF > 18, 540×960 / 360×640 canvas, a source-proxy path written to `reel.mp4`.
+Banned as the delivered hero: `veryfast`, `ultrafast`, `superfast`, CRF > 18, 540×960 / 360×640 canvas, a source-proxy path written to `reel.mp4`, `-shortest` on a 1080 hero.
 
 If the runner cannot hold that (timeout, OOM, killed), `export` is `ok: false` with a clear error. Do not substitute the preview proxy or a faster preset and return success.
 

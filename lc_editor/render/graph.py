@@ -84,6 +84,8 @@ def _flag_value(args: list[str], name: str) -> str | None:
 
 def hero_encode_legal(args: list[str]) -> bool:
     blob = " ".join(args)
+    if "-shortest" in args:
+        return False
     if "libx264" not in args:
         return False
     preset = _flag_value(args, "-preset")

@@ -51,7 +51,7 @@ class HeroExportBusy(RuntimeError):
     pass
 
 
-def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool) -> None:
+def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool, full_args: list[str] | None = None) -> None:
     if preview:
         if result.returncode != 0 and not dest.exists():
             dest.write_bytes(b"")
@@ -68,7 +68,8 @@ def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool) ->
                 break
         detail = f" ({tail})" if tail else ""
         raise AssembleError(f"SPEC-EXPORT-08: hero encode failed{detail}")
-    if not hero_encode_legal(encode):
+    check = full_args if full_args is not None else encode
+    if not hero_encode_legal(check):
         dest.unlink(missing_ok=True)
         raise AssembleError("SPEC-EXPORT-08: hero encode is not medium/crf<=18 1080x1920")
 
@@ -336,15 +337,17 @@ def render_clip_intermediate(
         vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
     args = [ff, "-y"]
     if media.kind == "image":
-        args += ["-loop", "1", "-i", media.path, "-t", str(clip.duration_s)]
+        args += ["-loop", "1", "-t", str(clip.duration_s), "-i", media.path]
     else:
-        args += ["-i", media.path, "-ss", str(clip.in_s), "-t", str(clip.duration_s)]
+        args += ["-ss", str(clip.in_s), "-t", str(clip.duration_s), "-i", media.path]
     if preview:
         args += ["-an"]
     elif clip.muted or media.kind == "image" or not media.has_audio:
         args += [
             "-f",
             "lavfi",
+            "-t",
+            f"{clip.duration_s:.4f}",
             "-i",
             "anullsrc=r=48000:cl=stereo",
             "-map",
@@ -353,7 +356,6 @@ def render_clip_intermediate(
             "1:a",
             "-af",
             f"atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS",
-            "-shortest",
         ]
     else:
         profile = resolve_denoise_profile(clip, timeline)
@@ -361,9 +363,11 @@ def render_clip_intermediate(
         pad = f"apad,atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS"
         args += ["-af", f"{chain},{pad}" if chain else pad]
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
+    if not preview:
+        encode = ["-t", f"{clip.duration_s:.4f}", *encode]
     args += ["-vf", vf, *encode[:-1], str(dest)]
     result = runner.run(args)
-    _finish_hero_run(result, dest, encode, preview=preview)
+    _finish_hero_run(result, dest, encode, preview=preview, full_args=None if preview else args)
     return dest
 
 
@@ -405,9 +409,11 @@ def _render_layout_intermediate(
     if preview:
         args += ["-an"]
     elif clip.muted or media.kind == "image" or not media.has_audio:
-        args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+        args += ["-f", "lavfi", "-t", f"{clip.duration_s:.4f}", "-i", "anullsrc=r=48000:cl=stereo"]
         audio_idx = len(clip.panes)
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
+    if not preview:
+        encode = ["-t", f"{clip.duration_s:.4f}", *encode]
     args += ["-filter_complex", graph, "-map", "[vout]"]
     if audio_idx is not None:
         args += [
@@ -415,7 +421,6 @@ def _render_layout_intermediate(
             f"{audio_idx}:a",
             "-af",
             f"atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS",
-            "-shortest",
         ]
     elif not preview:
         profile = resolve_denoise_profile(clip, timeline)
@@ -424,7 +429,7 @@ def _render_layout_intermediate(
         args += ["-map", "0:a", "-af", f"{chain},{pad}" if chain else pad]
     args += [*encode[:-1], str(dest)]
     result = runner.run(args)
-    _finish_hero_run(result, dest, encode, preview=preview)
+    _finish_hero_run(result, dest, encode, preview=preview, full_args=None if preview else args)
     return dest
 
 
@@ -575,7 +580,7 @@ def assemble(
         loudnorm=loudnorm,
     )
     result = runner.run(cmd)
-    _finish_hero_run(result, dest, encode_flags + [str(dest)], preview=proxy)
+    _finish_hero_run(result, dest, encode_flags + [str(dest)], preview=proxy, full_args=None if proxy else cmd)
     return dest
 
 

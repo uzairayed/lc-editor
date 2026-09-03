@@ -98,7 +98,7 @@ The denoise graph never contains a music bed. Music is mixed after clip denoise 
 
 Every hero intermediate, including stills and muted clips, emits audio of exactly `clip.duration_s` (live: `apad` + `atrim`; still/mute: `anullsrc`). `assemble` pads the mix and caps with `-t` equal to the timeline duration.
 
-`export` probes the hero. `|audio_dur - video_dur| > 50ms` or a full-scale peak lasting more than 10 ms is `ok: false` (`SPEC-SND-12`). The sidecar records `verify`. Preview proxies stay video-only (`-an`).
+`export` probes the hero. `|audio_dur - video_dur| > 50ms` or a full-scale peak lasting more than 10 ms is `ok: false` (`SPEC-SND-12`). The sidecar records `verify`. Preview proxies stay video-only (`-an`). Hero assemble never passes `-shortest`. Picture is the clock (`-t` / `apad`+`atrim`).
 
 ## SPEC-SND-13: beat analysis
 

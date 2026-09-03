@@ -141,7 +141,7 @@ def build_assemble_command(
     for clip in timeline.clips:
         item = media[clip.media_id]
         if _is_image_file(item) and not preprocessed:
-            args += ["-loop", "1", "-i", item.path, "-t", str(clip.duration_s)]
+            args += ["-loop", "1", "-t", str(clip.duration_s), "-i", item.path]
         else:
             args += ["-i", item.path]
         caps = [c for c in timeline.captions if c.clip_id == clip.id and c.id not in bound_caption_ids]
@@ -347,9 +347,10 @@ def build_assemble_command(
         map_audio = ["-map", f"{input_index}:a"]
 
     graph = ";".join(filter_parts)
-    cmd = args + ["-filter_complex", graph, "-map", "[vout]", *map_audio, "-shortest", *encode_args]
+    cmd = args + ["-filter_complex", graph, "-map", "[vout]", *map_audio]
     if proxy:
-        pass
+        cmd.append("-shortest")
+    cmd += list(encode_args)
     return cmd
 
 
