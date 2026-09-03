@@ -68,6 +68,15 @@ def clip_video_filters(
         parts.append(match_filter())
     if transition == "punch":
         parts.append(punch_in_filter())
+    if clip.cam_pip and not composed and not preview:
+        pip = cam_pip_filters(clip, media)
+        main = ",".join(parts) if parts else f"scale={CANVAS_W}:{CANVAS_H}"
+        return (
+            f"[0:v]split[main][cam];"
+            f"[cam]{pip}[pip];"
+            f"[main]{main}[bg];"
+            f"[bg][pip]overlay={int(clip.cam_pip.overlay_x)}:{int(clip.cam_pip.overlay_y)}"
+        )
     return ",".join(parts)
 
 
@@ -80,6 +89,19 @@ def _flag_value(args: list[str], name: str) -> str | None:
         return args[args.index(name) + 1]
     except (ValueError, IndexError):
         return None
+
+
+def cam_pip_filters(clip: Clip, media: MediaItem) -> str:
+    pip = clip.cam_pip
+    if pip is None:
+        return ""
+    pad = int(pip.pad)
+    inner_w = max(2, int(pip.overlay_w) - 2 * pad)
+    return (
+        f"crop={int(pip.w)}:{int(pip.h)}:{int(pip.x)}:{int(pip.y)},"
+        f"scale={inner_w}:-2,"
+        f"pad={int(pip.overlay_w)}:ih+{2 * pad}:{pad}:{pad}:black"
+    )
 
 
 def hero_encode_legal(args: list[str]) -> bool:
@@ -207,6 +229,7 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
             for c in captions
             if c.clip_id == clip.id and c.style != "pop"
         ],
+        "cam_pip": clip.cam_pip.model_dump() if clip.cam_pip else None,
         "preview": preview,
     }
     return payload

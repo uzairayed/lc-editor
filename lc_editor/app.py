@@ -42,6 +42,7 @@ from lc_editor.models import (
     MUSIC_KINDS,
     AdjustmentLayer,
     BeatGrid,
+    CamPip,
     Caption,
     CaptionWord,
     Clip,
@@ -95,6 +96,7 @@ from lc_editor.ops.timeline import (
     reorder_clip,
     ripple_trim_clip,
     set_audio_xfade,
+    set_cam_pip,
     set_denoise,
     set_duration_clip,
     set_gate,
@@ -985,6 +987,52 @@ class Editor:
     def layout_clear(self, clip_id: str, op_id: str | None = None) -> dict:
         """Turn a layout clip into a full-frame clip of pane 0."""
         return self._mutate(op_id, lambda tl: clear_layout(tl, clip_id))
+
+    def cam_pip(
+        self,
+        clip_id: str,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        overlay_x: int = 632,
+        overlay_y: int = 72,
+        overlay_w: int = 420,
+        pad: int = 3,
+        op_id: str | None = None,
+    ) -> dict:
+        """Pin a webcam crop from this clip's own 16:9 media as a Reels PiP."""
+        clip = self._clip(clip_id)
+        media = self._media(clip.media_id)
+        if w <= 0 or h <= 0:
+            return envelope(False, self._need().timeline, ["SPEC-EDIT-24: crop rect must be positive"])
+        src_w, src_h = media.width or 0, media.height or 0
+        if src_w > 0 and src_h > 0 and src_h / src_w >= 1.5:
+            return envelope(
+                False,
+                self._need().timeline,
+                ["SPEC-EDIT-24: source already fills 9:16; use clip_refocus COVER instead of cam_pip"],
+            )
+        pip = CamPip(x=x, y=y, w=w, h=h, overlay_x=overlay_x, overlay_y=overlay_y, overlay_w=overlay_w, pad=pad)
+        return self._mutate(op_id, lambda tl: set_cam_pip(tl, clip_id, pip))
+
+    def cam_pip_clear(self, clip_id: str, op_id: str | None = None) -> dict:
+        self._clip(clip_id)
+        return self._mutate(op_id, lambda tl: set_cam_pip(tl, clip_id, None))
+
+    def cam_pip_suggest(self, clip_id: str) -> dict:
+        clip = self._clip(clip_id)
+        media = self._media(clip.media_id)
+        src_w, src_h = media.width or 1920, media.height or 1080
+        result = envelope(True, self._need().timeline, [])
+        if src_w > 0 and src_h / max(src_w, 1) >= 1.5:
+            result["ok"] = False
+            result["warnings"] = ["SPEC-EDIT-24: source already fills 9:16"]
+            return result
+        box_w = min(400, max(160, int(src_w * 0.21)))
+        box_h = min(280, max(120, int(src_h * 0.26)))
+        result["rect"] = {"x": max(0, src_w - box_w), "y": 0, "w": box_w, "h": box_h}
+        return result
 
     def motion_kenburns(self, clip_id: str, amount: float | None = None, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_motion(tl, clip_id, "kenburns", amount))

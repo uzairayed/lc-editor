@@ -44,6 +44,10 @@ WordEmphasis = Literal["pop", "enlarge", "scream"]
 LoudnormProfile = Literal["cinema", "speech"]
 KARAOKE_FILL = "0xFFE14A"
 POP_FILL = "0xFFE14A"
+CAM_PIP_OVERLAY_X = 632
+CAM_PIP_OVERLAY_Y = 72
+CAM_PIP_OVERLAY_W = 420
+CAM_PIP_PAD = 3
 TextMotion = Literal["none", "fade", "pop", "slide", "type_on"]
 LayerKind = Literal["video", "image", "text"]
 LayoutKind = Literal["stack_v", "stack_h", "stack_v3", "grid_2x2"]
@@ -209,6 +213,17 @@ class LayoutPane(BaseModel):
     focus_y: float = 0.5
 
 
+class CamPip(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+    overlay_x: int = CAM_PIP_OVERLAY_X
+    overlay_y: int = CAM_PIP_OVERLAY_Y
+    overlay_w: int = CAM_PIP_OVERLAY_W
+    pad: int = CAM_PIP_PAD
+
+
 class Clip(BaseModel):
     id: str
     media_id: str
@@ -236,6 +251,7 @@ class Clip(BaseModel):
     effects: list[EffectInstance] = Field(default_factory=list)
     layout: LayoutKind | None = None
     panes: list[LayoutPane] = Field(default_factory=list)
+    cam_pip: CamPip | None = None
 
 
 def is_layout_clip(clip: Clip) -> bool:

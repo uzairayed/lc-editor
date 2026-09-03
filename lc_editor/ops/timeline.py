@@ -158,6 +158,13 @@ def mute_clip(timeline: Timeline, clip_id: str, muted: bool) -> Timeline:
     return timeline.model_copy(update={"clips": clips})
 
 
+def set_cam_pip(timeline: Timeline, clip_id: str, pip) -> Timeline:
+    i = _clip_index(timeline, clip_id)
+    clips = list(timeline.clips)
+    clips[i] = clips[i].model_copy(update={"cam_pip": pip})
+    return timeline.model_copy(update={"clips": clips})
+
+
 def set_motion(
     timeline: Timeline,
     clip_id: str,

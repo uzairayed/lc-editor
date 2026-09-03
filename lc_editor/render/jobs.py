@@ -357,7 +357,10 @@ def render_clip_intermediate(
         preview=preview,
     )
     if extra and not preview:
-        vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
+        if ";" in vf:
+            vf = f"{vf},{','.join(extra)}"
+        else:
+            vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
     args = [ff, "-y"]
     if media.kind == "image":
         args += ["-loop", "1", "-t", str(clip.duration_s), "-i", media.path]
@@ -388,10 +391,33 @@ def render_clip_intermediate(
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
     if not preview:
         encode = ["-t", f"{clip.duration_s:.4f}", *encode]
-    args += ["-vf", vf, *encode[:-1], str(dest)]
+    args = _finish_clip_args(args, vf, encode, dest, complex_graph=bool(clip.cam_pip) and not preview)
     result = runner.run(args)
     _finish_hero_run(result, dest, encode, preview=preview, full_args=None if preview else args)
     return dest
+
+
+def _finish_clip_args(args: list[str], vf: str, encode: list[str], dest: Path, *, complex_graph: bool) -> list[str]:
+    if not complex_graph:
+        return args + ["-vf", vf, *encode[:-1], str(dest)]
+    graph = vf if vf.endswith("[vout]") else f"{vf}[vout]"
+    rebuilt: list[str] = []
+    audio_maps: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "-map":
+            label = args[i + 1]
+            if ":a" in label:
+                audio_maps.append(label)
+            i += 2
+            continue
+        rebuilt.append(args[i])
+        i += 1
+    rebuilt += ["-filter_complex", graph, "-map", "[vout]"]
+    for label in audio_maps:
+        rebuilt += ["-map", label]
+    rebuilt += [*encode[:-1], str(dest)]
+    return rebuilt
 
 
 def _render_layout_intermediate(
