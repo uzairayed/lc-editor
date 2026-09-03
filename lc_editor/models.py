@@ -39,8 +39,10 @@ CAPTION_PROTECT_PX = 80
 PHONE_PROOF_W = 270
 PHONE_PROOF_H = 480
 CaptionEnter = Literal["none", "fade", "punch"]
-CaptionStyle = Literal["phrase", "karaoke"]
+CaptionStyle = Literal["phrase", "karaoke", "pop"]
+WordEmphasis = Literal["pop", "enlarge", "scream"]
 KARAOKE_FILL = "0xFFE14A"
+POP_FILL = "0xFFE14A"
 TextMotion = Literal["none", "fade", "pop", "slide", "type_on"]
 LayerKind = Literal["video", "image", "text"]
 LayoutKind = Literal["stack_v", "stack_h", "stack_v3", "grid_2x2"]
@@ -246,9 +248,11 @@ def clip_media_ids(clip: Clip) -> list[str]:
 
 
 class CaptionWord(BaseModel):
+    id: str = ""
     text: str
     start_s: float
     end_s: float
+    emphasis: WordEmphasis = "pop"
 
 
 class Caption(BaseModel):

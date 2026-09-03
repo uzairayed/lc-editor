@@ -213,29 +213,34 @@ def caption_issues(
     caption: Caption | None = None,
 ) -> list[str]:
     warnings: list[str] = []
+    style = caption.style if caption is not None else "phrase"
+    pop = style == "pop"
     if box:
         warnings.append("SPEC-CRAFT-02: caption background is forbidden")
         warnings.append("SPEC-CAP-04: caption box is forbidden")
-    if is_all_caps(text):
+    if not pop and is_all_caps(text):
         warnings.append("SPEC-CAP-04: ALL CAPS is rejected; use sentence case")
     wrapped = lines if lines is not None else wrap_text(text)
-    if len(wrapped) > CAPTION_MAX_LINES:
-        warnings.append("SPEC-CAP-02: caption wraps past 3 lines")
-    if word_count(text) > CAPTION_MAX_WORDS:
-        warnings.append("SPEC-CAP-02: caption exceeds ~16 words")
-    if any(len(line) > CAPTION_LINE_MAX for line in wrapped):
-        warnings.append("SPEC-CAP-02: wrapped line exceeds 28 characters")
-    if any(line.strip() == "" for line in wrapped):
-        warnings.append("SPEC-CAP-02: caption has an empty line")
+    if not pop:
+        if len(wrapped) > CAPTION_MAX_LINES:
+            warnings.append("SPEC-CAP-02: caption wraps past 3 lines")
+        if word_count(text) > CAPTION_MAX_WORDS:
+            warnings.append("SPEC-CAP-02: caption exceeds ~16 words")
+        if any(len(line) > CAPTION_LINE_MAX for line in wrapped):
+            warnings.append("SPEC-CAP-02: wrapped line exceeds 28 characters")
+        if any(line.strip() == "" for line in wrapped):
+            warnings.append("SPEC-CAP-02: caption has an empty line")
     if y_pct < CAPTION_Y_MIN or y_pct > CAPTION_Y_MAX:
         warnings.append("SPEC-CAP-03: caption Y outside 22-50% safe zone")
-    if clip is not None and wrapped and len(wrapped) <= CAPTION_MAX_LINES:
+    if not pop and clip is not None and wrapped and len(wrapped) <= CAPTION_MAX_LINES:
         need = hold_s(text, wrapped)
         if clip.duration_s + 1e-9 < need:
             warnings.append(
                 f"SPEC-CAP-02: clip {clip.duration_s:.2f}s shorter than hold {need:.2f}s; "
                 "extend the clip or drop the text"
             )
+    if pop:
+        return warnings
     probe = caption or Caption(
         id="tmp",
         clip_id=clip.id if clip else "c",

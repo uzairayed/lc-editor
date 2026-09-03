@@ -18,7 +18,7 @@ from lc_editor.models import (
     is_layout_clip,
     timeline_duration,
 )
-from lc_editor.render.captions import caption_textfile_body, write_textfile
+from lc_editor.render.captions import caption_textfile_body, write_pop_ass, write_textfile
 from lc_editor.render.motion import even_expr
 from lc_editor.render.audio import denoise_chain, limiter_filter, resolve_denoise_profile
 from lc_editor.assets.pack import sfx_path
@@ -232,6 +232,7 @@ def ensure_source_proxy(runner: Runner, store: Store, item: MediaItem) -> tuple[
 
 
 def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
+    clips = {c.id: c.start_s for c in timeline.clips}
     caps = []
     for cap in timeline.captions:
         path = store.caption_dir / f"{cap.id}.txt"
@@ -239,6 +240,8 @@ def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
         if cap.style == "karaoke":
             for i, word in enumerate(cap.words):
                 write_textfile(store.caption_dir / f"{cap.id}_w{i}.txt", word.text)
+        if cap.style == "pop":
+            write_pop_ass(path.with_suffix(".ass"), cap, clips.get(cap.clip_id, 0.0))
         caps.append(cap.model_copy(update={"textfile": str(path)}))
     layers = []
     for layer in timeline.layers:

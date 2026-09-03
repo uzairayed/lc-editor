@@ -45,6 +45,8 @@ def clip_video_filters(
     elif composed:
         parts.append(f"scale={CANVAS_W}:{CANVAS_H}")
     for cap in captions:
+        if cap.style == "pop":
+            continue
         if cap.style == "karaoke" and cap.words:
             files = word_textfiles(cap)
             if files and all(path.exists() for path in files):
@@ -188,7 +190,11 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "effects": [e.model_dump() for e in clip.effects],
         "layout": clip.layout,
         "panes": [pane.model_dump() for pane in clip.panes],
-        "captions": [(c.text, c.y_pct, c.role, c.enter, c.style, tuple((w.text, w.start_s, w.end_s) for w in c.words)) for c in captions if c.clip_id == clip.id],
+        "captions": [
+            (c.text, c.y_pct, c.role, c.enter, c.style, tuple((w.text, w.start_s, w.end_s, w.emphasis) for w in c.words))
+            for c in captions
+            if c.clip_id == clip.id and c.style != "pop"
+        ],
         "preview": preview,
     }
     return payload

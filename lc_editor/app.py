@@ -106,6 +106,7 @@ from lc_editor.ops.timeline import (
     split_clip,
     trim_clip,
 )
+from lc_editor.render.captions import expand_contractions
 from lc_editor.render.effects import validate_effect
 from lc_editor.render.graph import hero_encode_args, hero_encode_record
 from lc_editor.render.jobs import (
@@ -137,7 +138,19 @@ def _caption_words(words: list | None) -> list[CaptionWord]:
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        out.append(CaptionWord(text=text, start_s=float(item.get("start_s") or 0.0), end_s=float(item.get("end_s") or 0.0)))
+        emphasis = str(item.get("emphasis") or "pop")
+        if emphasis not in ("pop", "enlarge", "scream"):
+            emphasis = "pop"
+        wid = str(item.get("id") or "")
+        out.append(
+            CaptionWord(
+                id=wid,
+                text=text,
+                start_s=float(item.get("start_s") or 0.0),
+                end_s=float(item.get("end_s") or 0.0),
+                emphasis=emphasis,  # type: ignore[arg-type]
+            )
+        )
     return out
 
 
@@ -1065,33 +1078,54 @@ class Editor:
     ) -> dict:
         store = self._need()
         clip = self._clip(clip_id)
-        resolved_style = style if style in ("phrase", "karaoke") else "phrase"
+        resolved_style = style if style in ("phrase", "karaoke", "pop") else "phrase"
         parsed_words = _caption_words(words)
-        if resolved_style == "karaoke" and not parsed_words:
-            return envelope(False, store.timeline, ["SPEC-CAP-10: karaoke needs word timings"])
+        if resolved_style in ("karaoke", "pop") and not parsed_words:
+            spec = "SPEC-CAP-10" if resolved_style == "karaoke" else "SPEC-CAP-11"
+            return envelope(False, store.timeline, [f"{spec}: {resolved_style} needs word timings"])
+        if resolved_style == "pop":
+            parsed_words = expand_contractions(parsed_words)
+            if not text.strip():
+                text = " ".join(w.text for w in parsed_words)
         resolved_role = role if role in ("title", "body") else "body"
-        if resolved_style == "karaoke":
+        if resolved_style in ("karaoke", "pop"):
             resolved_role = "title"
         resolved_enter = enter if enter in ("none", "fade", "punch") else ("punch" if resolved_role == "title" else "fade")
-        if resolved_style == "karaoke":
+        if resolved_style in ("karaoke", "pop"):
             resolved_enter = "none"
+        probe_cap = Caption(
+            id="tmp",
+            clip_id=clip_id,
+            text=text,
+            role=resolved_role,  # type: ignore[arg-type]
+            y_pct=y_pct,
+            style=resolved_style,  # type: ignore[arg-type]
+            words=parsed_words,
+        )
         issues = caption_issues(
             text,
             y_pct=y_pct,
             clip=clip,
             box=box or bool(background),
             role=resolved_role,
+            caption=probe_cap,
         )
         if issues:
             return envelope(False, store.timeline, issues)
-        lines = wrap_text(text)
+        lines = wrap_text(text) if resolved_style != "pop" else [text]
         hold = hold_s(text, lines)
-        if parsed_words:
+        if resolved_style == "pop" and parsed_words:
+            hold = round(max(w.end_s for w in parsed_words), 2)
+        elif parsed_words:
             hold = max(hold, round(parsed_words[-1].end_s, 2))
 
         def apply(tl: Timeline) -> Timeline:
+            cid = new_id("t")
+            numbered = [
+                w.model_copy(update={"id": w.id or f"{cid}_w{i}"}) for i, w in enumerate(parsed_words)
+            ]
             cap = Caption(
-                id=new_id("t"),
+                id=cid,
                 clip_id=clip_id,
                 text=text,
                 role=resolved_role,
@@ -1100,7 +1134,7 @@ class Editor:
                 hold_s=hold,
                 enter=resolved_enter,
                 style=resolved_style,
-                words=parsed_words,
+                words=numbered,
             )
             return tl.model_copy(update={"captions": [*tl.captions, cap]})
 
@@ -1114,11 +1148,11 @@ class Editor:
         new_text = cap.text if text is None else text
         new_y = cap.y_pct if y_pct is None else y_pct
         clip = self._clip(cap.clip_id)
-        issues = caption_issues(new_text, y_pct=new_y, clip=clip, box=box)
+        issues = caption_issues(new_text, y_pct=new_y, clip=clip, box=box, caption=cap)
         if issues:
             return envelope(False, store.timeline, issues)
-        lines = wrap_text(new_text)
-        hold = hold_s(new_text, lines)
+        lines = wrap_text(new_text) if cap.style != "pop" else [new_text]
+        hold = cap.hold_s if cap.style == "pop" else hold_s(new_text, lines)
 
         def apply(tl: Timeline) -> Timeline:
             caps = []
@@ -1139,7 +1173,7 @@ class Editor:
         new_clip_id = clip_id or cap.clip_id
         new_y = cap.y_pct if y_pct is None else y_pct
         clip = self._clip(new_clip_id)
-        issues = caption_issues(cap.text, y_pct=new_y, clip=clip)
+        issues = caption_issues(cap.text, y_pct=new_y, clip=clip, caption=cap)
         if issues:
             return envelope(False, store.timeline, issues)
 
@@ -1171,7 +1205,8 @@ class Editor:
             item = media_map.get(clip.media_id) if clip else None
             dest = (store.output_dir / "phone_proof.jpg").resolve()
             proof_path, proof_issues = write_phone_proof(dest, first, item.path if item else None)
-            errors.extend(proof_issues)
+            if first.style != "pop":
+                errors.extend(proof_issues)
             for cap in store.timeline.captions:
                 c = clips.get(cap.clip_id)
                 cards.append(card_report(cap, c, media_map.get(c.media_id) if c else None))
@@ -1229,6 +1264,8 @@ class Editor:
             extra = []
             clips = {c.id: c for c in tl.clips}
             for cap in tl.captions:
+                if cap.style == "pop":
+                    continue
                 key = f"tick:{cap.id}"
                 if key in existing:
                     continue
