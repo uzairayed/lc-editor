@@ -47,6 +47,29 @@ class AssembleError(RuntimeError):
     pass
 
 
+def require_clip_audio(probe: dict, clip_id: str) -> None:
+    if not probe.get("has_audio"):
+        raise AssembleError(f"clip {clip_id} has no audio stream")
+
+
+def probe_has_audio(runner: Runner, path: Path) -> dict:
+    if isinstance(runner, FakeRunner):
+        return {"has_audio": bool(runner.has_audio)}
+    try:
+        probe = _ffprobe(runner)
+    except FileNotFoundError:
+        return {"has_audio": True}
+    result = runner.run(
+        [probe, "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", str(path)]
+    )
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"has_audio": False}
+    kinds = {stream.get("codec_type") for stream in payload.get("streams") or []}
+    return {"has_audio": "audio" in kinds}
+
+
 class HeroExportBusy(RuntimeError):
     pass
 
@@ -361,7 +384,7 @@ def render_clip_intermediate(
         profile = resolve_denoise_profile(clip, timeline)
         chain = denoise_chain(profile, gated=clip.gate, highpass_hz=timeline.highpass_hz)
         pad = f"apad,atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS"
-        args += ["-af", f"{chain},{pad}" if chain else pad]
+        args += ["-map", "0:v", "-map", "0:a", "-af", f"{chain},{pad}" if chain else pad]
     encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
     if not preview:
         encode = ["-t", f"{clip.duration_s:.4f}", *encode]
@@ -521,6 +544,8 @@ def assemble(
         path = render_clip_intermediate(
             runner, store, project, timeline, clip, media, items, preview=proxy
         )
+        if not proxy:
+            require_clip_audio(probe_has_audio(runner, path), clip.id)
         intermediates.append(path)
         mid = f"{clip.id}__src"
         prepared_clips.append(clip.model_copy(update={"media_id": mid, "in_s": 0.0, "out_s": clip.duration_s}))

@@ -100,6 +100,10 @@ Every hero intermediate, including stills and muted clips, emits audio of exactl
 
 `export` probes the hero. `|audio_dur - video_dur| > 50ms` or a full-scale peak lasting more than 10 ms is `ok: false` (`SPEC-SND-12`). The sidecar records `verify`. Preview proxies stay video-only (`-an`). Hero assemble never passes `-shortest`. Picture is the clock (`-t` / `apad`+`atrim`).
 
+## SPEC-SND-16: hero intermediates keep audio
+
+Every non-muted hero clip intermediate carries AAC 48 kHz stereo, duration padded to the clip. Assemble fail-closed with `clip X has no audio stream` instead of ffmpeg `[0:a]` bind death. Preview stays `-an`.
+
 ## SPEC-SND-13: beat analysis
 
 `beat_analyze(media_id)` writes a cached beat sidecar keyed by source content: BPM, offset, beat timestamps, downbeats, sections, and confidence. Automatic detection may be wrong on intros, tempo changes, and low-percussion tracks, so `beat_edit(bpm?, offset_s?, beats?)` is the correction path. Confidence below 0.45 is a review warning.
