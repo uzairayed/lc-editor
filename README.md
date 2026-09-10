@@ -118,7 +118,7 @@ The primary track is still the gapless `clips` list (`clip_add`, trim, split, re
 - Templates: `template_list`, `template_apply("editorial"|"karachi", bindings=...)`, `template_save`. Apply writes ordinary layers and look; the project stays editable.
 - Music: default is off. `project_set(allow_music=true)` is the owner opt-in. Then `import_file` a local `.mp3`/`.wav`/`.m4a` and `music_add`. `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply`. There is no stock catalog; licensing stays with the owner.
 - Layouts: `layout_add("stack_v"|"stack_h"|"stack_v3"|"grid_2x2", panes=[...])` composites two to four sources into one clip. `layout_pane` refocuses a cell. `layout_clear` flattens back to pane 0. A vista or reveal stays full-frame.
-- Captions: `caption_add` still works and syncs to a bound text layer. No box, banner, or scrim.
+- Captions: `caption_add` still works and syncs to a bound text layer. No box, banner, or scrim. Process / product reels use `style="card"` (Clash Display via `font="clash"`). `pop` / `karaoke` are spoken-word only.
 
 Optional: `project_create(..., preset="karachi")` loads series branding. Other reels do not need it.
 

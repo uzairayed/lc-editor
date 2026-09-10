@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from math import ceil
 
-from lc_editor.lint.captions import density_warnings, timeline_caption_issues
+from lc_editor.lint.captions import density_warnings, style_warnings, timeline_caption_issues
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.layers import layer_issues
 from lc_editor.lint.layouts import layout_issues
@@ -274,6 +274,7 @@ def review_warnings(
     warns = [w for w in invariant_warnings(timeline) if "locked still" not in w]
     warns.extend(outdoor_denoise_warnings(timeline))
     warns.extend(density_warnings(timeline, project))
+    warns.extend(style_warnings(timeline))
     warns.extend(acknowledge_warnings(timeline, media))
     warns.extend(quality_warnings(timeline, project, media))
     warns.extend(video_duration_floor_warnings(timeline, project, media))

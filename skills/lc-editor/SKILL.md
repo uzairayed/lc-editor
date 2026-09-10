@@ -42,7 +42,9 @@ Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green.
 ## Key constraints
 
 - Canvas: 1080×1920, 30fps
-- Captions: stroke-and-shadow text only, never a box
+- Captions: stroke-and-shadow text only, never a box / banner / scrim
+- Product, process, or ambient reels: `caption_add(..., style="card")` — 2–3 line scene cards, Clash Display. Do not use `pop` or `karaoke` unless the clip is spoken-word
+- Clash Display: `font="clash"` on `caption_add` / `caption_edit` / `text_style`, or `project_set(caption_font="clash")`. Packaged fallback is Anton. Never raw ffmpeg drawtext
 - Templates: `editorial` and `karachi` (apply expands to ordinary layers)
 - Music is opt-in only via `project_set(allow_music=true)`
 - Engine rules in `specs/craft.md` are floors; scene-card judgment can raise them but never lower them
@@ -63,7 +65,7 @@ Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail o
 
 **Effects:** `effect_add`, `effect_update`, `effect_remove` (blur, sharpen, glow, grain, vignette, lut, color)
 
-**Text:** `caption_add`, `caption_edit`, `caption_move`, `caption_remove`, `text_style` (fade, pop, slide, type-on)
+**Text:** `caption_add` (`style="card"` for process/product; `phrase` same card filters; `pop`/`karaoke` spoken-word only; `font="clash"`), `caption_edit`, `caption_move`, `caption_remove`, `caption_lint`, `text_style` (fade, pop, slide, type-on; `font="clash"`)
 
 **Music:** `music_add`, `beat_analyze`, `beat_edit`, `beat_sync_preview`, `beat_sync_apply`
 
