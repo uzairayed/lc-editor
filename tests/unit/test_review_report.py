@@ -113,7 +113,7 @@ def test_review_warns_sub720_on_small_canvas(tmp_path: Path) -> None:
     editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
     media = touch_media(tmp_path / "src", "day1")
     editor.import_file(str(media))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.4)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
     editor.store.project = editor.store.project.model_copy(update={"width": 540, "height": 960})
     result = editor.review_report()
     assert result["ok"] is True
@@ -159,7 +159,7 @@ def test_fit_letterbox_does_not_block_sub720(monkeypatch) -> None:
 
 def test_review_warns_missing_captured_at_not_error(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.4)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
     editor.media[0] = editor.media[0].model_copy(update={"captured_at": None, "captured_at_source": None})
     result = editor.review_report()
     assert result["ok"] is True
