@@ -61,7 +61,7 @@ Worked example: one 6.00s clip (in 0, out 6). Split at 2.00. First: in 0 out 2 d
 
 ## SPEC-EDIT-09: fit
 
-`clip_fit(clip_id)` sets clip duration to the required hold of the caption on that clip (SPEC-CAP hold). If no caption, `ok: false`.
+`clip_fit(clip_id)` sets clip duration to the required hold of the caption on that clip (SPEC-CAP hold). If no caption, `ok: false`. This is a duration verb, not a visual framing mode. Visual letterbox / cover lives on `clip_set_fit` (SPEC-EDIT-25).
 
 ## SPEC-EDIT-10: refocus
 
@@ -165,3 +165,7 @@ Snapshots store `schema_version`. Missing or `1` loads as v1 and is migrated on 
 ## SPEC-EDIT-24: facecam PiP
 
 `cam_pip(clip_id, x, y, w, h)` crops a rect from the clip's own 16:9 media and pins it as a PiP (default overlay 632:72, ~420 wide, 3px black pad on 1080×1920). Skip when the source already fills 9:16 (`clip_refocus` COVER is enough). `cam_pip_clear` removes it. `cam_pip_suggest` returns a top-right box for 16:9.
+
+## SPEC-EDIT-25: visual fit
+
+`clip_set_fit(clip_id, mode)` sets how a clip is conformed to the project canvas. Legal modes: `cover` (scale+crop, default), `fit` (letterbox, no crop), `fit_pad` (letterbox with solid pad), `fit_blur` (letterbox plus blurred source fill). Subject bias uses the clip's `focus_x` / `focus_y`. Existing projects default to `cover`. Unknown mode is `ok: false`. `clip_fit` remains the duration hold verb (SPEC-EDIT-09).

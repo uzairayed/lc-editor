@@ -6,7 +6,7 @@ Source: `instructions.md` Export; product spec Out tools.
 
 Hero export is:
 
-- 1080x1920
+- project canvas (1080x1920 for 9:16, 1920x1080 for 16:9)
 - 30fps
 - H.264
 - yuv420p
@@ -15,7 +15,7 @@ Hero export is:
 
 ## SPEC-EXPORT-02: proxy budget
 
-The timeline preview encode is 540x960, `-preset veryfast`, `-crf 30`. Edit/lint reads a cached **360x640** source proxy (no LUT, no denoise). Hero export stays 1080x1920.
+The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540 on 16:9), `-preset veryfast`, `-crf 30`. Edit/lint reads a cached **360x640** source proxy (no LUT, no denoise). Hero export uses the project canvas.
 
 ## SPEC-EXPORT-03: export is gated
 
@@ -44,7 +44,7 @@ A duration between 28s and 60s is a warning, not a failure. A sub-720 source on 
 
 ## SPEC-EXPORT-05: export writes two files
 
-A successful `export` writes the hero reel and a proxy alongside it. Both apply the adjustment layer after concat (SPEC-ADJ). Hero canvas stays 1080x1920.
+A successful `export` writes the hero reel and a proxy alongside it. Both apply the adjustment layer after concat (SPEC-ADJ). Hero canvas matches the project.
 
 ## SPEC-EXPORT-06: same call twice
 
@@ -61,7 +61,7 @@ Hero `export` is only valid if the ffmpeg graph contains:
 - `-c:v libx264`
 - `-preset medium` (or slower: `slow` / `veryslow`)
 - `-crf` ≤ 18
-- `-s 1080x1920` (or scale to 1080x1920)
+- `-s` matching the project canvas (1080x1920 or 1920x1080)
 - `-pix_fmt yuv420p`
 - `-c:a aac` `-ar 48000` `-ac 2`
 

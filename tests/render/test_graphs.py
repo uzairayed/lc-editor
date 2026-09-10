@@ -5,7 +5,7 @@ from pathlib import Path
 from lc_editor.models import Caption, Clip, MediaItem, Project
 from lc_editor.render.captions import drawtext_filter
 from lc_editor.render.graph import clip_hash_payload, clip_video_filters
-from lc_editor.render.motion import kenburns_filter, punch_filter, zoom_hit_filter
+from lc_editor.render.motion import canvas_fit_filters, kenburns_filter, punch_filter, zoom_hit_filter
 from lc_editor.render.transitions import close_fade_filter, punch_in_filter, whip_filter
 
 
@@ -90,3 +90,36 @@ def test_spec_rnd_05_hard_cut_has_no_xfade() -> None:
 
 def test_spec_rnd_punch_transition_builder() -> None:
     assert "1.08" in punch_in_filter() or "0.079999" in punch_in_filter() or "0.08" in punch_in_filter()
+
+
+def test_spec_rnd_21_fit_modes_in_graph() -> None:
+    cover = Clip(id="c1", media_id="m1")
+    fit = Clip(id="c1", media_id="m1", fit="fit")
+    pad = Clip(id="c1", media_id="m1", fit="fit_pad", fit_pad_color="white")
+    blur = Clip(id="c1", media_id="m1", fit="fit_blur", focus_x=0.4, focus_y=0.6)
+    media = MediaItem(id="m1", path="x.mp4", original_path="x.mp4", width=1920, height=1080)
+    project = Project(id="p", name="n")
+    cover_g = canvas_fit_filters(cover, 1080, 1920)
+    fit_g = canvas_fit_filters(fit, 1080, 1920)
+    pad_g = canvas_fit_filters(pad, 1080, 1920)
+    blur_g = canvas_fit_filters(blur, 1080, 1920)
+    assert "force_original_aspect_ratio=increase" in cover_g
+    assert "decrease" not in cover_g
+    assert "force_original_aspect_ratio=decrease" in fit_g
+    assert "pad=" in fit_g
+    assert "force_original_aspect_ratio=decrease" in pad_g
+    assert "pad=" in pad_g
+    assert "white" in pad_g
+    assert "blur" in blur_g
+    assert "force_original_aspect_ratio=decrease" in blur_g
+    assert "force_original_aspect_ratio=increase" in blur_g
+    tiny = MediaItem(id="m1", path="x.mp4", original_path="x.mp4", width=512, height=288)
+    filt = clip_video_filters(blur, tiny, [], project)
+    assert "blur" in filt
+    assert "decrease" in filt
+    assert "increase" in filt
+    landscape = Project(id="p", name="n", aspect="16:9", width=1920, height=1080)
+    wide = clip_video_filters(fit, media, [], landscape)
+    assert "1920" in wide
+    assert "1080" in wide
+    assert "decrease" in wide

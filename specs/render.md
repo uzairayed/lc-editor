@@ -74,7 +74,11 @@ Caption drawtext includes `textfile=`, `expansion=none`, sand fill, stroke, shad
 
 ## SPEC-RND-10: per-clip cache key
 
-An intermediate file is named by a content hash of that clip's render parameters (media, in/out, motion, crop, captions, and clip-local filters). Project look (grade, grain, vignette, layer wrap) is not part of the hash. Changing another clip, or changing only the adjustment layer, does not invalidate this hash.
+An intermediate file is named by a content hash of that clip's render parameters (media, in/out, motion, crop, fit mode, captions, and clip-local filters). Project look (grade, grain, vignette, layer wrap) is not part of the hash. Changing another clip, or changing only the adjustment layer, does not invalidate this hash.
+
+## SPEC-RND-21: visual fit
+
+A clip is conformed to the project canvas with `cover` (scale + crop, `force_original_aspect_ratio=increase`), `fit` / `fit_pad` (letterbox, `decrease` + pad), or `fit_blur` (blurred cover fill + sharp `decrease` overlay). Default is `cover`. `fit` / `fit_blur` do not use the cover-increase path for the sharp picture.
 
 ## SPEC-RND-11: preview stills
 

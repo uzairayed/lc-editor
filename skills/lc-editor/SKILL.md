@@ -1,11 +1,11 @@
 # lc-editor
 
-Use this skill when asked to cut 9:16 vertical reels from raw video clips. The `lc-editor` MCP server gives you tool calls to build a timeline; ffmpeg does the rendering.
+Use this skill when asked to cut reels from raw video clips. The `lc-editor` MCP server gives you tool calls to build a timeline; ffmpeg does the rendering. Default canvas is 9:16; 16:9 product demos use `project_create(aspect="16:9")`.
 
 ## When to use
 
 - User asks you to edit video clips into a short reel
-- User asks for 9:16 vertical video editing
+- User asks for 9:16 vertical or 16:9 landscape video editing
 - User mentions cutting, trimming, or assembling footage
 
 ## Quick start
@@ -41,7 +41,7 @@ Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green.
 
 ## Key constraints
 
-- Canvas: 1080×1920, 30fps
+- Canvas: project aspect, 30fps. Default 9:16 (1080×1920). `project_create(aspect="16:9")` is 1920×1080. Landscape sources use `clip_set_fit` (`cover` / `fit` / `fit_pad` / `fit_blur`); do not hand-build ffmpeg letterbox.
 - Captions: stroke-and-shadow text only, never a box / banner / scrim
 - Product, process, or ambient reels: `caption_add(..., style="card")` — 2–3 line scene cards, Clash Display. Do not use `pop` or `karaoke` unless the clip is spoken-word
 - Clash Display: `font="clash"` on `caption_add` / `caption_edit` / `text_style`, or `project_set(caption_font="clash")`. Packaged fallback is Anton. Never raw ffmpeg drawtext
@@ -55,7 +55,7 @@ Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail o
 
 **Media:** `import_file`, `import_folder`, `media_list`, `media_tag`, `probe`
 
-**Timeline:** `clip_add`, `clip_remove`, `clip_reorder`, `clip_trim`, `clip_split`, `clip_set_duration`, `clip_fit`, `clip_refocus`
+**Timeline:** `clip_add`, `clip_remove`, `clip_reorder`, `clip_trim`, `clip_split`, `clip_set_duration`, `clip_fit` (duration hold), `clip_set_fit` (visual cover/letterbox), `clip_refocus`
 
 **Motion:** `motion_kenburns`, `motion_punch`, `motion_zoom_in`, `motion_zoom_out`, `motion_none`, `motion_hold`
 

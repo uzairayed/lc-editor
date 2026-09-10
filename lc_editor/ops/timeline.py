@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from lc_editor.models import (
+    LEGAL_FIT_MODES,
     LEGAL_TRANSITIONS,
     SPEED_MAX,
     SPEED_MIN,
@@ -17,6 +18,7 @@ from lc_editor.models import (
     Timeline,
     is_layout_clip,
     recompute_starts,
+    safe_pad_color,
 )
 
 
@@ -128,6 +130,18 @@ def fit_clip(timeline: Timeline, clip_id: str, source: MediaItem) -> Timeline:
         raise Reject("SPEC-EDIT-09: no caption on clip")
     hold = max(c.hold_s for c in caps)
     return set_duration_clip(timeline, clip_id, hold, source)
+
+
+def set_clip_fit(timeline: Timeline, clip_id: str, mode: str, pad_color: str | None = None) -> Timeline:
+    if mode not in LEGAL_FIT_MODES:
+        raise Reject("fit mode must be cover, fit, fit_pad, or fit_blur")
+    i = _clip_index(timeline, clip_id)
+    clips = list(timeline.clips)
+    update: dict = {"fit": mode}
+    if pad_color is not None:
+        update["fit_pad_color"] = safe_pad_color(pad_color)
+    clips[i] = clips[i].model_copy(update=update)
+    return timeline.model_copy(update={"clips": clips})
 
 
 def refocus_clip(timeline: Timeline, clip_id: str, x: float, y: float) -> Timeline:

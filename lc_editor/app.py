@@ -86,6 +86,7 @@ from lc_editor.models import (
     is_card_style,
     is_spoken_style,
     recompute_starts,
+    resolve_canvas,
     timeline_duration,
 )
 from lc_editor.ops.layouts import (
@@ -125,6 +126,7 @@ from lc_editor.ops.timeline import (
     ripple_trim_clip,
     set_audio_xfade,
     set_cam_pip,
+    set_clip_fit,
     set_denoise,
     set_duration_clip,
     set_gate,
@@ -265,16 +267,20 @@ class Editor:
         self,
         name: str = "reel",
         aspect: str = "9:16",
+        width: int | None = None,
+        height: int | None = None,
         project_dir: str | None = None,
         preset: str | None = None,
         op_id: str | None = None,
     ) -> dict:
-        if aspect != "9:16":
+        canvas = resolve_canvas(aspect, width, height)
+        if canvas is None:
             return {
                 "ok": False,
                 "timeline_summary": self._summary(),
-                "warnings": ["only 9:16 is supported in v1"],
+                "warnings": ["unknown aspect"],
             }
+        aspect, canvas_w, canvas_h = canvas
         root = Path(project_dir) if project_dir else self.workspace / name
         root.mkdir(parents=True, exist_ok=True)
         store = Store(root)
@@ -293,7 +299,9 @@ class Editor:
         project = Project(
             id=new_id("p"),
             name=name,
-            aspect="9:16",
+            aspect=aspect,
+            width=canvas_w,
+            height=canvas_h,
             root=str(root),
             allow_music=False,
             preset=preset,
@@ -1022,6 +1030,15 @@ class Editor:
         clip = self._clip(clip_id)
         source = self._media(clip.media_id)
         return self._mutate(op_id, lambda tl: fit_clip(tl, clip_id, source))
+
+    def clip_set_fit(
+        self,
+        clip_id: str,
+        mode: str,
+        pad_color: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        return self._mutate(op_id, lambda tl: set_clip_fit(tl, clip_id, mode, pad_color))
 
     def clip_refocus(self, clip_id: str, x: float, y: float, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: refocus_clip(tl, clip_id, x, y))
@@ -1817,6 +1834,7 @@ class Editor:
                     "duration_s": clip.duration_s,
                     "motion": clip.motion,
                     "crop": {"focus_x": clip.focus_x, "focus_y": clip.focus_y},
+                    "fit": clip.fit,
                     "layout": clip.layout,
                     "panes": [pane.model_dump() for pane in clip.panes],
                 }
@@ -1840,7 +1858,7 @@ class Editor:
             ],
             "beat_grid": store.timeline.beat_grid.model_dump() if store.timeline.beat_grid else None,
             "template_id": store.timeline.template_id,
-            "encode": hero_encode_record(hero_encode_args(hero)),
+            "encode": hero_encode_record(hero_encode_args(hero, store.project.width, store.project.height)),
         }
         verify = verify_hero_av(self.runner, hero)
         payload["verify"] = verify

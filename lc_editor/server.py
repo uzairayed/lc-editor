@@ -35,6 +35,7 @@ TOOLS = [
     "clip_split",
     "clip_set_duration",
     "clip_fit",
+    "clip_set_fit",
     "clip_refocus",
     "clip_gain",
     "clip_mute",

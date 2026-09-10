@@ -6,6 +6,25 @@ from lc_editor.app import Editor
 from lc_editor.render.captions import write_textfile
 
 
+def test_clip_set_fit_persists_mode(editor: Editor, media_file: Path) -> None:
+    editor.import_file(str(media_file))
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)
+    clip_id = editor.timeline_get()["timeline"]["clips"][0]["id"]
+    assert editor.timeline_get()["timeline"]["clips"][0]["fit"] == "cover"
+    result = editor.clip_set_fit(clip_id, "fit_blur")
+    assert result["ok"] is True
+    clip = editor.timeline_get()["timeline"]["clips"][0]
+    assert clip["fit"] == "fit_blur"
+    pad = editor.clip_set_fit(clip_id, "fit_pad", pad_color="white")
+    assert pad["ok"] is True
+    clip = editor.timeline_get()["timeline"]["clips"][0]
+    assert clip["fit"] == "fit_pad"
+    assert clip["fit_pad_color"] == "white"
+    bad = editor.clip_set_fit(clip_id, "stretch")
+    assert bad["ok"] is False
+    assert editor.timeline_get()["timeline"]["clips"][0]["fit"] == "fit_pad"
+
+
 def test_spec_edit_09_fit(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
     editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
