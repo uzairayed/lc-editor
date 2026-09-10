@@ -24,10 +24,37 @@ def test_spec_ses_02_project_create_9_16(tmp_path: Path) -> None:
     assert result["ok"] is True
     got = ed.project_get()
     project = got["project"]
+    assert project["aspect"] == "9:16"
     assert project["width"] == 1080
     assert project["height"] == 1920
     assert project["fps"] == 30
     assert project["allow_music"] is False
+
+
+def test_spec_ses_02_project_create_16_9(tmp_path: Path) -> None:
+    ed = Editor(workspace=tmp_path, runner=FakeRunner())
+    result = ed.project_create(name="demo", aspect="16:9", project_dir=str(tmp_path / "demo"))
+    assert result["ok"] is True
+    project = ed.project_get()["project"]
+    assert project["aspect"] == "16:9"
+    assert project["width"] == 1920
+    assert project["height"] == 1080
+
+
+def test_spec_ses_02_unknown_aspect_rejected(tmp_path: Path) -> None:
+    ed = Editor(workspace=tmp_path, runner=FakeRunner())
+    result = ed.project_create(name="bad", aspect="4:3", project_dir=str(tmp_path / "bad"))
+    assert result["ok"] is False
+    assert result["warnings"]
+
+
+def test_spec_ses_02_free_size(tmp_path: Path) -> None:
+    ed = Editor(workspace=tmp_path, runner=FakeRunner())
+    result = ed.project_create(name="wide", width=1280, height=720, project_dir=str(tmp_path / "wide"))
+    assert result["ok"] is True
+    project = ed.project_get()["project"]
+    assert project["width"] == 1280
+    assert project["height"] == 720
 
 
 def test_spec_ses_03_allow_music_opt_in(editor: Editor) -> None:

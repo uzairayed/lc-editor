@@ -5,8 +5,11 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 ASPECT_9_16 = "9:16"
+ASPECT_16_9 = "16:9"
 CANVAS_W = 1080
 CANVAS_H = 1920
+CANVAS_16_9_W = 1920
+CANVAS_16_9_H = 1080
 FPS = 30
 DURATION_CAP_S = 60.0
 DURATION_SOFT_MAX_S = 28.0
@@ -65,6 +68,9 @@ SPEED_MIN = 0.85
 SPEED_MAX = 1.15
 PROXY_W = 540
 PROXY_H = 960
+PROXY_BANNED_SIZES = frozenset({"540x960", "360x640", "960x540"})
+FitMode = Literal["cover", "fit", "fit_pad", "fit_blur"]
+LEGAL_FIT_MODES = ("cover", "fit", "fit_pad", "fit_blur")
 SOURCE_PROXY_W = 360
 SOURCE_PROXY_H = 640
 PUNCH_FRAMES = 4
@@ -213,6 +219,57 @@ class LayoutPane(BaseModel):
     focus_y: float = 0.5
 
 
+def even_dim(n: int) -> int:
+    return max(2, int(n) - int(n) % 2)
+
+
+def safe_pad_color(color: str | None) -> str:
+    raw = (color or "black").strip()
+    if raw.startswith("0x") and len(raw) in (5, 8, 10) and all(c in "0123456789abcdefABCDEF" for c in raw[2:]):
+        return raw
+    if raw.startswith("#") and len(raw) in (4, 7, 9) and all(c in "0123456789abcdefABCDEF" for c in raw[1:]):
+        return "0x" + raw[1:]
+    if raw.isalpha() and 1 <= len(raw) <= 20:
+        return raw.lower()
+    return "black"
+
+
+def resolve_canvas(
+    aspect: str = ASPECT_9_16,
+    width: int | None = None,
+    height: int | None = None,
+) -> tuple[str, int, int] | None:
+    if (width is None) != (height is None):
+        return None
+    if width is not None and height is not None:
+        if int(width) < 2 or int(height) < 2:
+            return None
+        w, h = even_dim(width), even_dim(height)
+        if (w, h) == (CANVAS_W, CANVAS_H):
+            label = ASPECT_9_16
+        elif (w, h) == (CANVAS_16_9_W, CANVAS_16_9_H):
+            label = ASPECT_16_9
+        else:
+            label = f"{w}:{h}"
+        return label, w, h
+    if aspect == ASPECT_9_16:
+        return aspect, CANVAS_W, CANVAS_H
+    if aspect == ASPECT_16_9:
+        return aspect, CANVAS_16_9_W, CANVAS_16_9_H
+    return None
+
+
+def canvas_wh(project: Project | None) -> tuple[int, int]:
+    if project is None:
+        return CANVAS_W, CANVAS_H
+    return even_dim(project.width or CANVAS_W), even_dim(project.height or CANVAS_H)
+
+
+def proxy_wh(project: Project | None) -> tuple[int, int]:
+    w, h = canvas_wh(project)
+    return even_dim(max(2, w // 2)), even_dim(max(2, h // 2))
+
+
 class CamPip(BaseModel):
     x: float
     y: float
@@ -234,6 +291,8 @@ class Clip(BaseModel):
     motion: MotionKind = "none"
     focus_x: float = 0.5
     focus_y: float = 0.5
+    fit: FitMode = "cover"
+    fit_pad_color: str = "black"
     gain_db: float = 0.0
     muted: bool = False
     grade_intensity: float = 1.0

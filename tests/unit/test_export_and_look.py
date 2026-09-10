@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.app import Editor
-from lc_editor.render.graph import hero_encode_args, proxy_encode_args
+from lc_editor.render.graph import hero_encode_args, hero_encode_legal, proxy_encode_args
 
 
 def test_spec_export_01_hero_args(tmp_path: Path) -> None:
@@ -12,6 +12,9 @@ def test_spec_export_01_hero_args(tmp_path: Path) -> None:
     assert "yuv420p" in args
     assert "1080x1920" in args
     assert "aac" in args
+    wide = hero_encode_args(tmp_path / "demo.mp4", 1920, 1080)
+    assert "1920x1080" in wide
+    assert hero_encode_legal(wide) is True
     assert "+faststart" in args
     assert "30" in args
 

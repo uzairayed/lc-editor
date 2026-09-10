@@ -1,11 +1,11 @@
 # lc-editor
 
-Use this skill when asked to cut 9:16 vertical reels from raw video clips. The `lc-editor` MCP server gives you tool calls to build a timeline; ffmpeg does the rendering.
+Use this skill when asked to cut reels from raw video clips. The `lc-editor` MCP server gives you tool calls to build a timeline; ffmpeg does the rendering. Default canvas is 9:16; 16:9 product demos use `project_create(aspect="16:9")`.
 
 ## When to use
 
 - User asks you to edit video clips into a short reel
-- User asks for 9:16 vertical video editing
+- User asks for 9:16 vertical or 16:9 landscape video editing
 - User mentions cutting, trimming, or assembling footage
 
 ## Quick start
@@ -30,7 +30,7 @@ The MCP server is `lc-editor`. Call its tools to build and export your reel.
 
 ## Key constraints
 
-- Canvas: 1080×1920, 30fps
+- Canvas: project aspect, 30fps. Default 9:16 (1080×1920). `project_create(aspect="16:9")` is 1920×1080. Landscape sources use `clip_set_fit` (`cover` / `fit` / `fit_pad` / `fit_blur`); do not hand-build ffmpeg letterbox.
 - Captions: stroke-and-shadow text only, never a box
 - Templates: `editorial` and `karachi` (apply expands to ordinary layers)
 - Music is opt-in only via `project_set(allow_music=true)`
@@ -40,7 +40,7 @@ The MCP server is `lc-editor`. Call its tools to build and export your reel.
 
 Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail out loud. Same `op_id` twice does not duplicate.
 
-**Timeline:** `clip_add`, `clip_remove`, `clip_reorder`, `clip_trim`, `clip_split`, `clip_set_duration`, `clip_fit`, `clip_refocus`
+**Timeline:** `clip_add`, `clip_remove`, `clip_reorder`, `clip_trim`, `clip_split`, `clip_set_duration`, `clip_fit` (duration hold), `clip_set_fit` (visual cover/letterbox), `clip_refocus`
 
 **Motion:** `motion_kenburns`, `motion_punch`, `motion_zoom_in`, `motion_zoom_out`, `motion_none`, `motion_hold`
 

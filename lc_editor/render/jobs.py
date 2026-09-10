@@ -15,7 +15,9 @@ from lc_editor.models import (
     MediaItem,
     Project,
     Timeline,
+    canvas_wh,
     is_layout_clip,
+    proxy_wh,
     timeline_duration,
 )
 from lc_editor.render.captions import caption_textfile_body, write_pop_ass, write_textfile
@@ -94,7 +96,7 @@ def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool, fu
     check = full_args if full_args is not None else encode
     if not hero_encode_legal(check):
         dest.unlink(missing_ok=True)
-        raise AssembleError("SPEC-EXPORT-08: hero encode is not medium/crf<=18 1080x1920")
+        raise AssembleError("SPEC-EXPORT-08: hero encode is not medium/crf<=18 hero canvas")
 
 
 @contextmanager
@@ -388,13 +390,21 @@ def render_clip_intermediate(
         chain = denoise_chain(profile, gated=clip.gate, highpass_hz=timeline.highpass_hz)
         pad = f"apad,atrim=0:{clip.duration_s:.4f},asetpts=PTS-STARTPTS"
         args += ["-map", "0:v", "-map", "0:a", "-af", f"{chain},{pad}" if chain else pad]
-    encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
+    encode = _clip_encode_args(dest, project, preview=preview)
     if not preview:
         encode = ["-t", f"{clip.duration_s:.4f}", *encode]
-    args = _finish_clip_args(args, vf, encode, dest, complex_graph=bool(clip.cam_pip) and not preview)
+    args = _finish_clip_args(args, vf, encode, dest, complex_graph=(";" in vf) or (bool(clip.cam_pip) and not preview))
     result = runner.run(args)
     _finish_hero_run(result, dest, encode, preview=preview, full_args=None if preview else args)
     return dest
+
+
+def _clip_encode_args(dest: Path, project: Project, *, preview: bool) -> list[str]:
+    if preview:
+        pw, ph = proxy_wh(project)
+        return proxy_encode_args(dest, pw, ph)
+    dw, dh = canvas_wh(project)
+    return hero_encode_args(dest, dw, dh)
 
 
 def _finish_clip_args(args: list[str], vf: str, encode: list[str], dest: Path, *, complex_graph: bool) -> list[str]:
@@ -460,7 +470,7 @@ def _render_layout_intermediate(
     elif clip.muted or media.kind == "image" or not media.has_audio:
         args += ["-f", "lavfi", "-t", f"{clip.duration_s:.4f}", "-i", "anullsrc=r=48000:cl=stereo"]
         audio_idx = len(clip.panes)
-    encode = proxy_encode_args(dest) if preview else hero_encode_args(dest)
+    encode = _clip_encode_args(dest, project, preview=preview)
     if not preview:
         encode = ["-t", f"{clip.duration_s:.4f}", *encode]
     args += ["-filter_complex", graph, "-map", "[vout]"]
@@ -591,7 +601,7 @@ def assemble(
             work_items.append(working_media(item) if proxy and item.kind != "audio" else item)
     prepared_timeline = timeline.model_copy(update={"clips": prepared_clips})
     vf = adjustment_filters(project, duration_s=timeline_duration(timeline))
-    encode = proxy_encode_args(dest) if proxy else hero_encode_args(dest)
+    encode = _clip_encode_args(dest, project, preview=proxy)
     encode_flags = encode[:-1]
     if not proxy:
         encode_flags = ["-t", f"{timeline_duration(timeline):.4f}", *encode_flags]

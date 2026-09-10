@@ -2,9 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lc_editor.models import CANVAS_H, CANVAS_W, FPS, AdjustmentLayer, Caption, Clip, MediaItem, Project
+from lc_editor.models import (
+    CANVAS_H,
+    CANVAS_W,
+    FPS,
+    PROXY_BANNED_SIZES,
+    AdjustmentLayer,
+    Caption,
+    Clip,
+    MediaItem,
+    Project,
+    canvas_wh,
+    even_dim,
+    proxy_wh,
+)
 from lc_editor.render.captions import drawtext_filter, fontfile_for, karaoke_filters, word_textfiles
-from lc_editor.render.motion import crop_9_16, even_expr, motion_chain
+from lc_editor.render.motion import canvas_fit_filters, motion_chain
 from lc_editor.render.paths import ffmpeg_path
 from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter, whip_filter
 
@@ -12,15 +25,10 @@ EQ_KEYS = frozenset({"contrast", "brightness", "saturation", "gamma", "gamma_r",
 COLORBALANCE_KEYS = frozenset({"rs", "gs", "bs", "rm", "gm", "bm", "rh", "gh", "bh"})
 
 
-def preview_video_filters(clip: Clip, media: MediaItem) -> str:
-    from lc_editor.models import PROXY_H, PROXY_W
-
-    return (
-        f"scale={PROXY_W}:{PROXY_H}:force_original_aspect_ratio=increase,"
-        f"crop={PROXY_W}:{PROXY_H}:"
-        f"'{even_expr(f'(iw-{PROXY_W})/2')}':"
-        f"'{even_expr(f'(ih-{PROXY_H})/2')}'"
-    )
+def preview_video_filters(clip: Clip, media: MediaItem, project: Project | None = None) -> str:
+    del media
+    pw, ph = proxy_wh(project)
+    return canvas_fit_filters(clip, pw, ph, preview=True)
 
 
 def clip_video_filters(
@@ -35,15 +43,16 @@ def clip_video_filters(
     composed: bool = False,
 ) -> str:
     if preview:
-        return preview_video_filters(clip, media)
+        return preview_video_filters(clip, media, project)
+    dest_w, dest_h = canvas_wh(project)
     frames = max(1, int(round(clip.duration_s * FPS)))
     parts: list[str] = []
     if not composed:
-        parts.append(crop_9_16(clip, media.width or CANVAS_W, media.height or CANVAS_H))
+        parts.append(canvas_fit_filters(clip, dest_w, dest_h))
     if clip.motion != "none":
-        parts.append(motion_chain(clip, frames))
+        parts.append(motion_chain(clip, frames, dest_w, dest_h))
     elif composed:
-        parts.append(f"scale={CANVAS_W}:{CANVAS_H}")
+        parts.append(f"scale={dest_w}:{dest_h}")
     for cap in captions:
         if cap.style == "pop":
             continue
@@ -70,7 +79,7 @@ def clip_video_filters(
         parts.append(punch_in_filter())
     if clip.cam_pip and not composed and not preview:
         pip = cam_pip_filters(clip, media)
-        main = ",".join(parts) if parts else f"scale={CANVAS_W}:{CANVAS_H}"
+        main = ",".join(parts) if parts else f"scale={dest_w}:{dest_h}"
         return (
             f"[0:v]split[main][cam];"
             f"[cam]{pip}[pip];"
@@ -120,10 +129,18 @@ def hero_encode_legal(args: list[str]) -> bool:
         return False
     if crf > 18:
         return False
-    if "540x960" in blob or "360x640" in blob:
+    if any(size in blob for size in PROXY_BANNED_SIZES):
         return False
     size = _flag_value(args, "-s")
-    if size != "1080x1920" and "1080x1920" not in blob:
+    if size:
+        width, _, height = size.partition("x")
+        try:
+            wi, hi = int(width), int(height)
+        except ValueError:
+            return False
+        if wi < 2 or hi < 2 or f"{wi}x{hi}" in PROXY_BANNED_SIZES:
+            return False
+    elif "1080x1920" not in blob and "1920x1080" not in blob:
         return False
     if _flag_value(args, "-pix_fmt") != "yuv420p":
         return False
@@ -146,9 +163,10 @@ def hero_encode_record(args: list[str]) -> dict:
     }
 
 
-def hero_encode_args(output: Path) -> list[str]:
+def hero_encode_args(output: Path, width: int = CANVAS_W, height: int = CANVAS_H) -> list[str]:
     # CRF 18 + tune grain: temporal grain noise boils into wavy macroblocks
     # at x264 defaults, especially across the two-pass intermediate+concat encode.
+    dest_w, dest_h = even_dim(width), even_dim(height)
     return [
         "-c:v",
         "libx264",
@@ -163,7 +181,7 @@ def hero_encode_args(output: Path) -> list[str]:
         "-r",
         str(FPS),
         "-s",
-        f"{CANVAS_W}x{CANVAS_H}",
+        f"{dest_w}x{dest_h}",
         "-c:a",
         "aac",
         "-profile:a",
@@ -178,9 +196,11 @@ def hero_encode_args(output: Path) -> list[str]:
     ]
 
 
-def proxy_encode_args(output: Path) -> list[str]:
+def proxy_encode_args(output: Path, width: int | None = None, height: int | None = None) -> list[str]:
     from lc_editor.models import PROXY_H, PROXY_W
 
+    dest_w = even_dim(width if width is not None else PROXY_W)
+    dest_h = even_dim(height if height is not None else PROXY_H)
     return [
         "-c:v",
         "libx264",
@@ -191,7 +211,7 @@ def proxy_encode_args(output: Path) -> list[str]:
         "-pix_fmt",
         "yuv420p",
         "-s",
-        f"{PROXY_W}x{PROXY_H}",
+        f"{dest_w}x{dest_h}",
         "-c:a",
         "aac",
         "-movflags",
@@ -214,6 +234,9 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "duration_s": clip.duration_s,
         "motion": clip.motion,
         "focus": [clip.focus_x, clip.focus_y],
+        "fit": clip.fit,
+        "fit_pad_color": clip.fit_pad_color,
+        "canvas": [project.width, project.height],
         "speed": clip.speed,
         "wrap": clip.wrap,
         "kenburns_amount": clip.kenburns_amount,

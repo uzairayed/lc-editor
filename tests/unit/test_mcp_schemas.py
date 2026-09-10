@@ -84,6 +84,10 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "w" in cam
     export = schemas["export"].get("properties") or {}
     assert "wait" in export
+    fit = schemas["clip_set_fit"].get("properties") or {}
+    assert "clip_id" in fit
+    assert "mode" in fit
+    assert "kwargs" not in fit
 
 
 def test_spec_ses_11_python_311_ok() -> None:

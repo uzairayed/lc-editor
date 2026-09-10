@@ -20,13 +20,14 @@ from lc_editor.models import (
     MediaItem,
     Project,
     Timeline,
+    canvas_wh,
     timeline_duration,
 )
 from lc_editor.render.audio import denoise_chain, limiter_filter, loudnorm_hero, loudnorm_profile, resolve_denoise_profile
 from lc_editor.render.captions import combined_pop_ass, drawtext_filter, fontfile_for
 from lc_editor.fonts import title_font
 from lc_editor.render.effects import compile_effects
-from lc_editor.render.motion import crop_9_16, motion_chain
+from lc_editor.render.motion import canvas_fit_filters, motion_chain
 from lc_editor.render.textfx import layer_drawtext
 from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter
 
@@ -47,6 +48,8 @@ def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
                 "duration_s": c.duration_s,
                 "motion": c.motion,
                 "focus": [c.focus_x, c.focus_y],
+                "fit": c.fit,
+                "fit_pad_color": c.fit_pad_color,
                 "speed": c.speed,
                 "wrap": c.wrap,
                 "effects": [e.model_dump() for e in c.effects],
@@ -71,12 +74,13 @@ def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
 
 
 def _clip_base_filters(clip: Clip, media: MediaItem, captions, project: Project, *, last: bool, transition: str | None) -> str:
+    dest_w, dest_h = canvas_wh(project)
     frames = max(1, int(round(clip.duration_s * FPS)))
-    parts = [crop_9_16(clip, media.width or CANVAS_W, media.height or CANVAS_H)]
+    parts = [canvas_fit_filters(clip, dest_w, dest_h)]
     if clip.motion != "none":
-        parts.append(motion_chain(clip, frames))
+        parts.append(motion_chain(clip, frames, dest_w, dest_h))
     else:
-        parts.append(f"scale={CANVAS_W}:{CANVAS_H}")
+        parts.append(f"scale={dest_w}:{dest_h}")
     extra = compile_effects(clip.effects)
     if extra:
         parts.append(extra)
@@ -108,9 +112,9 @@ def _clip_base_filters(clip: Clip, media: MediaItem, captions, project: Project,
     return ",".join(parts)
 
 
-def _overlay_xy(layer: LayerItem) -> tuple[str, str]:
-    x = f"(main_w-overlay_w)/2+{(layer.transform.x - 0.5) * CANVAS_W:.1f}"
-    y = f"(main_h-overlay_h)/2+{(layer.transform.y - 0.5) * CANVAS_H:.1f}"
+def _overlay_xy(layer: LayerItem, dest_w: int = CANVAS_W, dest_h: int = CANVAS_H) -> tuple[str, str]:
+    x = f"(main_w-overlay_w)/2+{(layer.transform.x - 0.5) * dest_w:.1f}"
+    y = f"(main_h-overlay_h)/2+{(layer.transform.y - 0.5) * dest_h:.1f}"
     return x, y
 
 
@@ -133,6 +137,7 @@ def build_assemble_command(
     loudnorm: bool = True,
 ) -> list[str]:
     media = media_map(items)
+    dest_w, dest_h = canvas_wh(project)
     args = [ffmpeg, "-y"]
     video_labels: list[str] = []
     filter_parts: list[str] = []
@@ -168,13 +173,13 @@ def build_assemble_command(
         input_index += 1
 
     if not video_labels:
-        filter_parts.append(f"color=c=black:s={CANVAS_W}x{CANVAS_H}:d=1[base]")
+        filter_parts.append(f"color=c=black:s={dest_w}x{dest_h}:d=1[base]")
         current = "[base]"
     elif len(video_labels) == 1:
         filter_parts.append(f"{video_labels[0]}copy[base]")
         current = "[base]"
     else:
-        current = _join_clips(timeline, video_labels, filter_parts)
+        current = _join_clips(timeline, video_labels, filter_parts, dest_w, dest_h)
 
     layer_inputs: list[tuple[int, LayerItem]] = []
     for layer in sorted(timeline.layers, key=lambda item: (item.z, item.id)):
@@ -191,8 +196,8 @@ def build_assemble_command(
 
     for idx, layer in layer_inputs:
         scale = max(0.05, layer.transform.scale)
-        w = int(CANVAS_W * scale)
-        h = int(CANVAS_H * scale)
+        w = int(dest_w * scale)
+        h = int(dest_h * scale)
         rot = layer.transform.rotation
         opacity = layer.transform.opacity
         chain = f"[{idx}:v]scale={w}:{h},setpts=PTS-STARTPTS"
@@ -203,7 +208,7 @@ def build_assemble_command(
             chain += f",rotate={rot}*PI/180:fillcolor=0x00000000"
         chain += f",format=yuva420p,colorchannelmixer=aa={opacity:.3f}[ly{idx}]"
         filter_parts.append(chain)
-        x, y = _overlay_xy(layer)
+        x, y = _overlay_xy(layer, dest_w, dest_h)
         nxt = f"[ov{idx}]"
         enable = f"enable='between(t,{layer.start_s:.4f},{layer.start_s + layer.duration_s:.4f})'"
         filter_parts.append(f"{current}[ly{idx}]overlay={x}:{y}:{enable}{nxt}")
@@ -355,7 +360,13 @@ def build_assemble_command(
     return cmd
 
 
-def _join_clips(timeline: Timeline, labels: list[str], filter_parts: list[str]) -> str:
+def _join_clips(
+    timeline: Timeline,
+    labels: list[str],
+    filter_parts: list[str],
+    dest_w: int = CANVAS_W,
+    dest_h: int = CANVAS_H,
+) -> str:
     whip_s = WHIP_FRAMES / FPS
     current = labels[0]
     for i in range(1, len(labels)):
@@ -380,7 +391,7 @@ def _join_clips(timeline: Timeline, labels: list[str], filter_parts: list[str]) 
             filter_parts.append(f"[bs{i}b]trim=end={whip_s:.4f},setpts=PTS-STARTPTS,boxblur=8:1{b_edge}")
             filter_parts.append(f"[bs{i}a]trim=start={whip_s:.4f},setpts=PTS-STARTPTS{b_body}")
             filter_parts.append(
-                f"{a_edge}{b_edge}hstack=inputs=2,crop={CANVAS_W}:{CANVAS_H}:'{CANVAS_W}*n/{WHIP_FRAMES}':0{whip}"
+                f"{a_edge}{b_edge}hstack=inputs=2,crop={dest_w}:{dest_h}:'{dest_w}*n/{WHIP_FRAMES}':0{whip}"
             )
             filter_parts.append(f"{a_body}{whip}{b_body}concat=n=3:v=1:a=0{out}")
         else:

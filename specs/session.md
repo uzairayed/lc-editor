@@ -14,9 +14,9 @@ Every mutation returns exactly:
 
 Illegal operations set `ok: false`, leave the timeline unchanged, and put the reason in `warnings`. They never silently coerce (no dropping a box to "fix" a caption, no enabling music as a default).
 
-## SPEC-SES-02: project_create 9:16
+## SPEC-SES-02: project_create canvas
 
-`project_create` with aspect `9:16` makes a project at 1080x1920, 30fps, `allow_music: false`. The owner may later set `allow_music: true`.
+`project_create` defaults to aspect `9:16` at 1080x1920, 30fps, `allow_music: false`. Aspect `16:9` makes 1920x1080. Optional `width` and `height` set a free even canvas. Unknown aspect is `ok: false`. The owner may later set `allow_music: true`. `project_get` exposes `aspect`, `width`, and `height`.
 
 ## SPEC-SES-03: project_open / get / set / list
 
