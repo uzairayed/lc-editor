@@ -28,6 +28,7 @@ def test_spec_ses_02_project_create_9_16(tmp_path: Path) -> None:
     assert project["height"] == 1920
     assert project["fps"] == 30
     assert project["allow_music"] is False
+    assert project["min_video_duration_s"] == 5.0
 
 
 def test_spec_ses_03_allow_music_opt_in(editor: Editor) -> None:

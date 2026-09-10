@@ -29,7 +29,7 @@ def test_spec_ses_08_eleven_call_session(editor: Editor, tmp_path: Path) -> None
 
     ids = []
     for item in editor.media_list()["media"][:6]:
-        add = editor.clip_add(media_id=item["id"], duration_s=3.8)
+        add = editor.clip_add(media_id=item["id"], duration_s=5.0)
         assert add["ok"] is True
         ids.append(editor.timeline_get()["timeline"]["clips"][-1]["id"])
     assert 6 <= len(ids) <= 8
@@ -63,7 +63,7 @@ def test_spec_ses_08_eleven_call_session(editor: Editor, tmp_path: Path) -> None
     proxy = editor.preview_proxy()
     assert stills["ok"] and proxy["ok"]
 
-    recut = editor.clip_trim(ids[-1], 0.0, 2.4)
+    recut = editor.clip_trim(ids[-1], 0.0, 5.0)
     assert recut["ok"] is True
     review = editor.review_report()
     assert review["ok"] is True

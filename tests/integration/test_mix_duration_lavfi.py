@@ -100,13 +100,13 @@ def _stream_durations(path: Path) -> tuple[float, float]:
 
 @skip_no_ffmpeg
 def test_export_tone_and_still_share_duration(tmp_path: Path) -> None:
-    tone = _tone(tmp_path / "talk.mp4")
+    tone = _tone(tmp_path / "talk.mp4", seconds=5.0)
     still = _still(tmp_path / "card.jpg")
     editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
     editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
     editor.import_file(str(tone))
     editor.import_file(str(still))
-    editor.clip_add(media_id=editor.media[0].id, duration_s=3.0)
+    editor.clip_add(media_id=editor.media[0].id, duration_s=5.0)
     editor.clip_add(media_id=editor.media[1].id, duration_s=2.5)
     editor.motion_kenburns(editor.timeline_get()["timeline"]["clips"][-1]["id"])
     review = editor.review_report()
@@ -115,4 +115,4 @@ def test_export_tone_and_still_share_duration(tmp_path: Path) -> None:
     assert exported["ok"] is True, exported
     video_s, audio_s = _stream_durations(Path(exported["hero"]))
     assert abs(video_s - audio_s) <= 0.05
-    assert abs(video_s - 5.5) <= 0.15
+    assert abs(video_s - 7.5) <= 0.15

@@ -122,9 +122,9 @@ def test_three_windows_from_one_file_keep_audio(tmp_path: Path) -> None:
     editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
     editor.import_file(str(src))
     mid = editor.media[0].id
-    editor.clip_add(media_id=mid, in_s=0.0, duration_s=2.5)
-    editor.clip_add(media_id=mid, in_s=2.5, duration_s=2.5)
-    editor.clip_add(media_id=mid, in_s=5.0, duration_s=2.5)
+    editor.clip_add(media_id=mid, in_s=0.0, duration_s=5.0)
+    editor.clip_add(media_id=mid, in_s=1.5, duration_s=5.0)
+    editor.clip_add(media_id=mid, in_s=3.0, duration_s=5.0)
     assert editor.review_report(allow_dense=True)["ok"] is True
     exported = editor.export()
     assert exported["ok"] is True, exported

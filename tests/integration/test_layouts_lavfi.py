@@ -31,7 +31,7 @@ def test_layout_stack_v_export(tmp_path: Path) -> None:
             "-f",
             "lavfi",
             "-i",
-            "color=c=0x8B3A2A:s=1920x1080:d=3:r=30",
+            "color=c=0x8B3A2A:s=1920x1080:d=5:r=30",
             str(top),
         ]
     )
@@ -42,7 +42,7 @@ def test_layout_stack_v_export(tmp_path: Path) -> None:
             "-f",
             "lavfi",
             "-i",
-            "color=c=0xF4A300:s=1920x1080:d=3:r=30",
+            "color=c=0xF4A300:s=1920x1080:d=5:r=30",
             str(bot),
         ]
     )
@@ -53,7 +53,7 @@ def test_layout_stack_v_export(tmp_path: Path) -> None:
     added = editor.layout_add(
         kind="stack_v",
         panes=[{"media_id": editor.media[0].id}, {"media_id": editor.media[1].id}],
-        duration_s=2.5,
+        duration_s=5.0,
     )
     assert added["ok"] is True
     stills = editor.preview_stills()

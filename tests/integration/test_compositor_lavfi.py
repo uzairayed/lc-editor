@@ -32,11 +32,11 @@ def test_compositor_layers_and_music(tmp_path: Path) -> None:
             "-f",
             "lavfi",
             "-i",
-            "color=c=0x1A1410:s=1920x1080:d=3:r=30",
+            "color=c=0x1A1410:s=1920x1080:d=5:r=30",
             "-f",
             "lavfi",
             "-i",
-            "sine=frequency=220:duration=3",
+            "sine=frequency=220:duration=5",
             "-shortest",
             str(video),
         ]
@@ -46,7 +46,7 @@ def test_compositor_layers_and_music(tmp_path: Path) -> None:
     editor = Editor(workspace=tmp_path, runner=runner)
     editor.project_create(name="comp", project_dir=str(tmp_path / "comp"))
     editor.import_file(str(video))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
     editor.import_file(str(still))
     editor.layer_add(kind="image", media_id=editor.media[-1].id, start_s=0.2, duration_s=1.2, z=12)
     editor.layer_add(kind="text", text="Cafe Imran, Gharo", start_s=0.3, duration_s=2.0, motion="fade")

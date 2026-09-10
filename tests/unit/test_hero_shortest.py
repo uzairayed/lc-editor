@@ -20,7 +20,7 @@ def test_spec_export_08_hero_args_reject_shortest(tmp_path: Path) -> None:
 
 def test_spec_export_08_assemble_hero_omits_shortest(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
     assert editor.review_report()["ok"] is True
     assert editor.export()["ok"] is True
     assemble = None

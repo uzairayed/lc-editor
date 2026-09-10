@@ -129,7 +129,18 @@ A clip must stay on screen long enough to register. Caption hold is not the same
 - A fragment shorter than the floor is `SPEC-EDIT-ACK-01` and fails `review_report`, unless the clip holds its entire source. A whole-source hold shorter than the floor is a warning, not an error.
 - Clip count may not exceed `ceil(duration_s * 16 / 60)` (`SPEC-EDIT-ACK-02`). A 60s reel therefore lands at most 16 clips. Override with `review_report(allow_dense=true)`.
 - `shots_rank` drops video shots shorter than `SHOT_ACK_MIN_S`. If that empties the pool, it falls back to all shots with a warning.
-- `clip_add` defaults video duration to `SHOT_ACK_MIN_S` (or the whole source if shorter).
+- `clip_add` defaults video duration to `max(SHOT_ACK_MIN_S, min_video_duration_s)` (or the whole source if shorter).
+
+## SPEC-EDIT-25: video duration floor
+
+Video beats have a project hold floor separate from (and usually higher than) the acknowledge floor. Stills never use this floor; they keep SPEC-EDIT-ACK / SPEC-CRAFT still rules.
+
+- Project field `min_video_duration_s` defaults to **5.0**. `project_set(min_video_duration_s=…)` updates it. **0 means “use the default 5.0”** (stored as 5.0). Omitting the argument leaves the stored value unchanged. A negative value is `ok: false`. The owner may lower a positive floor; review and export always report against the configured (resolved) floor.
+- `clip_set_duration` on a video clip shorter than the floor is `ok: false` with `SPEC-EDIT-25` and is not applied. Stills are exempt.
+- `clip_add` / trim may place a short video (acknowledge examples stay legal). The mutation warns `SPEC-EDIT-25`. `review_report` and `export` fail closed unless the clip holds its entire source.
+- Whole-source exception (same test as SPEC-EDIT-ACK): if the video file itself is shorter than the floor and the clip holds `in_s≈0` plus the full source duration, that is a warning, not a hard fail.
+
+Worked example: source 12s, `clip_set_duration` to 4.90s → `ok: false`. Source 4.00s held in full → warning only. A 1.50s still is exempt from this rule.
 
 ## SPEC-EDIT-19: timeline_get is one call
 

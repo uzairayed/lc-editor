@@ -20,6 +20,7 @@ SHOT_ACK_MIN_S = 2.4
 STILL_ACK_MIN_S = 2.2
 SOURCE_SHORT_MIN = 720
 CANVAS_1080_MIN = 1080
+MIN_VIDEO_DURATION_S = 5.0
 MAX_CLIPS_PER_60S = 16
 CAPTION_WRAP = 26
 CAPTION_MAX_WORDS = 16
@@ -368,10 +369,19 @@ class Project(BaseModel):
     reviewed_version: int | None = None
     preset: str | None = None
     loudnorm: LoudnormProfile = "cinema"
+    min_video_duration_s: float = MIN_VIDEO_DURATION_S
     grain: float = 0.0
     vignette: float = 0.0
     adjustment: AdjustmentLayer = Field(default_factory=AdjustmentLayer)
     root: str = ""
+
+
+def resolved_min_video_duration_s(project: Project | None) -> float:
+    """Effective video hold floor. None or <= 0 means the default 5.0s."""
+    raw = None if project is None else project.min_video_duration_s
+    if raw is None or raw <= 0:
+        return MIN_VIDEO_DURATION_S
+    return float(raw)
 
 
 class TimelineSummary(BaseModel):

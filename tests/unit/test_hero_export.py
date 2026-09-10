@@ -11,7 +11,7 @@ from lc_editor.render.runner import FakeRunner, RunResult
 
 def _ready(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
     assert editor.review_report()["ok"] is True
 
 

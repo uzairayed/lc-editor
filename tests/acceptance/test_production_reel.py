@@ -11,6 +11,7 @@ def test_production_reel_template_music_layers(tmp_path: Path) -> None:
     runner = FakeRunner(duration_s=8.0)
     editor = Editor(workspace=tmp_path, runner=runner)
     editor.project_create(name="prod", project_dir=str(tmp_path / "prod"))
+    editor.project_set(min_video_duration_s=2.4)
     clip = touch_media(tmp_path / "src", "ride", ".mp4")
     still = touch_media(tmp_path / "src", "chip", ".png")
     song = touch_media(tmp_path / "src", "bed", ".wav")

@@ -17,10 +17,12 @@ from lc_editor.models import (
     STILL_ACK_MIN_S,
     ZOOM_PAIR_MIN_CLIP_S,
     ZOOM_SUGGEST_SKIP_S,
+    Clip,
     MediaItem,
     Project,
     Timeline,
     decorated_transition_count,
+    resolved_min_video_duration_s,
     timeline_duration,
 )
 from lc_editor.assets.pack import sfx_manifest
@@ -66,10 +68,80 @@ def wipe_graph_issues(timeline: Timeline) -> list[str]:
     return errors
 
 
-def _holds_whole_source(clip, source: MediaItem | None) -> bool:
+def holds_whole_source(in_s: float, duration_s: float, source: MediaItem | None) -> bool:
     if source is None or source.kind == "image":
         return False
-    return clip.in_s <= 1e-3 and abs(clip.duration_s - (source.duration_s or 0.0)) <= 0.05
+    return in_s <= 1e-3 and abs(duration_s - (source.duration_s or 0.0)) <= 0.05
+
+
+def _holds_whole_source(clip, source: MediaItem | None) -> bool:
+    return holds_whole_source(clip.in_s, clip.duration_s, source)
+
+
+def clip_exempt_from_video_floor(clip: Clip, source: MediaItem | None) -> bool:
+    if clip.is_still:
+        return True
+    if source is not None and source.kind == "image":
+        return True
+    return False
+
+
+def video_floor_reject(
+    clip: Clip,
+    source: MediaItem | None,
+    duration_s: float,
+    project: Project | None,
+    *,
+    in_s: float | None = None,
+) -> str | None:
+    if clip_exempt_from_video_floor(clip, source):
+        return None
+    floor = resolved_min_video_duration_s(project)
+    if duration_s + 1e-6 >= floor:
+        return None
+    start = clip.in_s if in_s is None else in_s
+    if holds_whole_source(start, duration_s, source):
+        return None
+    return (
+        f"SPEC-EDIT-25: clip {clip.id} is {duration_s:.2f}s (video floor {floor:.2f}s)"
+    )
+
+
+def video_duration_floor_errors(
+    timeline: Timeline,
+    project: Project | None,
+    media: list[MediaItem] | None,
+) -> list[str]:
+    errors: list[str] = []
+    by_id = {item.id: item for item in (media or [])}
+    for clip in timeline.clips:
+        source = by_id.get(clip.media_id)
+        err = video_floor_reject(clip, source, clip.duration_s, project)
+        if err:
+            errors.append(err)
+    return errors
+
+
+def video_duration_floor_warnings(
+    timeline: Timeline,
+    project: Project | None,
+    media: list[MediaItem] | None,
+) -> list[str]:
+    warnings: list[str] = []
+    by_id = {item.id: item for item in (media or [])}
+    floor = resolved_min_video_duration_s(project)
+    for clip in timeline.clips:
+        source = by_id.get(clip.media_id)
+        if clip_exempt_from_video_floor(clip, source):
+            continue
+        if clip.duration_s + 1e-6 >= floor:
+            continue
+        if _holds_whole_source(clip, source):
+            warnings.append(
+                f"SPEC-EDIT-25: clip {clip.id} holds whole source {clip.duration_s:.2f}s "
+                f"(video floor {floor:.2f}s)"
+            )
+    return warnings
 
 
 def acknowledge_errors(
@@ -176,6 +248,7 @@ def review_blockers(
     errors.extend(zoom_pair_issues(timeline))
     errors.extend(acknowledge_errors(timeline, media, allow_dense=allow_dense))
     errors.extend(quality_blockers(timeline, project, media))
+    errors.extend(video_duration_floor_errors(timeline, project, media))
     cap = reject_duration(timeline)
     if cap:
         errors.append(cap)
@@ -203,6 +276,7 @@ def review_warnings(
     warns.extend(density_warnings(timeline, project))
     warns.extend(acknowledge_warnings(timeline, media))
     warns.extend(quality_warnings(timeline, project, media))
+    warns.extend(video_duration_floor_warnings(timeline, project, media))
     if timeline.music:
         if any(not track.source_name.strip() for track in timeline.music):
             warns.append("SPEC-SND-15: music is present without source attribution")

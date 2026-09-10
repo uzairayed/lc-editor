@@ -73,8 +73,8 @@ def test_spec_edit_21_zoom_pair_tool(tmp_path: Path, media_file: Path) -> None:
 
 def test_spec_edit_21_review_fails_midreel_zoom_in(tmp_path: Path, media_file: Path) -> None:
     editor = _long_editor(tmp_path)
-    first = _add(editor, media_file, 4.0)
-    _add(editor, media_file, 4.0)
+    first = _add(editor, media_file, 5.0)
+    _add(editor, media_file, 5.0)
     assert editor.motion_zoom_in(first)["ok"] is True
     review = editor.review_report()
     assert review["ok"] is False

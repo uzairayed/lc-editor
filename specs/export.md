@@ -38,8 +38,9 @@ The timeline preview encode is 540x960, `-preset veryfast`, `-crf 30`. Edit/lint
 - an effect name is not in the registry
 - a caption box or banned transition is present
 - a cover (or default cover) clip upscales a source whose short side is below 720 into a 1080-class canvas (SPEC-QLT-01)
+- a video clip is shorter than the project `min_video_duration_s` floor (SPEC-EDIT-25), unless it holds its entire source
 
-A duration between 28s and 60s is a warning, not a failure. A sub-720 source on a non-1080 canvas, or framed with fit/letterbox, warns and does not fail.
+A duration between 28s and 60s is a warning, not a failure. A sub-720 source on a non-1080 canvas, or framed with fit/letterbox, warns and does not fail. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
 
 ## SPEC-EXPORT-05: export writes two files
 

@@ -36,7 +36,14 @@ from lc_editor.lint.captions import (
 )
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import mix_issues, mix_preview_payload, sfx_too_hot
-from lc_editor.lint.review import review_blockers, review_warnings, zoom_suggestions
+from lc_editor.lint.review import (
+    review_blockers,
+    review_warnings,
+    video_duration_floor_errors,
+    video_duration_floor_warnings,
+    video_floor_reject,
+    zoom_suggestions,
+)
 from lc_editor.presets import load_preset
 from lc_editor.analysis.beats import analyze_beats
 from lc_editor.migrate import sync_caption_layers
@@ -44,7 +51,9 @@ from lc_editor.models import (
     CAPTION_Y_DEFAULT,
     DEFAULT_STILL_S,
     FPS,
+    MIN_VIDEO_DURATION_S,
     SHOT_ACK_MIN_S,
+    resolved_min_video_duration_s,
     SOURCE_PROXY_H,
     SOURCE_PROXY_W,
     MUSIC_KINDS,
@@ -229,6 +238,8 @@ class Editor:
         new_tl = recompute_starts(new_tl)
         new_tl = sync_caption_layers(new_tl)
         warnings = invariant_warnings(new_tl)
+        warnings.extend(video_duration_floor_warnings(new_tl, store.project, self.media))
+        warnings.extend(video_duration_floor_errors(new_tl, store.project, self.media))
         result = envelope(True, new_tl, warnings)
         store.commit(new_tl, op_id, result)
         result["timeline_summary"] = envelope(True, store.timeline, warnings)["timeline_summary"]
@@ -306,6 +317,7 @@ class Editor:
         name: str | None = None,
         preset: str | None = None,
         loudnorm: str | None = None,
+        min_video_duration_s: float | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -332,6 +344,14 @@ class Editor:
             if loudnorm not in ("cinema", "speech"):
                 return envelope(False, store.timeline, ["loudnorm must be cinema or speech"])
             update["loudnorm"] = loudnorm
+        if min_video_duration_s is not None:
+            if min_video_duration_s < 0:
+                return envelope(False, store.timeline, ["SPEC-EDIT-25: min_video_duration_s must be >= 0"])
+            # 0 means "use default 5.0". Omit the argument to leave the stored floor unchanged.
+            update["min_video_duration_s"] = (
+                MIN_VIDEO_DURATION_S if min_video_duration_s == 0 else float(min_video_duration_s)
+            )
+            update["reviewed_version"] = None
         if update:
             store.project = store.project.model_copy(update=update)
             store.persist()
@@ -851,7 +871,9 @@ class Editor:
         if item.kind == "audio":
             return envelope(False, self._need().timeline, ["SPEC-SND-11: audio files are placed with music_add"])
         is_still = item.kind == "image"
-        video_default = min(SHOT_ACK_MIN_S, item.duration_s or SHOT_ACK_MIN_S)
+        video_floor = resolved_min_video_duration_s(self._need().project)
+        video_target = max(SHOT_ACK_MIN_S, video_floor)
+        video_default = min(video_target, item.duration_s or video_target)
         default_dur = DEFAULT_STILL_S if is_still else video_default
         start_in = 0.0 if in_s is None else in_s
         if out_s is None:
@@ -898,6 +920,9 @@ class Editor:
     def clip_set_duration(self, clip_id: str, duration_s: float, op_id: str | None = None) -> dict:
         clip = self._clip(clip_id)
         source = self._media(clip.media_id)
+        err = video_floor_reject(clip, source, duration_s, self._need().project)
+        if err:
+            return envelope(False, self._need().timeline, [err])
         return self._mutate(op_id, lambda tl: set_duration_clip(tl, clip_id, duration_s, source))
 
     def clip_fit(self, clip_id: str, op_id: str | None = None) -> dict:
@@ -1631,6 +1656,9 @@ class Editor:
             return replay
         if store.project.reviewed_version != store.timeline.version:
             return envelope(False, store.timeline, ["SPEC-EXPORT-03: export requires review_report on the current version"])
+        floor_errors = video_duration_floor_errors(store.timeline, store.project, self.media)
+        if floor_errors:
+            return envelope(False, store.timeline, floor_errors)
         hero = store.output_dir / "reel.mp4"
         proxy = store.output_dir / "reel_proxy.mp4"
         sidecar = store.output_dir / "reel.json"

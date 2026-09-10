@@ -52,9 +52,9 @@ def test_spec_snd_16_live_intermediate_maps_aac_48k(editor, media_file: Path) ->
 def test_spec_snd_16_three_clips_from_one_source_each_have_audio(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
     mid = editor.media[-1].id
-    editor.clip_add(media_id=mid, in_s=0.0, duration_s=2.5)
-    editor.clip_add(media_id=mid, in_s=1.0, duration_s=2.5)
-    editor.clip_add(media_id=mid, in_s=2.0, duration_s=2.5)
+    editor.clip_add(media_id=mid, in_s=0.0, duration_s=5.0)
+    editor.clip_add(media_id=mid, in_s=1.0, duration_s=5.0)
+    editor.clip_add(media_id=mid, in_s=2.0, duration_s=5.0)
     assert editor.review_report(allow_dense=True)["ok"] is True
     assert editor.export()["ok"] is True
     assemble = None
@@ -123,7 +123,7 @@ def test_spec_snd_17_loudnorm_cinema_vs_speech() -> None:
 
 def test_spec_snd_17_assemble_speech_loudnorm(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
     editor.project_set(loudnorm="speech")
     assert editor.review_report()["ok"] is True
     assert editor.export()["ok"] is True
