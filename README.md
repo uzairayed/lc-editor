@@ -33,6 +33,14 @@ lc-editor serve --project ./my-reel
 
 `--project` defaults to `./reel` if omitted. `--web` starts a page on 127.0.0.1:8765 that can show stills. It only reads.
 
+```
+lc-editor version
+lc-editor doctor
+lc-editor doctor --project /absolute/path/to/project
+```
+
+`version` prints the package version. `doctor` checks Python 3.11+, ffmpeg and ffprobe on PATH, the MCP tool count from `TOOLS`, and that `project_create` / `import_file` / `import_folder` / `clip_add` / `export` exist. Optional `--project` is a dry smoke: it reports whether the project exists or can be created. It does not encode or export.
+
 ## Cursor Marketplace Plugin
 
 This repo is packaged as a Cursor Agent Plugin. Install the `lc-editor` plugin from the Cursor Marketplace and the MCP server is ready to use—no manual pipx install needed.
@@ -44,9 +52,16 @@ The plugin includes:
 - `mcp.json` — MCP server configuration (stdio transport)
 - `skills/lc-editor/SKILL.md` — guidance for agents on when/how to use the editor
 
-## Cursor (manual MCP config)
+## Attach MCP (Grok Bot / Cursor / any stdio client)
 
-If you prefer manual configuration instead of the marketplace plugin, add this to your MCP config:
+The editor is not a CLI of edit commands. Agents call MCP tools (`project_create`, `import_folder`, `clip_add`, `export`, …). Those tools appear only after you attach `lc-editor serve` as an MCP server.
+
+One-liner attach (stdio):
+
+- **command:** `lc-editor`
+- **args:** `serve --project <absolute path>`
+
+Cursor / Grok Bot `mcp.json` (or Cursor MCP settings):
 
 ```json
 {
@@ -59,7 +74,22 @@ If you prefer manual configuration instead of the marketplace plugin, add this t
 }
 ```
 
-On Windows the path looks like `C:/Users/you/my-reel`.
+Restart the agent session after changing MCP config. Then confirm `project_create` is a callable tool. If it is not in the tool catalog, the session is not attached — run `lc-editor doctor` and fix the config. Do not fall back to raw ffmpeg while doctor is green.
+
+### Windows paths
+
+Use an **absolute** project path.
+
+- Forward slashes work in JSON: `C:/Users/you/my-reel`
+- Backslashes must be escaped: `C:\\Users\\you\\my-reel`
+- After `pipx install .`, confirm the binary: PowerShell `Get-Command lc-editor`, cmd `where lc-editor`
+- If `lc-editor` is not on PATH, set `command` to the full exe path (pipx usually puts it under `%USERPROFILE%\\.local\\bin\\lc-editor.exe`)
+
+### Verify tools appeared
+
+1. `lc-editor doctor` — `mcp_tools` should be ~100 and `project_create` / `import_*` / `clip_add` / `export` should read `ok`.
+2. `lc-editor doctor --project C:/Users/you/my-reel` — reports exists or can create. No encode.
+3. In the agent session, `project_create` is callable. If MCP tools are missing, check `mcp.json`, restart the session, and re-run doctor. Stay off ffmpeg until doctor is red.
 
 You can also use `uvx` to run without installing first:
 
@@ -73,6 +103,10 @@ You can also use `uvx` to run without installing first:
   }
 }
 ```
+
+## Cursor (manual MCP config)
+
+If you prefer manual configuration instead of the marketplace plugin, use the attach snippet above. The marketplace plugin ships the same stdio server via `mcp.json`.
 
 ## Tools
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from lc_editor.app import Editor
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lc_editor.app import Editor
 
 TOOLS = [
     "project_create",
