@@ -5,12 +5,13 @@ from pathlib import Path
 from lc_editor.models import CANVAS_H, CANVAS_W, FPS, LayerItem, SAND, STROKE
 from lc_editor.render.captions import fontsize_for
 from lc_editor.render.paths import ffmpeg_path
-from lc_editor.fonts import body_font, title_font
+from lc_editor.fonts import face_for_caption
 from lc_editor.models import Caption
 
 
 def _fontfile(layer: LayerItem) -> Path | None:
-    return title_font() if layer.role == "title" or layer.style.role == "title" else body_font()
+    role = layer.style.role if layer.style.role in ("title", "body") else layer.role
+    return face_for_caption("phrase", role, layer.style.font)
 
 
 def _size(layer: LayerItem) -> int:

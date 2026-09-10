@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from lc_editor.fonts import PACKAGE_FONTS, body_font, title_font
+from lc_editor.fonts import PACKAGE_FONTS, body_font, display_font, font_label, normalize_font, title_font
 
 
 def test_spec_rnd_13_packaged_static_fonts() -> None:
@@ -16,4 +16,7 @@ def test_spec_rnd_13_packaged_static_fonts() -> None:
     assert hashlib.sha256(space.read_bytes()).hexdigest() in pins
     assert title_font() == anton
     assert body_font() == space
+    assert display_font() == anton
+    assert font_label(anton) == "Anton"
+    assert normalize_font("clash") == "clash"
     assert "[" not in space.name

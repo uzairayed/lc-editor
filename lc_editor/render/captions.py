@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lc_editor.fonts import body_font, title_font
+from lc_editor.fonts import face_for_caption
 from lc_editor.lint.captions import _font_at, fontsize_for, wrap_text
 from lc_editor.models import (
     CANVAS_H,
@@ -38,9 +38,7 @@ def stroke_w(caption: Caption) -> int:
 
 
 def fontfile_for(caption: Caption) -> Path | None:
-    if caption.style in ("karaoke", "pop"):
-        return title_font()
-    return title_font() if caption.role == "title" else body_font()
+    return face_for_caption(caption.style, caption.role, caption.font)
 
 
 def enter_exprs(caption: Caption, size: int) -> tuple[str, str]:

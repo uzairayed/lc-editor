@@ -4,6 +4,8 @@ Primary goal: people can see and finish the text on a phone at arm's length. Gra
 
 No caption boxes, banners, blur pads, or scrims (SPEC-CRAFT-02). No word-by-word Hormozi as the default. Music is independent of caption style (SPEC-SND-11).
 
+**Reel kind → style:** product / process / ambient (car detailing, SaaS demo, shop noise) use `card` or `phrase` — natural 2–3 line scene cards, no karaoke tracing, no one-word-pop. `pop` and `karaoke` are spoken-word only.
+
 Hold formula (authoritative):
 
 ```
@@ -85,9 +87,23 @@ On caption in, optional **2–4 frame** scale 100→102% (or opacity 0→1). Mus
 
 Independent text layers also accept `motion="none"|"fade"|"pop"|"slide"|"type_on"`. Pop is a 2–4 frame scale (same as punch). Slide is a short vertical ease-in. Type-on reveals characters inside the 0.4s land window via `enable`/`text` drawtext, still using a textfile (never inline apostrophes). All four stay box-free.
 
+## SPEC-CAP-13: process / product cards
+
+`caption_style="card"` is the first-class path for professional scene cards. Same wrap, hold, and no-box rules as `phrase`. No karaoke highlight. No one-word-pop.
+
+- 2–3 lines, one idea, sentence case
+- Clash Display (packaged Anton if Clash is not installed) — set `font="clash"` or rely on the card default
+- Stroke-and-shadow only. Never `box=1`, never a banner or scrim
+- `phrase` stays the spoken-adjacent default and renders the same card filters; body role still prefers Satoshi / Space Grotesk unless `font` or `project_set(caption_font="clash")` is set
+- `caption_add(..., style="card")` is the agent default for detailing, SaaS, and ambient cuts
+
+`caption_lint` **warns** (does not fail add) when `karaoke` or `pop` is used on a long process-style line. Suggested fix: `style="card"`.
+
+Named fonts (no raw ffmpeg): `clash` / `clash-display`, `satoshi`, `anton`, `space-grotesk`. Set per caption (`caption_add` / `caption_edit`), on a text layer (`text_style(..., font="clash")`), or as the project default (`project_set(caption_font="clash")`).
+
 ## SPEC-CAP-10: opt-in karaoke
 
-`caption_style="karaoke"` is opt-in. Default phrase cards stay. Karaoke is not the house style.
+`caption_style="karaoke"` is opt-in. Default phrase / card stay. Karaoke is not the house style. Spoken-word only — not for process cards.
 
 - Spoken word fill `#FFE14A`, rest sand `#F6EBD4`
 - No box, Clash Display, y 22–50%
@@ -98,7 +114,7 @@ Independent text layers also accept `motion="none"|"fade"|"pop"|"slide"|"type_on
 
 ## SPEC-CAP-11: opt-in word-pop
 
-`caption_style="pop"` is opt-in. Default phrase cards and karaoke tracing stay.
+`caption_style="pop"` is opt-in. Default phrase / card and karaoke tracing stay. Spoken-word only — not for process cards.
 
 - One word on screen at a time, replaced from whisper timings `words: [{text, start_s, end_s}]`
 - Clash Display Semibold, fill `#FFE14A`, 3px `#1A1410` stroke, no box, Alignment 8 / y 22–50% (MarginV ~620 on 1080×1920)
@@ -151,10 +167,12 @@ Editorial cards: `context/scenes/pair.md`, `collage.md`, `ride-pair.md`.
 
 ## Tools
 
-- `caption_add(clip_id, text, role, enter?, style?, words?)` — phrase cards, opt-in karaoke, or word-pop
+- `caption_add(clip_id, text, role, enter?, style?, font?, words?)` — `card` / `phrase` scene cards, opt-in karaoke, or word-pop. `font="clash"` selects Clash Display (or packaged Anton)
 - `caption_emphasis(word_id, "enlarge"|"scream"|"pop")` — per-word pop emphasis
-- `caption_edit` / `caption_move(y_pct)` — still center-x
-- `caption_lint` → `{ ok, errors[], warnings[], hold_s, lines, bbox, contrast }` with bbox tested against frame + 22–50% + cross-post
+- `caption_edit` / `caption_move(y_pct)` — still center-x; `caption_edit(..., font="clash")` sets the named face
+- `text_style(layer_id, motion, role?, font?)` — layer motion plus `font="clash"`
+- `project_set(caption_font="clash")` — default named face for new phrase / card captions
+- `caption_lint` → `{ ok, errors[], warnings[], hold_s, lines, bbox, contrast, cards[] }` with bbox tested against frame + 22–50% + cross-post. Cards include `style`, `font`, `font_label`
 - `clip_fit` still wins over a short clip
 - `overlay_preview` shows IG/TT/Shorts chrome, the 22–50% band, and the right column
 

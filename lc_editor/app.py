@@ -17,11 +17,13 @@ from lc_editor.analysis.shots import (
 )
 from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest
 from lc_editor.ids import new_id
+from lc_editor.fonts import FONT_ALIAS_HELP, normalize_font
 from lc_editor.lint.captions import (
     caption_issues,
     card_report,
     density_warnings,
     hold_s,
+    style_warnings,
     timeline_caption_issues,
     wrap_text,
     write_phone_proof,
@@ -57,6 +59,8 @@ from lc_editor.models import (
     Timeline,
     Transform,
     envelope,
+    is_card_style,
+    is_spoken_style,
     recompute_starts,
     timeline_duration,
 )
@@ -298,6 +302,7 @@ class Editor:
         name: str | None = None,
         preset: str | None = None,
         loudnorm: str | None = None,
+        caption_font: str | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -324,6 +329,18 @@ class Editor:
             if loudnorm not in ("cinema", "speech"):
                 return envelope(False, store.timeline, ["loudnorm must be cinema or speech"])
             update["loudnorm"] = loudnorm
+        if caption_font is not None:
+            if caption_font == "":
+                update["caption_font"] = ""
+            else:
+                resolved = normalize_font(caption_font)
+                if not resolved:
+                    return envelope(
+                        False,
+                        store.timeline,
+                        [f"unknown font {caption_font}; use {FONT_ALIAS_HELP}"],
+                    )
+                update["caption_font"] = resolved
         if update:
             store.project = store.project.model_copy(update=update)
             store.persist()
@@ -1124,16 +1141,19 @@ class Editor:
         y_pct: float = CAPTION_Y_DEFAULT,
         box: bool = False,
         background: str | None = None,
+        banner: bool = False,
+        scrim: bool = False,
         enter: str | None = None,
         style: str = "phrase",
+        font: str | None = None,
         words: list | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
         clip = self._clip(clip_id)
-        resolved_style = style if style in ("phrase", "karaoke", "pop") else "phrase"
+        resolved_style = style if style in ("phrase", "card", "karaoke", "pop") else "phrase"
         parsed_words = _caption_words(words)
-        if resolved_style in ("karaoke", "pop") and not parsed_words:
+        if is_spoken_style(resolved_style) and not parsed_words:
             spec = "SPEC-CAP-10" if resolved_style == "karaoke" else "SPEC-CAP-11"
             return envelope(False, store.timeline, [f"{spec}: {resolved_style} needs word timings"])
         if resolved_style == "pop":
@@ -1141,11 +1161,20 @@ class Editor:
             if not text.strip():
                 text = " ".join(w.text for w in parsed_words)
         resolved_role = role if role in ("title", "body") else "body"
-        if resolved_style in ("karaoke", "pop"):
+        if is_spoken_style(resolved_style):
             resolved_role = "title"
         resolved_enter = enter if enter in ("none", "fade", "punch") else ("punch" if resolved_role == "title" else "fade")
-        if resolved_style in ("karaoke", "pop"):
+        if is_spoken_style(resolved_style):
             resolved_enter = "none"
+        if font:
+            resolved_font = normalize_font(font)
+            if not resolved_font:
+                return envelope(False, store.timeline, [f"unknown font {font}; use {FONT_ALIAS_HELP}"])
+        else:
+            project_font = store.project.caption_font if store.project else ""
+            resolved_font = normalize_font(project_font) if is_card_style(resolved_style) else ""
+            if not resolved_font and resolved_style == "card":
+                resolved_font = "clash"
         probe_cap = Caption(
             id="tmp",
             clip_id=clip_id,
@@ -1153,13 +1182,14 @@ class Editor:
             role=resolved_role,  # type: ignore[arg-type]
             y_pct=y_pct,
             style=resolved_style,  # type: ignore[arg-type]
+            font=resolved_font,
             words=parsed_words,
         )
         issues = caption_issues(
             text,
             y_pct=y_pct,
             clip=clip,
-            box=box or bool(background),
+            box=box or bool(background) or banner or scrim,
             role=resolved_role,
             caption=probe_cap,
         )
@@ -1187,21 +1217,40 @@ class Editor:
                 hold_s=hold,
                 enter=resolved_enter,
                 style=resolved_style,
+                font=resolved_font,
                 words=numbered,
             )
             return tl.model_copy(update={"captions": [*tl.captions, cap]})
 
         return self._mutate(op_id, apply)
 
-    def caption_edit(self, caption_id: str, text: str | None = None, y_pct: float | None = None, box: bool = False, op_id: str | None = None) -> dict:
+    def caption_edit(
+        self,
+        caption_id: str,
+        text: str | None = None,
+        y_pct: float | None = None,
+        box: bool = False,
+        font: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
         store = self._need()
         cap = next((c for c in store.timeline.captions if c.id == caption_id), None)
         if cap is None:
             return envelope(False, store.timeline, [f"unknown caption {caption_id}"])
         new_text = cap.text if text is None else text
         new_y = cap.y_pct if y_pct is None else y_pct
+        if font is None:
+            new_font = cap.font
+        else:
+            if font == "":
+                new_font = ""
+            else:
+                new_font = normalize_font(font)
+                if not new_font:
+                    return envelope(False, store.timeline, [f"unknown font {font}; use {FONT_ALIAS_HELP}"])
         clip = self._clip(cap.clip_id)
-        issues = caption_issues(new_text, y_pct=new_y, clip=clip, box=box, caption=cap)
+        probe = cap.model_copy(update={"text": new_text, "y_pct": new_y, "font": new_font})
+        issues = caption_issues(new_text, y_pct=new_y, clip=clip, box=box, caption=probe)
         if issues:
             return envelope(False, store.timeline, issues)
         lines = wrap_text(new_text) if cap.style != "pop" else [new_text]
@@ -1211,7 +1260,11 @@ class Editor:
             caps = []
             for c in tl.captions:
                 if c.id == caption_id:
-                    caps.append(c.model_copy(update={"text": new_text, "y_pct": new_y, "lines": lines, "hold_s": hold}))
+                    caps.append(
+                        c.model_copy(
+                            update={"text": new_text, "y_pct": new_y, "lines": lines, "hold_s": hold, "font": new_font}
+                        )
+                    )
                 else:
                     caps.append(c)
             return tl.model_copy(update={"captions": caps})
@@ -1269,7 +1322,7 @@ class Editor:
         store = self._need()
         lint_media = self._lint_media()
         errors = timeline_caption_issues(store.timeline, media=lint_media, project=store.project)
-        warns = density_warnings(store.timeline, store.project)
+        warns = density_warnings(store.timeline, store.project) + style_warnings(store.timeline)
         cards = []
         media_map = {m.id: m for m in lint_media}
         clips = {c.id: c for c in store.timeline.clips}
@@ -1780,9 +1833,24 @@ class Editor:
     def effect_remove(self, effect_id: str, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: remove_effect(tl, effect_id))
 
-    def text_style(self, layer_id: str, motion: str = "fade", role: str | None = None, op_id: str | None = None) -> dict:
+    def text_style(
+        self,
+        layer_id: str,
+        motion: str = "fade",
+        role: str | None = None,
+        font: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
         if motion not in ("none", "fade", "pop", "slide", "type_on"):
             return envelope(False, self._need().timeline, ["SPEC-CAP-05: unknown text motion"])
+        resolved_font = None
+        if font is not None:
+            if font == "":
+                resolved_font = ""
+            else:
+                resolved_font = normalize_font(font)
+                if not resolved_font:
+                    return envelope(False, self._need().timeline, [f"unknown font {font}; use {FONT_ALIAS_HELP}"])
 
         def apply(tl: Timeline) -> Timeline:
             layers = []
@@ -1790,7 +1858,12 @@ class Editor:
                 if layer.id != layer_id:
                     layers.append(layer)
                     continue
-                style = layer.style.model_copy(update={"motion": motion, **({"role": role} if role in ("title", "body") else {})})
+                patch: dict = {"motion": motion}
+                if role in ("title", "body"):
+                    patch["role"] = role
+                if resolved_font is not None:
+                    patch["font"] = resolved_font
+                style = layer.style.model_copy(update=patch)
                 layers.append(layer.model_copy(update={"style": style, "role": style.role}))
             return tl.model_copy(update={"layers": layers})
 

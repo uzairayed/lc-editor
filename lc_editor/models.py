@@ -39,7 +39,9 @@ CAPTION_PROTECT_PX = 80
 PHONE_PROOF_W = 270
 PHONE_PROOF_H = 480
 CaptionEnter = Literal["none", "fade", "punch"]
-CaptionStyle = Literal["phrase", "karaoke", "pop"]
+CaptionStyle = Literal["phrase", "card", "karaoke", "pop"]
+CARD_STYLES = ("phrase", "card")
+SPOKEN_STYLES = ("karaoke", "pop")
 WordEmphasis = Literal["pop", "enlarge", "scream"]
 LoudnormProfile = Literal["cinema", "speech"]
 KARAOKE_FILL = "0xFFE14A"
@@ -156,6 +158,7 @@ class TextStyle(BaseModel):
     stroke: str = STROKE
     stroke_w: int = STROKE_W
     motion: TextMotion = "fade"
+    font: str = ""
 
 
 class LayerItem(BaseModel):
@@ -254,6 +257,14 @@ class Clip(BaseModel):
     cam_pip: CamPip | None = None
 
 
+def is_card_style(style: str) -> bool:
+    return style in CARD_STYLES
+
+
+def is_spoken_style(style: str) -> bool:
+    return style in SPOKEN_STYLES
+
+
 def is_layout_clip(clip: Clip) -> bool:
     return bool(clip.layout and clip.panes)
 
@@ -283,6 +294,7 @@ class Caption(BaseModel):
     textfile: str = ""
     enter: CaptionEnter = "fade"
     style: CaptionStyle = "phrase"
+    font: str = ""
     words: list[CaptionWord] = Field(default_factory=list)
 
 
@@ -365,6 +377,7 @@ class Project(BaseModel):
     overlays: OverlayFlags = Field(default_factory=OverlayFlags)
     reviewed_version: int | None = None
     preset: str | None = None
+    caption_font: str = ""
     loudnorm: LoudnormProfile = "cinema"
     grain: float = 0.0
     vignette: float = 0.0

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from lc_editor.fonts import font_for
+from lc_editor.fonts import face_for_caption, font_for, font_label, resolve_font, role_for_caption
 from lc_editor.models import (
     CANVAS_H,
     CANVAS_W,
@@ -31,6 +31,7 @@ from lc_editor.models import (
     MediaItem,
     Project,
     Timeline,
+    is_spoken_style,
 )
 
 
@@ -83,8 +84,10 @@ def _stroke_pad(role: str) -> int:
     return (4 if role == "title" else 3) + 2
 
 
-def _font_at(role: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    path = font_for(role if role in ("title", "body") else "body")
+def _font_at(role: str, size: int, font: str = "") -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    path = resolve_font(font, role=role if role in ("title", "body") else "body") if font else font_for(
+        role if role in ("title", "body") else "body"
+    )
     if path:
         try:
             return ImageFont.truetype(str(path), size)
@@ -93,12 +96,12 @@ def _font_at(role: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFo
     return ImageFont.load_default()
 
 
-def _measure(lines: list[str], role: str, size: int) -> tuple[float, float]:
-    font = _font_at(role, size)
+def _measure(lines: list[str], role: str, size: int, font: str = "") -> tuple[float, float]:
+    font_face = _font_at(role, size, font)
     widths: list[int] = []
     heights: list[int] = []
     for line in lines:
-        box = font.getbbox(line or " ")
+        box = font_face.getbbox(line or " ")
         widths.append(box[2] - box[0])
         heights.append(box[3] - box[1])
     width = max(widths) if widths else 0
@@ -112,21 +115,24 @@ def _measure(lines: list[str], role: str, size: int) -> tuple[float, float]:
 def fontsize_for(caption: Caption) -> int:
     lines = caption.lines or wrap_text(caption.text)
     base = base_fontsize(caption)
+    role = role_for_caption(caption.style, caption.role, caption.font)
     for size in range(base, CAPTION_SIZE_MIN - 1, -2):
-        width, _ = _measure(lines, caption.role, size)
+        width, _ = _measure(lines, role, size, caption.font)
         if width <= CAPTION_BOXW:
             return size
     return CAPTION_SIZE_MIN
 
 
 def _font(caption: Caption, size: int | None = None) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    return _font_at(caption.role, size or fontsize_for(caption))
+    role = role_for_caption(caption.style, caption.role, caption.font)
+    return _font_at(role, size or fontsize_for(caption), caption.font)
 
 
 def estimate_bbox(caption: Caption) -> dict:
     lines = caption.lines or wrap_text(caption.text)
     size = fontsize_for(caption)
-    width, height = _measure(lines, caption.role, size)
+    role = role_for_caption(caption.style, caption.role, caption.font)
+    width, height = _measure(lines, role, size, caption.font)
     cy = CANVAS_H * caption.y_pct
     y0 = cy - height / 2
     y2 = cy + height / 2
@@ -277,6 +283,40 @@ def caption_issues(
     return warnings
 
 
+def caption_style_warnings(caption: Caption) -> list[str]:
+    """Soft hints: spoken styles on process-length copy. Does not fail add."""
+    style = caption.style
+    if not is_spoken_style(style):
+        return []
+    text = caption.text
+    n_words = word_count(text)
+    wrapped = caption.lines or wrap_text(text)
+    if style == "karaoke" and (n_words >= 8 or len(wrapped) >= 2):
+        return [
+            "SPEC-CAP-13: karaoke on a long process-style line; "
+            "use style=card for product/process/ambient reels"
+        ]
+    timed = caption.words
+    if style == "pop" and n_words >= 8 and len(timed) <= 3:
+        return [
+            "SPEC-CAP-13: pop on a long process-style line; "
+            "use style=card for product/process/ambient reels"
+        ]
+    if style == "pop" and any(word_count(w.text) >= 3 for w in timed):
+        return [
+            "SPEC-CAP-13: pop on a long process-style line; "
+            "use style=card for product/process/ambient reels"
+        ]
+    return []
+
+
+def style_warnings(timeline: Timeline) -> list[str]:
+    warnings: list[str] = []
+    for cap in timeline.captions:
+        warnings.extend(caption_style_warnings(cap))
+    return warnings
+
+
 def density_warnings(timeline: Timeline, project: Project | None = None) -> list[str]:
     warnings: list[str] = []
     n_clips = len(timeline.clips)
@@ -323,6 +363,7 @@ def card_report(
 ) -> dict:
     bbox = estimate_bbox(caption)
     luma = sample_underlay_luma(media.path if media else None, bbox)
+    face = face_for_caption(caption.style, caption.role, caption.font)
     return {
         "id": caption.id,
         "hold_s": caption.hold_s,
@@ -331,6 +372,9 @@ def card_report(
         "contrast": {"luma": luma, "ok": not contrast_too_close(luma)},
         "enter": caption.enter,
         "role": caption.role,
+        "style": caption.style,
+        "font": caption.font or ("clash" if caption.style == "card" else ""),
+        "font_label": font_label(face),
     }
 
 
