@@ -5,7 +5,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from lc_editor.analysis.manifest import Shot, load_manifest, manifest_path, shot_id, write_manifest
-from lc_editor.analysis.media import kind_for, pxl_burst_id, parse_probe, probe_args, select_import_paths
+from lc_editor.analysis.media import (
+    kind_for,
+    public_media,
+    pxl_burst_id,
+    parse_probe,
+    probe_args,
+    quality_import_warning,
+    select_import_paths,
+)
 from lc_editor.analysis.rank import ROLES, contradictory_filters, filter_shots, rank_shots, sort_shots
 from lc_editor.analysis.shots import (
     analysis_pass_args,
@@ -413,8 +421,9 @@ class Editor:
             return replay
         item = self._import_path(Path(path))
         self._save_media()
-        result = envelope(True, store.timeline, [])
-        result["media"] = item.model_dump()
+        warns = [w for w in (quality_import_warning(item),) if w]
+        result = envelope(True, store.timeline, warns)
+        result["media"] = public_media(item)
         if op_id:
             store.ledger[op_id] = result
             store.persist()
@@ -448,8 +457,13 @@ class Editor:
                     item.burst_id = prefix
                     break
         self._save_media()
-        result = envelope(True, store.timeline, [])
-        result["media"] = [m.model_dump() for m in imported]
+        warns: list[str] = []
+        for item in imported:
+            warning = quality_import_warning(item)
+            if warning:
+                warns.append(warning)
+        result = envelope(True, store.timeline, warns)
+        result["media"] = [public_media(m) for m in imported]
         result["imported"] = [str(p) for p in keep]
         result["skipped"] = [str(p) for p in skipped]
         result["deduped"] = burst_ids
@@ -461,7 +475,7 @@ class Editor:
     def media_list(self) -> dict:
         store = self._need()
         result = envelope(True, store.timeline, [])
-        result["media"] = [m.model_dump() for m in self.media]
+        result["media"] = [public_media(m) for m in self.media]
         return result
 
     def media_remove(self, media_id: str, op_id: str | None = None) -> dict:
@@ -481,9 +495,9 @@ class Editor:
         store = self._need()
         if media_id:
             item = self._media(media_id)
-            info = item.model_dump()
+            info = public_media(item)
         else:
-            info = self._probe_file(Path(path or ""))
+            info = public_media(self._probe_file(Path(path or "")))
         result = envelope(True, store.timeline, [])
         result["probe"] = info
         return result
@@ -802,7 +816,8 @@ class Editor:
             if shots:
                 warnings.append("SPEC-EDIT-ACK-01: no shots meet the acknowledge floor")
         first = self.media[0].id if self.media else None
-        ranked = rank_shots(pool, role, top_k, first_media_id=first)
+        sizes = {item.id: (item.width, item.height) for item in self.media}
+        ranked = rank_shots(pool, role, top_k, first_media_id=first, sizes=sizes)
         result = envelope(True, store.timeline, warnings)
         result["shots"] = [shot.model_dump() for shot in ranked]
         if sheet:

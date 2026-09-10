@@ -7,6 +7,7 @@ from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.layers import layer_issues
 from lc_editor.lint.layouts import layout_issues
 from lc_editor.lint.mix import mix_issues
+from lc_editor.lint.quality import quality_blockers, quality_warnings
 from lc_editor.models import (
     BEAT_CONFIDENCE_WARN,
     LOCKED_STILL_MAX_S,
@@ -174,6 +175,7 @@ def review_blockers(
     errors.extend(wipe_graph_issues(timeline))
     errors.extend(zoom_pair_issues(timeline))
     errors.extend(acknowledge_errors(timeline, media, allow_dense=allow_dense))
+    errors.extend(quality_blockers(timeline, project, media))
     cap = reject_duration(timeline)
     if cap:
         errors.append(cap)
@@ -200,6 +202,7 @@ def review_warnings(
     warns.extend(outdoor_denoise_warnings(timeline))
     warns.extend(density_warnings(timeline, project))
     warns.extend(acknowledge_warnings(timeline, media))
+    warns.extend(quality_warnings(timeline, project, media))
     if timeline.music:
         if any(not track.source_name.strip() for track in timeline.music):
             warns.append("SPEC-SND-15: music is present without source attribution")
