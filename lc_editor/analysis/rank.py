@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from lc_editor.analysis.manifest import Shot
+from lc_editor.analysis.media import resolution_boost, short_side
 from lc_editor.models import SHOT_MAX_S
 
 ROLES = ("hook", "journey", "site_wide", "site_detail", "closer")
@@ -65,25 +66,39 @@ def sort_shots(shots: list[Shot], sort: str | None, media_order: list[str]) -> l
     return sorted(shots, key=key)
 
 
-def score_shot(shot: Shot, role: str, *, first_media_id: str | None = None) -> float:
+def _size_of(shot: Shot, sizes: dict[str, tuple[int, int]] | None) -> tuple[int, int]:
+    if not sizes:
+        return (0, 0)
+    return sizes.get(shot.media_id, (0, 0))
+
+
+def score_shot(
+    shot: Shot,
+    role: str,
+    *,
+    first_media_id: str | None = None,
+    sizes: dict[str, tuple[int, int]] | None = None,
+) -> float:
     metrics = shot.metrics
     if role == "hook":
         energy = 1.0 - abs(metrics.luma_mean - 0.5) * 2.0
         score = 0.5 * metrics.sharpness + 0.3 * max(0.0, energy) + 0.2 * metrics.luma_spread
         if first_media_id and shot.media_id == first_media_id and metrics.motion > 0.5:
             score -= 0.4
-        return score
-    if role == "journey":
+    elif role == "journey":
         bonus = 0.3 if metrics.audio_class == "engine" else 0.0
-        return 0.7 * metrics.motion + bonus
-    if role == "site_wide":
-        return 0.6 * (1.0 - metrics.motion) + 0.4 * metrics.luma_spread
-    if role == "site_detail":
-        return 0.7 * metrics.sharpness + 0.3 * (1.0 - metrics.motion)
-    if role == "closer":
+        score = 0.7 * metrics.motion + bonus
+    elif role == "site_wide":
+        score = 0.6 * (1.0 - metrics.motion) + 0.4 * metrics.luma_spread
+    elif role == "site_detail":
+        score = 0.7 * metrics.sharpness + 0.3 * (1.0 - metrics.motion)
+    elif role == "closer":
         duration_norm = min(1.0, shot.duration_s / SHOT_MAX_S)
-        return 0.5 * (1.0 - metrics.motion) + 0.5 * duration_norm
-    raise ValueError(role)
+        score = 0.5 * (1.0 - metrics.motion) + 0.5 * duration_norm
+    else:
+        raise ValueError(role)
+    width, height = _size_of(shot, sizes)
+    return score + resolution_boost(width, height)
 
 
 def rank_shots(
@@ -92,11 +107,17 @@ def rank_shots(
     top_k: int,
     *,
     first_media_id: str | None = None,
+    sizes: dict[str, tuple[int, int]] | None = None,
 ) -> list[Shot]:
-    ordered = sorted(
-        shots,
-        key=lambda shot: (-score_shot(shot, role, first_media_id=first_media_id), shot.id),
-    )
+    def key(shot: Shot) -> tuple:
+        width, height = _size_of(shot, sizes)
+        return (
+            -score_shot(shot, role, first_media_id=first_media_id, sizes=sizes),
+            -short_side(width, height),
+            shot.id,
+        )
+
+    ordered = sorted(shots, key=key)
     if top_k < 0:
         top_k = 0
     return ordered[:top_k]

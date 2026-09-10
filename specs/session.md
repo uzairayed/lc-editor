@@ -24,15 +24,15 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 ## SPEC-SES-04: import_file / import_folder
 
-`import_file` registers one file (copy or hardlink into project media). `import_folder` registers every video/image in a folder (Drive stays outside; this is a local folder). Both probe and can request thumbnails.
+`import_file` registers one file (copy or hardlink into project media). `import_folder` registers every video/image in a folder (Drive stays outside; this is a local folder). Both probe and can request thumbnails. A visual source whose short side is below 720 adds a `SPEC-QLT-01` warning; import still succeeds.
 
 Pixel bursts named `PXL_*BURST*` are an exception: see SPEC-SES-06.
 
 ## SPEC-SES-05: media_list / media_remove / probe / thumbnail / contact_sheet / proxy_build
 
-- `media_list` returns imported items with duration, size, kind, burst_cover hint
+- `media_list` returns imported items with duration, size, kind, burst_cover hint, plus additive `resolution` (`"1920x1080"`) and `sub_720`
 - `media_remove` unregisters; clips using that media become `ok: false` to remove-media if still referenced, or those clips are listed in warnings and the call is rejected
-- `probe` returns ffprobe-derived width, height, duration, fps, has_audio
+- `probe` returns ffprobe-derived width, height, duration, fps, has_audio, and the same additive `resolution` / `sub_720` keys
 - `thumbnail` writes a JPEG
 - `contact_sheet` writes a tiled JPEG of imported media
 - `proxy_build` / `media_proxy` writes a cached 360x640 source proxy (H.264 + AAC). No LUT, captions, or denoise. A second call with the same bytes is a no-op.

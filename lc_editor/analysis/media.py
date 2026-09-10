@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-from lc_editor.models import FPS, MEDIA_AUDIO_EXT, MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT
+from lc_editor.models import FPS, MEDIA_AUDIO_EXT, MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT, SOURCE_SHORT_MIN
 
 PXL_BURST = re.compile(r"^(PXL_.+?)[\._-]BURST", re.IGNORECASE)
 
@@ -21,6 +21,54 @@ def probe_args(ffprobe: str, path: Path) -> list[str]:
         "-show_streams",
         str(path),
     ]
+
+
+def short_side(width: int, height: int) -> int:
+    if width <= 0 or height <= 0:
+        return 0
+    return min(width, height)
+
+
+def is_sub_720(width: int, height: int) -> bool:
+    side = short_side(width, height)
+    return 0 < side < SOURCE_SHORT_MIN
+
+
+def resolution_label(width: int, height: int) -> str:
+    if width <= 0 or height <= 0:
+        return ""
+    return f"{width}x{height}"
+
+
+def resolution_boost(width: int, height: int) -> float:
+    side = short_side(width, height)
+    if side >= 1080:
+        return 0.10
+    if side >= SOURCE_SHORT_MIN:
+        return 0.05
+    return 0.0
+
+
+def public_media(item) -> dict:
+    data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+    width = int(data.get("width") or 0)
+    height = int(data.get("height") or 0)
+    data["resolution"] = resolution_label(width, height)
+    data["sub_720"] = is_sub_720(width, height)
+    return data
+
+
+def quality_import_warning(item) -> str | None:
+    if getattr(item, "kind", None) == "audio":
+        return None
+    width = int(getattr(item, "width", 0) or 0)
+    height = int(getattr(item, "height", 0) or 0)
+    if not is_sub_720(width, height):
+        return None
+    return (
+        f"SPEC-QLT-01: media {item.id} is {resolution_label(width, height)} "
+        f"(short side below {SOURCE_SHORT_MIN})"
+    )
 
 
 def parse_probe(payload: str, fallback_kind: str) -> dict:

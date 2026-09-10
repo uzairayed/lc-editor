@@ -37,8 +37,9 @@ The timeline preview encode is 540x960, `-preset veryfast`, `-crf 30`. Edit/lint
 - a layout has the wrong pane count or missing pane media
 - an effect name is not in the registry
 - a caption box or banned transition is present
+- a cover (or default cover) clip upscales a source whose short side is below 720 into a 1080-class canvas (SPEC-QLT-01)
 
-A duration between 28s and 60s is a warning, not a failure.
+A duration between 28s and 60s is a warning, not a failure. A sub-720 source on a non-1080 canvas, or framed with fit/letterbox, warns and does not fail.
 
 ## SPEC-EXPORT-05: export writes two files
 

@@ -55,6 +55,15 @@ def test_tie_breaks_by_id() -> None:
     assert score_shot(shots[0], "site_detail") == score_shot(shots[1], "site_detail")
 
 
+def test_rank_prefers_hd_when_scores_tie() -> None:
+    sd = _shot("sd", 0, metrics=ShotMetrics(motion=0.5, sharpness=0.5))
+    hd = _shot("hd", 1, metrics=ShotMetrics(motion=0.5, sharpness=0.5))
+    sizes = {"sd": (512, 288), "hd": (1920, 1080)}
+    ranked = rank_shots([sd, hd], "site_detail", 2, sizes=sizes)
+    assert ranked[0].media_id == "hd"
+    assert score_shot(hd, "site_detail", sizes=sizes) > score_shot(sd, "site_detail", sizes=sizes)
+
+
 def test_shots_rank_unknown_role_and_top_k(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
     mid = editor.media[0].id
@@ -95,3 +104,24 @@ def test_shots_rank_sheet_uses_only_candidates(editor: Editor, tmp_path: Path) -
     assert str(keys[0]) in blob
     assert str(keys[2]) in blob
     assert str(keys[1]) not in blob
+
+
+def test_shots_rank_prefers_hd_source(editor: Editor, tmp_path: Path) -> None:
+    sd = touch_media(tmp_path / "src", "sd")
+    hd = touch_media(tmp_path / "src", "hd")
+    editor.import_file(str(sd))
+    editor.import_file(str(hd))
+    editor.media[0] = editor.media[0].model_copy(update={"width": 512, "height": 288})
+    editor.media[1] = editor.media[1].model_copy(update={"width": 1920, "height": 1080})
+    metrics = ShotMetrics(motion=0.5, sharpness=0.5)
+    write_manifest(
+        editor._manifest_for(editor.media[0]),
+        [_shot(editor.media[0].id, 0, metrics=metrics, length=3.0)],
+    )
+    write_manifest(
+        editor._manifest_for(editor.media[1]),
+        [_shot(editor.media[1].id, 1, metrics=metrics, length=3.0)],
+    )
+    ranked = editor.shots_rank("site_detail", top_k=2)
+    assert ranked["ok"] is True
+    assert ranked["shots"][0]["media_id"] == editor.media[1].id

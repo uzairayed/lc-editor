@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from types import SimpleNamespace
+
 from lc_editor.app import Editor
-from lc_editor.models import Caption, SfxPlacement
+from lc_editor.lint.quality import clip_uses_cover, quality_blockers
+from lc_editor.models import Caption, Clip, LayoutPane, MediaItem, Project, SfxPlacement, Timeline
+from lc_editor.render.runner import FakeRunner
 from tests.conftest import touch_media
 
 
@@ -85,6 +89,72 @@ def test_review_fails_over_60s(editor: Editor, media_file: Path) -> None:
     result = editor.review_report()
     assert result["ok"] is False
     assert any("SPEC-EDIT-14" in w for w in result["warnings"])
+
+
+def test_review_blocks_sub720_cover_into_1080(tmp_path: Path) -> None:
+    runner = FakeRunner(duration_s=5.0, width=512, height=288)
+    editor = Editor(workspace=tmp_path, runner=runner)
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
+    media = touch_media(tmp_path / "src", "day1")
+    editor.import_file(str(media))
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.4)
+    result = editor.review_report()
+    assert result["ok"] is False
+    assert any("SPEC-QLT-01" in w and "cover-upscales" in w for w in result["warnings"])
+    assert any("SPEC-QLT-01" in e for e in result["errors"])
+    assert editor.store.project.reviewed_version is None
+    exported = editor.export()
+    assert exported["ok"] is False
+
+
+def test_review_warns_sub720_on_small_canvas(tmp_path: Path) -> None:
+    runner = FakeRunner(duration_s=5.0, width=512, height=288)
+    editor = Editor(workspace=tmp_path, runner=runner)
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
+    media = touch_media(tmp_path / "src", "day1")
+    editor.import_file(str(media))
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.4)
+    editor.store.project = editor.store.project.model_copy(update={"width": 540, "height": 960})
+    result = editor.review_report()
+    assert result["ok"] is True
+    assert any("SPEC-QLT-01" in w and "below 720" in w for w in result["warnings"])
+    assert not any("cover-upscales" in e for e in result["errors"])
+
+
+def test_layout_pane_sub720_cover_blocks() -> None:
+    media = [
+        MediaItem(id="m1", path="a.mp4", original_path="a.mp4", width=512, height=288),
+        MediaItem(id="m2", path="b.mp4", original_path="b.mp4", width=1920, height=1080),
+    ]
+    clip = Clip(
+        id="c1",
+        media_id="m2",
+        duration_s=2.4,
+        layout="stack_v",
+        panes=[LayoutPane(media_id="m1"), LayoutPane(media_id="m2")],
+    )
+    project = Project(id="p", name="reel")
+    errors = quality_blockers(Timeline(clips=[clip]), project, media)
+    assert any("SPEC-QLT-01" in e and "512x288" in e for e in errors)
+
+
+def test_unknown_size_is_not_sub720() -> None:
+    media = [MediaItem(id="m1", path="x.mp4", original_path="x.mp4", width=0, height=0)]
+    clip = Clip(id="c1", media_id="m1", duration_s=2.4)
+    project = Project(id="p", name="reel")
+    assert quality_blockers(Timeline(clips=[clip]), project, media) == []
+
+
+def test_fit_letterbox_does_not_block_sub720(monkeypatch) -> None:
+    assert clip_uses_cover(SimpleNamespace()) is True
+    assert clip_uses_cover(SimpleNamespace(fit="fit")) is False
+    assert clip_uses_cover(SimpleNamespace(fit_mode="letterbox")) is False
+    media = MediaItem(id="m1", path="x.mp4", original_path="x.mp4", width=512, height=288)
+    project = Project(id="p", name="reel")
+    timeline = Timeline(clips=[Clip(id="c1", media_id="m1", duration_s=2.4)])
+    assert quality_blockers(timeline, project, [media])
+    monkeypatch.setattr("lc_editor.lint.quality.clip_uses_cover", lambda _clip: False)
+    assert quality_blockers(timeline, project, [media]) == []
 
 
 def test_review_ok_unlocks_export(editor: Editor, media_file: Path) -> None:
