@@ -3,11 +3,32 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.app import Editor
-from lc_editor.models import Clip, MediaItem, Project, Timeline
+from lc_editor.models import Clip, MediaItem, MusicTrack, Project, Timeline
 from lc_editor.render.audio import loudnorm_hero
 from lc_editor.render.compositor import build_assemble_command
 from lc_editor.render.graph import hero_encode_args, hero_encode_legal
 from lc_editor.render.jobs import AssembleError, render_clip_intermediate
+
+
+def _assemble(timeline: Timeline, items: list[MediaItem], *, loudnorm: bool = True) -> list[str]:
+    dest = Path("/tmp/reel.mp4")
+    return build_assemble_command(
+        "ffmpeg",
+        Path("/tmp"),
+        Project(id="p", name="n", allow_music=True),
+        timeline,
+        items,
+        dest,
+        proxy=False,
+        encode_args=hero_encode_args(dest),
+        adjustment="",
+        overlay_extra=[],
+        sfx_files={},
+        bed_file=None,
+        hero=True,
+        preprocessed=True,
+        loudnorm=loudnorm,
+    )
 
 
 def test_spec_snd_16_live_intermediate_maps_aac_48k(editor, media_file: Path) -> None:
@@ -142,3 +163,38 @@ def test_spec_snd_17_karachi_keeps_cinema_loudnorm() -> None:
     graph = cmd[cmd.index("-filter_complex") + 1]
     assert "I=-16" in graph
     assert "aresample=48000" in graph
+
+
+def test_spec_snd_11_duck_natural_emits_sidechain() -> None:
+    items = [
+        MediaItem(id="m1", path="x.mp4", original_path="x.mp4", kind="video", has_audio=True),
+        MediaItem(id="m2", path="y.mp3", original_path="y.mp3", kind="audio", has_audio=True),
+    ]
+    ducked = Timeline(
+        clips=[Clip(id="c1", media_id="m1", duration_s=2.5)],
+        music=[MusicTrack(id="t1", media_id="m2", duration_s=2.5, duck_natural=True)],
+    )
+    ducked_cmd = _assemble(ducked, items)
+    graph = ducked_cmd[ducked_cmd.index("-filter_complex") + 1]
+    assert "sidechaincompress=threshold=0.08:ratio=4" in graph
+    assert "[ducked]" in graph
+    assert "loudnorm=" in graph
+
+    dry = Timeline(
+        clips=[Clip(id="c1", media_id="m1", duration_s=2.5)],
+        duck=False,
+        music=[MusicTrack(id="t1", media_id="m2", duration_s=2.5, duck_natural=False)],
+    )
+    dry_cmd = _assemble(dry, items)
+    dry_graph = dry_cmd[dry_cmd.index("-filter_complex") + 1]
+    assert "sidechaincompress=" not in dry_graph
+    assert "loudnorm=" in dry_graph
+
+    flagged = Timeline(
+        clips=[Clip(id="c1", media_id="m1", duration_s=2.5)],
+        duck=True,
+        music=[MusicTrack(id="t1", media_id="m2", duration_s=2.5, duck_natural=False)],
+    )
+    flagged_cmd = _assemble(flagged, items)
+    flagged_graph = flagged_cmd[flagged_cmd.index("-filter_complex") + 1]
+    assert "sidechaincompress=" in flagged_graph
