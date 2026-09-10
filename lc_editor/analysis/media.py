@@ -61,16 +61,27 @@ def public_media(item) -> dict:
 
 
 def quality_import_warning(item) -> str | None:
-    if getattr(item, "kind", None) == "audio":
+    data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+    if data.get("kind") == "audio":
         return None
-    width = int(getattr(item, "width", 0) or 0)
-    height = int(getattr(item, "height", 0) or 0)
+    width = int(data.get("width") or 0)
+    height = int(data.get("height") or 0)
     if not is_sub_720(width, height):
         return None
+    who = f"media {data['id']}" if data.get("id") else "source"
     return (
-        f"SPEC-QLT-01: media {item.id} is {resolution_label(width, height)} "
-        f"(short side below {SOURCE_SHORT_MIN})"
+        f"SPEC-QLT-01: {who} is {resolution_label(width, height)} "
+        f"(short side below {SOURCE_SHORT_MIN}); soft source"
     )
+
+
+def quality_soft_warnings(items) -> list[str]:
+    out: list[str] = []
+    for item in items:
+        warning = quality_import_warning(item)
+        if warning:
+            out.append(warning)
+    return out
 
 
 def parse_probe(payload: str, fallback_kind: str) -> dict:

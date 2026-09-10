@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.app import Editor
-from lc_editor.render.graph import hero_encode_args, hero_encode_legal, proxy_encode_args
+from lc_editor.render.graph import hero_encode_args, hero_encode_legal, proxy_encode_args, share_encode_args
 
 
 def test_spec_export_01_hero_args(tmp_path: Path) -> None:
@@ -17,6 +17,19 @@ def test_spec_export_01_hero_args(tmp_path: Path) -> None:
     assert hero_encode_legal(wide) is True
     assert "+faststart" in args
     assert "30" in args
+
+
+def test_spec_export_10_share_args(tmp_path: Path) -> None:
+    args = share_encode_args(tmp_path / "reel_share.mp4")
+    assert "720x1280" in args
+    assert args[args.index("-crf") + 1] == "22"
+    assert args[args.index("-b:a") + 1] == "128k"
+    assert "+faststart" in args
+    assert "yuv420p" in args
+    assert args[args.index("-color_range") + 1] == "tv"
+    assert hero_encode_legal(args) is False
+    wide = share_encode_args(tmp_path / "wide.mp4", 1920, 1080)
+    assert "1280x720" in wide
 
 
 def test_spec_export_02_proxy_args(tmp_path: Path) -> None:

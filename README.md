@@ -39,17 +39,17 @@ lc-editor doctor
 lc-editor doctor --project /absolute/path/to/project
 ```
 
-`version` prints the package version. `doctor` checks Python 3.11+, ffmpeg and ffprobe on PATH, the MCP tool count from `TOOLS`, and that `project_create` / `import_file` / `import_folder` / `clip_add` / `export` exist. Optional `--project` is a dry smoke: it reports whether the project exists or can be created. It does not encode or export.
+`version` prints the package version. `doctor` checks Python 3.11+, the resolved `lc-editor` binary on PATH, ffmpeg and ffprobe, the MCP tool count from `TOOLS`, and that `project_create` / `import_file` / `import_folder` / `clip_add` / `export` exist. It always prints copy-paste Grok Bot / Cursor MCP JSON (`command` + `args` + `env`). Optional `--project` is a dry smoke: it reports whether the project exists or can be created. It does not encode or export. This is the attach path for #29 / #32.
 
 ## Cursor Marketplace Plugin
 
-This repo is packaged as a Cursor Agent Plugin. Install the `lc-editor` plugin from the Cursor Marketplace and the MCP server is ready to use—no manual pipx install needed.
+This repo is packaged as a Cursor Agent Plugin. Install the `lc-editor` plugin from the Cursor Marketplace. `mcp.json` pins **command** `lc-editor` and **args** `["serve"]` so a `pip install -U` does not drop the connector.
 
-**Requirements still apply:** ffmpeg, ffprobe, and Python 3.11+ must be on your PATH. The plugin uses `uvx` to run the server, which requires Python.
+**Requirements:** ffmpeg, ffprobe, Python 3.11+, and `lc-editor` on your PATH (`pipx install .` or `pip install .`). After `pip install -U lc-editor`, restart MCP: Cursor **RestartMcpServers**, or start a new agent session. Grok Bot: re-attach with the JSON from `lc-editor doctor`. There is no RestartMcpServers CLI.
 
 The plugin includes:
 - `plugin.json` — Agent Plugins manifest
-- `mcp.json` — MCP server configuration (stdio transport)
+- `mcp.json` — MCP server configuration (stdio; PATH-pinned `lc-editor serve`)
 - `skills/lc-editor/SKILL.md` — guidance for agents on when/how to use the editor
 
 ## Attach MCP (Grok Bot / Cursor / any stdio client)
@@ -74,7 +74,40 @@ Cursor / Grok Bot `mcp.json` (or Cursor MCP settings):
 }
 ```
 
-Restart the agent session after changing MCP config. Then confirm `project_create` is a callable tool. If it is not in the tool catalog, the session is not attached — run `lc-editor doctor` and fix the config. Do not fall back to raw ffmpeg while doctor is green.
+Restart the agent session after changing MCP config. Then confirm `project_create` is a callable tool. If it is not in the tool catalog, the session is not attached — run `lc-editor doctor` and paste the JSON it prints. Do not fall back to raw ffmpeg while doctor is green.
+
+### Persist across upgrades (#29 / #32)
+
+MCP attach is client-side. `pip install -U lc-editor` does not re-register the server. Pin `command` to the installed binary (`lc-editor doctor` prints `lc_editor_bin`) and `args` to `["serve"]`:
+
+```json
+{
+  "command": "/absolute/path/to/lc-editor",
+  "args": ["serve"],
+  "env": {}
+}
+```
+
+Cursor `mcp.json` (same pin; marketplace plugin ships this):
+
+```json
+{
+  "mcpServers": {
+    "lc-editor": {
+      "command": "lc-editor",
+      "args": ["serve"],
+      "env": {}
+    }
+  }
+}
+```
+
+Then restart MCP so a fresh session can call `project_create` without rediscovering AddMcpServer:
+
+1. Cursor: **RestartMcpServers** (or a new agent session).
+2. Grok Bot: re-attach (`AddMcpServer` with the doctor JSON). There is no `RestartMcpServers` CLI.
+
+If `lc-editor` is missing from PATH, doctor still prints JSON with `command: lc-editor` and warns that tools will be invisible until PATH / AddMcpServer is fixed.
 
 ### Windows paths
 
@@ -87,9 +120,9 @@ Use an **absolute** project path.
 
 ### Verify tools appeared
 
-1. `lc-editor doctor` — `mcp_tools` should be ~100 and `project_create` / `import_*` / `clip_add` / `export` should read `ok`.
+1. `lc-editor doctor` — `mcp_tools` should be ~100, `lc_editor_bin` should be a path, and `project_create` / `import_*` / `clip_add` / `export` should read `ok`. Copy the MCP JSON it prints.
 2. `lc-editor doctor --project C:/Users/you/my-reel` — reports exists or can create. No encode.
-3. In the agent session, `project_create` is callable. If MCP tools are missing, check `mcp.json`, restart the session, and re-run doctor. Stay off ffmpeg until doctor is red.
+3. In the agent session, `project_create` is callable. If MCP tools are missing, paste doctor's JSON, **RestartMcpServers** (Cursor) or re-attach (Grok Bot), and re-run doctor. Stay off ffmpeg until doctor is red.
 
 You can also use `uvx` to run without installing first:
 
@@ -106,7 +139,7 @@ You can also use `uvx` to run without installing first:
 
 ## Cursor (manual MCP config)
 
-If you prefer manual configuration instead of the marketplace plugin, use the attach snippet above. The marketplace plugin ships the same stdio server via `mcp.json`.
+If you prefer manual configuration instead of the marketplace plugin, use the attach snippet above (or the JSON from `lc-editor doctor`). The marketplace plugin ships the same PATH-pinned stdio server via `mcp.json`.
 
 ## Tools
 

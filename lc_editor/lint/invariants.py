@@ -4,24 +4,40 @@ from lc_editor.models import (
     DURATION_CAP_S,
     DURATION_SOFT_MAX_S,
     DURATION_SOFT_MIN_S,
+    Project,
     Timeline,
     decorated_transition_count,
+    resolved_duration_cap_s,
     timeline_duration,
 )
 
 
-def reject_duration(timeline: Timeline) -> str | None:
+def reject_duration(
+    timeline: Timeline,
+    project: Project | None = None,
+    *,
+    cap_s: float | None = None,
+) -> str | None:
+    if cap_s is not None:
+        cap = DURATION_CAP_S if cap_s <= 0 else float(cap_s)
+    else:
+        cap = resolved_duration_cap_s(project)
     dur = timeline_duration(timeline)
-    if dur > DURATION_CAP_S + 1e-9:
-        return f"SPEC-EDIT-14: duration {dur:.2f}s exceeds cap {DURATION_CAP_S:.2f}s"
+    if dur > cap + 1e-9:
+        return f"SPEC-EDIT-14: duration {dur:.2f}s exceeds cap {cap:.2f}s"
     return None
 
 
-def invariant_warnings(timeline: Timeline) -> list[str]:
+def invariant_warnings(timeline: Timeline, project: Project | None = None) -> list[str]:
     warnings: list[str] = []
     dur = timeline_duration(timeline)
+    cap = resolved_duration_cap_s(project)
     if timeline.clips and dur > DURATION_SOFT_MAX_S:
         warnings.append(f"SPEC-EDIT-15: duration {dur:.2f}s is over 28.00s target")
+    if timeline.clips and dur > DURATION_CAP_S and cap > DURATION_CAP_S + 1e-9:
+        warnings.append(
+            f"SPEC-EDIT-15: duration {dur:.2f}s is over {DURATION_CAP_S:.2f}s default (cap {cap:.2f}s)"
+        )
     if timeline.clips and dur < DURATION_SOFT_MIN_S:
         warnings.append(f"SPEC-EDIT-15: duration {dur:.2f}s is under 15.00s target")
     decorated = decorated_transition_count(timeline)

@@ -125,3 +125,66 @@ def test_shots_rank_prefers_hd_source(editor: Editor, tmp_path: Path) -> None:
     ranked = editor.shots_rank("site_detail", top_k=2)
     assert ranked["ok"] is True
     assert ranked["shots"][0]["media_id"] == editor.media[1].id
+
+
+def test_rank_prefers_same_role_hd_even_when_soft_scores_higher() -> None:
+    soft = _shot("soft", 0, metrics=ShotMetrics(motion=0.05, sharpness=0.95))
+    hd = _shot("hd", 1, metrics=ShotMetrics(motion=0.4, sharpness=0.35))
+    sizes = {"soft": (512, 288), "hd": (1920, 1080)}
+    assert score_shot(soft, "site_detail", sizes=sizes) > score_shot(hd, "site_detail", sizes=sizes)
+    plain = rank_shots([soft, hd], "site_detail", 2, sizes=sizes)
+    assert plain[0].media_id == "soft"
+    ranked = rank_shots(
+        [soft, hd],
+        "site_detail",
+        2,
+        sizes=sizes,
+        media_roles={"soft": "after", "hd": "after"},
+    )
+    assert ranked[0].media_id == "hd"
+    other_role = rank_shots(
+        [soft, hd],
+        "site_detail",
+        2,
+        sizes=sizes,
+        media_roles={"soft": "after", "hd": "before"},
+    )
+    assert other_role[0].media_id == "soft"
+    other_day = rank_shots(
+        [soft, hd],
+        "site_detail",
+        2,
+        sizes=sizes,
+        media_roles={"soft": "after", "hd": "after"},
+        shoot_days={"soft": 1, "hd": 2},
+    )
+    assert other_day[0].media_id == "soft"
+    same_day = rank_shots(
+        [soft, hd],
+        "site_detail",
+        2,
+        sizes=sizes,
+        media_roles={"soft": "after", "hd": "after"},
+        shoot_days={"soft": 1, "hd": 1},
+    )
+    assert same_day[0].media_id == "hd"
+
+
+def test_shots_rank_prefers_same_role_hd_over_soft(editor: Editor, tmp_path: Path) -> None:
+    sd = touch_media(tmp_path / "src", "sd")
+    hd = touch_media(tmp_path / "src", "hd")
+    editor.import_file(str(sd))
+    editor.import_file(str(hd))
+    editor.media[0] = editor.media[0].model_copy(update={"width": 512, "height": 288, "role": "after"})
+    editor.media[1] = editor.media[1].model_copy(update={"width": 1920, "height": 1080, "role": "after"})
+    write_manifest(
+        editor._manifest_for(editor.media[0]),
+        [_shot(editor.media[0].id, 0, metrics=ShotMetrics(motion=0.05, sharpness=0.95), length=3.0)],
+    )
+    write_manifest(
+        editor._manifest_for(editor.media[1]),
+        [_shot(editor.media[1].id, 1, metrics=ShotMetrics(motion=0.4, sharpness=0.35), length=3.0)],
+    )
+    ranked = editor.shots_rank("site_detail", top_k=2)
+    assert ranked["ok"] is True
+    assert ranked["shots"][0]["media_id"] == editor.media[1].id

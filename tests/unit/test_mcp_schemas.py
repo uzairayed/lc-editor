@@ -88,6 +88,7 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "font" in text_style
     project_set = schemas["project_set"].get("properties") or {}
     assert "caption_font" in project_set
+    assert "duration_cap_s" in project_set
     emphasis = schemas["caption_emphasis"].get("properties") or {}
     assert "word_id" in emphasis
     assert "kind" in emphasis
@@ -97,6 +98,7 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "w" in cam
     export = schemas["export"].get("properties") or {}
     assert "wait" in export
+    assert "preset" in export
     fit = schemas["clip_set_fit"].get("properties") or {}
     assert "clip_id" in fit
     assert "mode" in fit

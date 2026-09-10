@@ -14,12 +14,12 @@ The MCP server is `lc-editor`. Call its tools to build and export your reel.
 
 ## If MCP tools are missing
 
-Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green.
+Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green. This is the #29 / #32 attach path.
 
-1. Run `lc-editor doctor` (and `lc-editor doctor --project <abs path>` if you have a project). Confirm ffmpeg/ffprobe, `mcp_tools` ~100, and `project_create` / `import_file` / `import_folder` / `clip_add` / `export` read `ok`.
-2. Check `mcp.json` / Cursor MCP settings: **command** `lc-editor`, **args** `serve --project <absolute path>` (stdio). On Windows use `C:/Users/you/my-reel` or escaped backslashes.
-3. Restart the agent session and confirm `project_create` is callable.
-4. Fall back to ffmpeg only if doctor is **red** (missing binary, no MCP entrypoints) and you have told the owner LC is not attached.
+1. Run `lc-editor doctor` (and `lc-editor doctor --project <abs path>` if you have a project). Confirm `lc_editor_bin`, ffmpeg/ffprobe, `mcp_tools` ~100, and `project_create` / `import_file` / `import_folder` / `clip_add` / `export` read `ok`. Doctor prints copy-paste Grok Bot / Cursor MCP JSON (`command` + `args: ["serve"]` + `env`).
+2. Attach with that JSON. Pin **command** to the resolved `lc_editor_bin` (or `lc-editor` on PATH) and **args** `serve`. Plugin `mcp.json` already pins this so upgrades do not drop the connector. On Windows use `C:/Users/you/my-reel` or escaped backslashes if you add `--project`.
+3. After `pip install -U lc-editor`, restart MCP: Cursor **RestartMcpServers** (or a new agent session); Grok Bot: re-attach (`AddMcpServer`). There is no RestartMcpServers CLI. Then confirm `project_create` is callable.
+4. Fall back to ffmpeg only if doctor is **red** (missing ffmpeg, no MCP entrypoints) and you have told the owner LC is not attached. If only `lc_editor_bin` is missing, tools stay invisible until PATH / AddMcpServer — do not invent ffmpeg graphs yet; paste doctor's JSON.
 
 ## Workflow
 

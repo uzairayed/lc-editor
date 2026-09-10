@@ -196,6 +196,53 @@ def hero_encode_args(output: Path, width: int = CANVAS_W, height: int = CANVAS_H
     ]
 
 
+SHARE_9_16 = (720, 1280)
+SHARE_16_9 = (1280, 720)
+
+
+def share_wh(width: int = CANVAS_W, height: int = CANVAS_H) -> tuple[int, int]:
+    if even_dim(width) >= even_dim(height):
+        return SHARE_16_9
+    return SHARE_9_16
+
+
+def share_encode_args(output: Path, width: int = CANVAS_W, height: int = CANVAS_H) -> list[str]:
+    dest_w, dest_h = share_wh(width, height)
+    return [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "22",
+        "-pix_fmt",
+        "yuv420p",
+        "-color_range",
+        "tv",
+        "-colorspace",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-r",
+        str(FPS),
+        "-s",
+        f"{dest_w}x{dest_h}",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+
+
 def proxy_encode_args(output: Path, width: int | None = None, height: int | None = None) -> list[str]:
     from lc_editor.models import PROXY_H, PROXY_W
 

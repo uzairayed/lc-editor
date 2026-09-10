@@ -76,7 +76,15 @@ class HeroExportBusy(RuntimeError):
     pass
 
 
-def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool, full_args: list[str] | None = None) -> None:
+def _finish_hero_run(
+    result,
+    dest: Path,
+    encode: list[str],
+    *,
+    preview: bool,
+    full_args: list[str] | None = None,
+    legal: bool = True,
+) -> None:
     if preview:
         if result.returncode != 0 and not dest.exists():
             dest.write_bytes(b"")
@@ -92,9 +100,10 @@ def _finish_hero_run(result, dest: Path, encode: list[str], *, preview: bool, fu
                 tail = line
                 break
         detail = f" ({tail})" if tail else ""
-        raise AssembleError(f"SPEC-EXPORT-08: hero encode failed{detail}")
+        spec = "SPEC-EXPORT-08: hero encode failed" if legal else "SPEC-EXPORT-10: share encode failed"
+        raise AssembleError(f"{spec}{detail}")
     check = full_args if full_args is not None else encode
-    if not hero_encode_legal(check):
+    if legal and not hero_encode_legal(check):
         dest.unlink(missing_ok=True)
         raise AssembleError("SPEC-EXPORT-08: hero encode is not medium/crf<=18 hero canvas")
 
@@ -560,6 +569,7 @@ def assemble(
     items: list[MediaItem],
     dest: Path,
     proxy: bool,
+    encode_args: list[str] | None = None,
 ) -> Path:
     timeline = prepare_caption_files(store, timeline)
     if project.cube_path is None:
@@ -601,7 +611,8 @@ def assemble(
             work_items.append(working_media(item) if proxy and item.kind != "audio" else item)
     prepared_timeline = timeline.model_copy(update={"clips": prepared_clips})
     vf = adjustment_filters(project, duration_s=timeline_duration(timeline))
-    encode = _clip_encode_args(dest, project, preview=proxy)
+    custom_encode = encode_args is not None
+    encode = encode_args if custom_encode else _clip_encode_args(dest, project, preview=proxy)
     encode_flags = encode[:-1]
     if not proxy:
         encode_flags = ["-t", f"{timeline_duration(timeline):.4f}", *encode_flags]
@@ -641,7 +652,14 @@ def assemble(
         loudnorm=loudnorm,
     )
     result = runner.run(cmd)
-    _finish_hero_run(result, dest, encode_flags + [str(dest)], preview=proxy, full_args=None if proxy else cmd)
+    _finish_hero_run(
+        result,
+        dest,
+        encode_flags + [str(dest)],
+        preview=proxy,
+        full_args=None if proxy else cmd,
+        legal=not custom_encode,
+    )
     return dest
 
 

@@ -95,15 +95,18 @@ Legal kinds: `hard`, `whip`, `punch`, `close_fade`, `j_cut`, `l_cut`, `flash`, `
 
 ## SPEC-EDIT-14: hard duration cap
 
-A mutation that would make timeline duration greater than **60.00s** is `ok: false` and is not applied.
+A mutation that would make timeline duration greater than the project **duration cap** is `ok: false` and is not applied.
 
-Worked example: timeline at 60.00s, `clip_add` of a 2.00s shot is rejected. Duration stays **60.00**.
+Project field `duration_cap_s` defaults to **60.00**. `project_set(duration_cap_s=…)` updates it. **0 means “use the default 60.0”** (stored as 60.0). Omitting the argument leaves the stored value unchanged. A negative value or a value above **600** is `ok: false`. Missing project or unset/0 resolves to 60.00s.
+
+Worked example: default project at 60.00s, `clip_add` of a 2.00s shot is rejected. Duration stays **60.00**. After `project_set(duration_cap_s=180)`, a ~120–140s process reel is legal; review and export fail only above the configured cap.
 
 ## SPEC-EDIT-15: soft length warnings
 
 After a successful mutation:
 
 - duration `> 28.00`: warning (keep, do not reject)
+- duration `> 60.00` while the configured cap is above 60.00: warning (keep; hard fail is SPEC-EDIT-14 only above the configured cap)
 - duration `< 15.00` and at least one clip: warning (keep)
 
 ## SPEC-EDIT-16: idempotent op_id
@@ -127,7 +130,7 @@ A clip must stay on screen long enough to register. Caption hold is not the same
 - `SHOT_ACK_MIN_S = 2.4` for video on the timeline.
 - `STILL_ACK_MIN_S = 2.2` for stills (already above locked-still 1.4s).
 - A fragment shorter than the floor is `SPEC-EDIT-ACK-01` and fails `review_report`, unless the clip holds its entire source. A whole-source hold shorter than the floor is a warning, not an error.
-- Clip count may not exceed `ceil(duration_s * 16 / 60)` (`SPEC-EDIT-ACK-02`). A 60s reel therefore lands at most 16 clips. Override with `review_report(allow_dense=true)`.
+- Clip count may not exceed `ceil(duration_s * 16 / 60)` (`SPEC-EDIT-ACK-02`). A 60s reel therefore lands at most 16 clips. The cap is skipped when resolved `min_video_duration_s` ≥ 5.0 (process / ambient default). Spoken-word projects that lower the floor keep the cap. Override with `review_report(allow_dense=true)`; `allow_dense=false` always enforces it.
 - `shots_rank` drops video shots shorter than `SHOT_ACK_MIN_S`. If that empties the pool, it falls back to all shots with a warning.
 - `clip_add` defaults video duration to `max(SHOT_ACK_MIN_S, min_video_duration_s)` (or the whole source if shorter).
 

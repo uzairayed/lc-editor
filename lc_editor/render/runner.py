@@ -139,6 +139,11 @@ def _output_path(args: list[str]) -> Path | None:
         "-movflags",
         "-shortest",
         "-filter:a",
+        "-color_range",
+        "-colorspace",
+        "-color_primaries",
+        "-color_trc",
+        "-tune",
     }
     for i, arg in enumerate(args):
         if skip_next:

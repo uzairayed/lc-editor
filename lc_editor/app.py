@@ -15,6 +15,7 @@ from lc_editor.analysis.media import (
     public_media,
     pxl_burst_id,
     quality_import_warning,
+    quality_soft_warnings,
     read_exif_tags,
     resolve_captured_at,
     roles_equal,
@@ -46,6 +47,7 @@ from lc_editor.lint.captions import (
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.mix import mix_issues, mix_preview_payload, sfx_too_hot
 from lc_editor.lint.review import (
+    resolve_density_allow,
     review_blockers,
     review_warnings,
     video_duration_floor_errors,
@@ -60,8 +62,11 @@ from lc_editor.models import (
     CAPTION_Y_DEFAULT,
     DEFAULT_STILL_S,
     FPS,
+    DURATION_CAP_MAX_S,
+    DURATION_CAP_S,
     MIN_VIDEO_DURATION_S,
     SHOT_ACK_MIN_S,
+    resolved_duration_cap_s,
     resolved_min_video_duration_s,
     SOURCE_PROXY_H,
     SOURCE_PROXY_W,
@@ -140,7 +145,7 @@ from lc_editor.ops.timeline import (
 )
 from lc_editor.render.captions import expand_contractions
 from lc_editor.render.effects import validate_effect
-from lc_editor.render.graph import hero_encode_args, hero_encode_record
+from lc_editor.render.graph import hero_encode_args, hero_encode_record, share_encode_args
 from lc_editor.render.jobs import (
     assemble,
     AssembleError,
@@ -245,12 +250,12 @@ class Editor:
             new_tl = fn(before)
         except Reject as exc:
             return envelope(False, before, [str(exc)])
-        cap = reject_duration(new_tl)
+        cap = reject_duration(new_tl, store.project)
         if cap:
             return envelope(False, before, [cap])
         new_tl = recompute_starts(new_tl)
         new_tl = sync_caption_layers(new_tl)
-        warnings = invariant_warnings(new_tl)
+        warnings = invariant_warnings(new_tl, store.project)
         warnings.extend(video_duration_floor_warnings(new_tl, store.project, self.media))
         warnings.extend(video_duration_floor_errors(new_tl, store.project, self.media))
         result = envelope(True, new_tl, warnings)
@@ -337,6 +342,7 @@ class Editor:
         preset: str | None = None,
         loudnorm: str | None = None,
         min_video_duration_s: float | None = None,
+        duration_cap_s: float | None = None,
         caption_font: str | None = None,
         op_id: str | None = None,
     ) -> dict:
@@ -371,6 +377,18 @@ class Editor:
             update["min_video_duration_s"] = (
                 MIN_VIDEO_DURATION_S if min_video_duration_s == 0 else float(min_video_duration_s)
             )
+            update["reviewed_version"] = None
+        if duration_cap_s is not None:
+            if duration_cap_s < 0:
+                return envelope(False, store.timeline, ["SPEC-EDIT-14: duration_cap_s must be >= 0"])
+            if duration_cap_s > DURATION_CAP_MAX_S:
+                return envelope(
+                    False,
+                    store.timeline,
+                    [f"SPEC-EDIT-14: duration_cap_s must be <= {DURATION_CAP_MAX_S:.0f}"],
+                )
+            # 0 means "use default 60.0". Omit the argument to leave the stored cap unchanged.
+            update["duration_cap_s"] = DURATION_CAP_S if duration_cap_s == 0 else float(duration_cap_s)
             update["reviewed_version"] = None
         if caption_font is not None:
             if caption_font == "":
@@ -556,7 +574,7 @@ class Editor:
                     key=lambda pair: captured_at_sort_key(pair[1].captured_at, pair[0]),
                 )
             ]
-        result = envelope(True, store.timeline, [])
+        result = envelope(True, store.timeline, quality_soft_warnings(items))
         result["media"] = [public_media(m) for m in items]
         return result
 
@@ -609,7 +627,7 @@ class Editor:
             info = public_media(item)
         else:
             info = public_media(self._probe_file(Path(path or "")))
-        result = envelope(True, store.timeline, [])
+        result = envelope(True, store.timeline, quality_soft_warnings([info]))
         result["probe"] = info
         return result
 
@@ -834,6 +852,8 @@ class Editor:
                 warnings.append(warning)
         self.media = [updated.get(item.id, item) for item in self.media]
         self._save_media()
+        target_ids = {item.id for item in targets}
+        warnings.extend(quality_soft_warnings(item for item in self.media if item.id in target_ids))
         result = envelope(not failed, store.timeline, warnings)
         result["shots"] = total
         result["cached"] = cached
@@ -938,7 +958,17 @@ class Editor:
                 warnings.append("SPEC-EDIT-ACK-01: no shots meet the acknowledge floor")
         first = self.media[0].id if self.media else None
         sizes = {item.id: (item.width, item.height) for item in self.media}
-        ranked = rank_shots(pool, role, top_k, first_media_id=first, sizes=sizes)
+        media_roles = {item.id: item.role for item in self.media}
+        shoot_days = {item.id: item.shoot_day for item in self.media}
+        ranked = rank_shots(
+            pool,
+            role,
+            top_k,
+            first_media_id=first,
+            sizes=sizes,
+            media_roles=media_roles,
+            shoot_days=shoot_days,
+        )
         result = envelope(True, store.timeline, warnings)
         result["shots"] = [shot.model_dump() for shot in ranked]
         if sheet:
@@ -1755,7 +1785,7 @@ class Editor:
         result["path"] = str(dest)
         return result
 
-    def review_report(self, allow_dense: bool = False) -> dict:
+    def review_report(self, allow_dense: bool | None = None) -> dict:
         store = self._need()
         errors = review_blockers(
             store.timeline,
@@ -1766,13 +1796,17 @@ class Editor:
         )
         warns = review_warnings(store.timeline, store.project, media=self.media)
         dur = timeline_duration(store.timeline)
+        density_relaxed, density_reason = resolve_density_allow(store.project, allow_dense)
         ok = len(errors) == 0
         if ok:
             store.project = store.project.model_copy(update={"reviewed_version": store.timeline.version})
             store.persist()
         report = {
             "duration_s": dur,
+            "duration_cap_s": resolved_duration_cap_s(store.project),
             "clip_count": len(store.timeline.clips),
+            "density_relaxed": density_relaxed,
+            "density_reason": density_reason,
             "caption_warnings": [e for e in errors if "SPEC-CAP" in e],
             "mix_warnings": [e for e in errors if "SPEC-SND" in e or "SPEC-CRAFT-06" in e],
             "transition_count": envelope(True, store.timeline, [])["timeline_summary"]["transition_count"],
@@ -1795,11 +1829,14 @@ class Editor:
         result["report"] = report
         return result
 
-    def export(self, op_id: str | None = None, wait: bool = True) -> dict:
+    def export(self, op_id: str | None = None, wait: bool = True, preset: str = "reel") -> dict:
         store = self._need()
         replay = store.replay(op_id)
         if replay is not None:
             return replay
+        kind = (preset or "reel").strip().lower()
+        if kind not in {"reel", "share", "phone"}:
+            return envelope(False, store.timeline, ["SPEC-EXPORT-10: preset must be reel, share, or phone"])
         if store.project.reviewed_version != store.timeline.version:
             return envelope(False, store.timeline, ["SPEC-EXPORT-03: export requires review_report on the current version"])
         floor_errors = video_duration_floor_errors(store.timeline, store.project, self.media)
@@ -1808,6 +1845,36 @@ class Editor:
         hero = store.output_dir / "reel.mp4"
         proxy = store.output_dir / "reel_proxy.mp4"
         sidecar = store.output_dir / "reel.json"
+        share = store.output_dir / "reel_share.mp4"
+        if kind in {"share", "phone"}:
+            share_args = share_encode_args(share, store.project.width, store.project.height)
+            try:
+                with hero_export_lock(wait=wait):
+                    assemble(
+                        self.runner,
+                        store,
+                        store.project,
+                        store.timeline,
+                        self.media,
+                        share,
+                        proxy=False,
+                        encode_args=share_args,
+                    )
+            except HeroExportBusy:
+                return envelope(False, store.timeline, ["hero_export_busy"])
+            except AssembleError as exc:
+                return envelope(False, store.timeline, [str(exc)])
+            result = envelope(True, store.timeline, [])
+            result["share"] = str(share.resolve())
+            result["encode"] = hero_encode_record(share_args)
+            if hero.exists():
+                result["hero"] = str(hero.resolve())
+            if sidecar.exists():
+                result["sidecar"] = str(sidecar.resolve())
+            if op_id:
+                store.ledger[op_id] = result
+                store.persist()
+            return result
         try:
             with hero_export_lock(wait=wait):
                 assemble(self.runner, store, store.project, store.timeline, self.media, hero, proxy=False)

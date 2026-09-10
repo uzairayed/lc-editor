@@ -12,6 +12,7 @@ CANVAS_16_9_W = 1920
 CANVAS_16_9_H = 1080
 FPS = 30
 DURATION_CAP_S = 60.0
+DURATION_CAP_MAX_S = 600.0
 DURATION_SOFT_MAX_S = 28.0
 DURATION_SOFT_MIN_S = 15.0
 LOCKED_STILL_MAX_S = 1.4
@@ -449,6 +450,7 @@ class Project(BaseModel):
     caption_font: str = ""
     loudnorm: LoudnormProfile = "cinema"
     min_video_duration_s: float = MIN_VIDEO_DURATION_S
+    duration_cap_s: float = DURATION_CAP_S
     grain: float = 0.0
     vignette: float = 0.0
     adjustment: AdjustmentLayer = Field(default_factory=AdjustmentLayer)
@@ -461,6 +463,14 @@ def resolved_min_video_duration_s(project: Project | None) -> float:
     if raw is None or raw <= 0:
         return MIN_VIDEO_DURATION_S
     return float(raw)
+
+
+def resolved_duration_cap_s(project: Project | None) -> float:
+    """Effective hard duration cap. None or <= 0 means the default 60.0s."""
+    raw = None if project is None else project.duration_cap_s
+    if raw is None or raw <= 0:
+        return DURATION_CAP_S
+    return min(float(raw), DURATION_CAP_MAX_S)
 
 
 class TimelineSummary(BaseModel):

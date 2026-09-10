@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from lc_editor.analysis.manifest import Shot
-from lc_editor.analysis.media import resolution_boost, short_side
+from lc_editor.analysis.media import (
+    is_sub_720,
+    normalize_role,
+    normalize_shoot_day,
+    resolution_boost,
+    roles_equal,
+    shoot_days_equal,
+    short_side,
+)
 from lc_editor.models import SHOT_MAX_S
 
 ROLES = ("hook", "journey", "site_wide", "site_detail", "closer")
@@ -72,6 +80,65 @@ def _size_of(shot: Shot, sizes: dict[str, tuple[int, int]] | None) -> tuple[int,
     return sizes.get(shot.media_id, (0, 0))
 
 
+def _is_soft(shot: Shot, sizes: dict[str, tuple[int, int]] | None) -> bool:
+    width, height = _size_of(shot, sizes)
+    return is_sub_720(width, height)
+
+
+def _same_role_hd_alternate(
+    shot: Shot,
+    other: Shot,
+    *,
+    sizes: dict[str, tuple[int, int]] | None,
+    media_roles: dict[str, str | None] | None,
+    shoot_days: dict[str, int | str | None] | None,
+) -> bool:
+    if not media_roles or _is_soft(other, sizes):
+        return False
+    if not roles_equal(media_roles.get(shot.media_id), media_roles.get(other.media_id)):
+        return False
+    if not shoot_days:
+        return True
+    left = normalize_shoot_day(shoot_days.get(shot.media_id))
+    right = normalize_shoot_day(shoot_days.get(other.media_id))
+    if left is not None and right is not None:
+        return shoot_days_equal(left, right)
+    return True
+
+
+def prefer_hd_role_takes(
+    shots: list[Shot],
+    *,
+    sizes: dict[str, tuple[int, int]] | None = None,
+    media_roles: dict[str, str | None] | None = None,
+    shoot_days: dict[str, int | str | None] | None = None,
+) -> list[Shot]:
+    """Promote an HD same-role sibling above a soft, role-tagged take."""
+    if not shots or not media_roles:
+        return list(shots)
+    ordered = list(shots)
+    i = 0
+    while i < len(ordered):
+        shot = ordered[i]
+        if not _is_soft(shot, sizes) or not normalize_role(media_roles.get(shot.media_id)):
+            i += 1
+            continue
+        alt_idx = next(
+            (
+                j
+                for j, other in enumerate(ordered)
+                if _same_role_hd_alternate(
+                    shot, other, sizes=sizes, media_roles=media_roles, shoot_days=shoot_days
+                )
+            ),
+            None,
+        )
+        if alt_idx is not None and alt_idx > i:
+            ordered.insert(i, ordered.pop(alt_idx))
+        i += 1
+    return ordered
+
+
 def score_shot(
     shot: Shot,
     role: str,
@@ -108,6 +175,8 @@ def rank_shots(
     *,
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
+    media_roles: dict[str, str | None] | None = None,
+    shoot_days: dict[str, int | str | None] | None = None,
 ) -> list[Shot]:
     def key(shot: Shot) -> tuple:
         width, height = _size_of(shot, sizes)
@@ -117,7 +186,12 @@ def rank_shots(
             shot.id,
         )
 
-    ordered = sorted(shots, key=key)
+    ordered = prefer_hd_role_takes(
+        sorted(shots, key=key),
+        sizes=sizes,
+        media_roles=media_roles,
+        shoot_days=shoot_days,
+    )
     if top_k < 0:
         top_k = 0
     return ordered[:top_k]

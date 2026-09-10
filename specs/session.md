@@ -20,7 +20,7 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 ## SPEC-SES-03: project_open / get / set / list
 
-`project_open` loads a project directory. `project_get` returns project + summary. `project_set` updates allowed fields (name, overlay flags, `allow_music`, `min_video_duration_s`). Setting `allow_music` false while music tracks exist is `ok: false`. `min_video_duration_s` of `0` means the default 5.0s video hold (SPEC-EDIT-25). `project_list` lists project dirs under the workspace root.
+`project_open` loads a project directory. `project_get` returns project + summary. `project_set` updates allowed fields (name, overlay flags, `allow_music`, `min_video_duration_s`, `duration_cap_s`). Setting `allow_music` false while music tracks exist is `ok: false`. `min_video_duration_s` of `0` means the default 5.0s video hold (SPEC-EDIT-25). `duration_cap_s` of `0` means the default 60.0s hard cap (SPEC-EDIT-14). `project_list` lists project dirs under the workspace root.
 
 ## SPEC-SES-04: import_file / import_folder
 
@@ -95,9 +95,11 @@ When `LC_EDITOR_MURREE_DIR` points at a folder of exactly 117 readable stills, `
 
 `lc-editor version` prints the package version.
 
-`lc-editor doctor` reports Python, ffmpeg, ffprobe, MCP tool count from `TOOLS`, and whether `project_create` / `import_file` / `import_folder` / `clip_add` / `export` exist. Optional `--project` is a dry smoke: it reports whether the project exists or can be created. It does not encode or export. Exit `0` when the report is ok, else `1`.
+`lc-editor doctor` reports Python, the resolved `lc-editor` binary on PATH (`lc_editor_bin`), ffmpeg, ffprobe, MCP tool count from `TOOLS`, and whether `project_create` / `import_file` / `import_folder` / `clip_add` / `export` exist (MCP tools-registered smoke). Optional `--project` is a dry smoke: it reports whether the project exists or can be created. It does not encode or export. Exit `0` when the report is ok, else `1`. Missing `lc-editor` on PATH does not fail `ok` by itself; stdout still warns that tools will be invisible until AddMcpServer / PATH fix.
 
-`lc-editor serve --project …` is unchanged. MCP clients attach stdio with command `lc-editor` and args `serve --project <absolute path>`.
+Stdout always prints copy-paste MCP JSON for Grok Bot (`command` + `args: ["serve"]` + `env`) and Cursor (`mcpServers`). This is the attach path for #29 / #32. After `pip install -U lc-editor`, restart MCP in the client (Cursor: RestartMcpServers; Grok Bot: re-attach). There is no RestartMcpServers CLI.
+
+`lc-editor serve --project …` is unchanged. MCP clients attach stdio with command `lc-editor` (or the resolved binary from doctor) and args `serve` (optional `--project <absolute path>`). Plugin `mcp.json` pins that serve command so a package upgrade does not drop the connector.
 
 ## SPEC-SES-16: shoot day / role tags
 

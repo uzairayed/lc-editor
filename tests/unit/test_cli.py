@@ -6,7 +6,16 @@ import pytest
 
 from lc_editor import __version__
 from lc_editor.cli import build_parser, main
-from lc_editor.doctor import SMOKE_TOOLS, doctor_payload, format_doctor, package_version, project_status
+from lc_editor.doctor import (
+    SMOKE_TOOLS,
+    attach_command,
+    cursor_mcp_json,
+    doctor_payload,
+    format_doctor,
+    grok_mcp_json,
+    package_version,
+    project_status,
+)
 from lc_editor.server import TOOLS
 
 
@@ -48,21 +57,83 @@ def test_doctor_green_when_bins_present(monkeypatch, capsys) -> None:
     assert main(["doctor"]) == 0
     out = capsys.readouterr().out
     assert f"lc-editor {package_version()}" in out
+    assert "lc_editor_bin: /bin/lc-editor" in out
     assert "ffmpeg: /bin/ffmpeg" in out
     assert "ffprobe: /bin/ffprobe" in out
     assert f"mcp_tools: {len(TOOLS)}" in out
     for name in SMOKE_TOOLS:
         assert f"{name}: ok" in out
     assert "ok: true" in out
+    assert "Grok Bot AddMcpServer:" in out
+    assert '"command": "/bin/lc-editor"' in out
+    assert '"serve"' in out
+    assert '"env": {}' in out
+    assert "Cursor mcp.json:" in out
+    assert '"mcpServers"' in out
+    assert "RestartMcpServers" in out
+    assert "#29" in out
+    assert "#32" in out
+    assert "invisible" not in out
 
 
 def test_doctor_red_when_ffmpeg_missing(monkeypatch, capsys) -> None:
     monkeypatch.setattr("lc_editor.doctor.which_tool", lambda name: None)
     assert main(["doctor"]) == 1
     out = capsys.readouterr().out
+    assert "lc_editor_bin: missing" in out
     assert "ffmpeg: missing" in out
     assert "ffprobe: missing" in out
     assert "ok: false" in out
+    assert "tools will be invisible" in out
+    assert "AddMcpServer" in out
+    assert '"command": "lc-editor"' in out
+    assert "RestartMcpServers" in out
+
+
+def test_doctor_ok_when_lc_editor_bin_missing(monkeypatch, capsys) -> None:
+    def fake_which(name: str) -> str | None:
+        if name == "lc-editor":
+            return None
+        return f"/bin/{name}"
+
+    monkeypatch.setattr("lc_editor.doctor.which_tool", fake_which)
+    payload = doctor_payload()
+    assert payload["lc_editor_bin"] is None
+    assert payload["ok"] is True
+    assert main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "lc_editor_bin: missing" in out
+    assert "ok: true" in out
+    assert "tools will be invisible" in out
+    assert "AddMcpServer" in out
+    assert '"command": "lc-editor"' in out
+    assert '"args": [' in out
+    assert '"serve"' in out
+
+
+def test_doctor_warns_when_entrypoints_missing(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("lc_editor.doctor.which_tool", lambda name: f"/bin/{name}")
+    monkeypatch.setattr(
+        "lc_editor.doctor.entrypoints",
+        lambda: {name: False for name in SMOKE_TOOLS},
+    )
+    assert main(["doctor"]) == 1
+    out = capsys.readouterr().out
+    assert "project_create: missing" in out
+    assert "ok: false" in out
+    assert "tools will be invisible" in out
+    assert '"command": "/bin/lc-editor"' in out
+
+
+def test_doctor_attach_json_uses_resolved_bin() -> None:
+    assert attach_command("/workspace/lc-editor-venv/bin/lc-editor") == (
+        "/workspace/lc-editor-venv/bin/lc-editor"
+    )
+    assert attach_command(None) == "lc-editor"
+    grok = grok_mcp_json("/bin/lc-editor")
+    assert grok == {"command": "/bin/lc-editor", "args": ["serve"], "env": {}}
+    cursor = cursor_mcp_json("/bin/lc-editor")
+    assert cursor["mcpServers"]["lc-editor"] == grok
 
 
 def test_doctor_project_is_dry_smoke(tmp_path: Path, monkeypatch) -> None:
@@ -77,11 +148,15 @@ def test_doctor_project_is_dry_smoke(tmp_path: Path, monkeypatch) -> None:
     (existing / "project.json").write_text("{}")
     payload = doctor_payload(existing)
     assert payload["ok"] is True
+    assert payload["lc_editor_bin"] == "/bin/lc-editor"
     project = payload["project"]
     assert isinstance(project, dict)
     assert project["exists"] is True
     assert "exists" in str(project["note"])
-    assert "project:" in format_doctor(payload)
+    rendered = format_doctor(payload)
+    assert "project:" in rendered
+    assert "Grok Bot AddMcpServer:" in rendered
+    assert '"command": "/bin/lc-editor"' in rendered
 
 
 def test_doctor_blocked_file_project(tmp_path: Path) -> None:

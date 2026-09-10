@@ -88,7 +88,26 @@ def test_review_fails_over_60s(editor: Editor, media_file: Path) -> None:
     )
     result = editor.review_report()
     assert result["ok"] is False
+    assert result["report"]["duration_cap_s"] == 60.0
     assert any("SPEC-EDIT-14" in w for w in result["warnings"])
+
+
+def test_review_allows_process_length_with_raised_cap(editor: Editor, media_file: Path) -> None:
+    assert editor.project_set(duration_cap_s=180)["ok"] is True
+    editor.import_file(str(media_file))
+    mid = editor.media[-1].id
+    for _ in range(26):
+        added = editor.clip_add(media_id=mid, duration_s=5.0)
+        assert added["ok"] is True
+    result = editor.review_report()
+    assert result["ok"] is True
+    assert result["report"]["duration_s"] == 130.0
+    assert result["report"]["duration_cap_s"] == 180.0
+    assert result["report"]["errors"] == []
+    assert not any("SPEC-EDIT-14" in w for w in result["warnings"])
+    assert any("SPEC-EDIT-15" in w for w in result["warnings"])
+    exported = editor.export()
+    assert exported["ok"] is True
 
 
 def test_review_blocks_sub720_cover_into_1080(tmp_path: Path) -> None:

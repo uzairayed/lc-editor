@@ -11,7 +11,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lc-editor")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("version", help="Print package version")
-    doctor = sub.add_parser("doctor", help="Health check: ffmpeg, Python, MCP tools")
+    doctor = sub.add_parser("doctor", help="Health check: ffmpeg, Python, MCP tools, attach JSON")
     doctor.add_argument("--project", default=None, help="Optional project path for a dry smoke")
     serve = sub.add_parser("serve", help="MCP stdio server")
     serve.add_argument("--project", default="./reel")

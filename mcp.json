@@ -3,13 +3,9 @@
   "mcpServers": {
     "lc-editor": {
       "type": "stdio",
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/uzairayed/lc-editor.git",
-        "lc-editor",
-        "serve"
-      ]
+      "command": "lc-editor",
+      "args": ["serve"],
+      "env": {}
     }
   }
 }

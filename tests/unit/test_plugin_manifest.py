@@ -28,7 +28,9 @@ def test_mcp_json_parses() -> None:
     assert "lc-editor" in servers
     server = servers["lc-editor"]
     assert server.get("type") == "stdio"
-    assert "command" in server
+    assert server.get("command") == "lc-editor"
+    assert server.get("args") == ["serve"]
+    assert server.get("env") == {}
 
 
 def test_skill_md_exists() -> None:
@@ -39,6 +41,9 @@ def test_skill_md_exists() -> None:
     assert "review_report" in content
     assert "If MCP tools are missing" in content
     assert "lc-editor doctor" in content
+    assert "RestartMcpServers" in content
+    assert "#29" in content
+    assert "#32" in content
     assert "media_tag" in content
     assert "inventory" in content.lower()
 

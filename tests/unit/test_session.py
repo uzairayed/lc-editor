@@ -30,6 +30,7 @@ def test_spec_ses_02_project_create_9_16(tmp_path: Path) -> None:
     assert project["fps"] == 30
     assert project["allow_music"] is False
     assert project["min_video_duration_s"] == 5.0
+    assert project["duration_cap_s"] == 60.0
 
 
 def test_spec_ses_02_project_create_16_9(tmp_path: Path) -> None:

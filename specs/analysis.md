@@ -70,7 +70,7 @@ Scoring (higher wins):
 - `site_detail`: high sharpness + low motion.
 - `closer`: low motion + longer duration.
 
-Unknown role: `ok: false`. `top_k` larger than the pool returns the whole pool, still `ok`. Equal-content HD ranks above SD (source short-side boost; SPEC-QLT-01). Remaining ties break by `id` ascending. Response includes keyframe paths. `sheet: true` writes a contact sheet of only those keyframes under `output/rank_{role}.jpg` and returns `path`.
+Unknown role: `ok: false`. `top_k` larger than the pool returns the whole pool, still `ok`. Equal-content HD ranks above SD (source short-side boost; SPEC-QLT-01). A sub-720 candidate whose media is role-tagged (`before` / `wash` / `machine` / `after`) yields to an HD take with the same media `role` (and the same `shoot_day` if both are tagged), even when the soft clip would win on other scores. Remaining ties break by `id` ascending. Response includes keyframe paths. `sheet: true` writes a contact sheet of only those keyframes under `output/rank_{role}.jpg` and returns `path`.
 
 ## SPEC-ANA-08: failure and mutation
 
@@ -93,11 +93,11 @@ Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor 
 - `is_sub_720`: `0 < min(width, height) < 720`. Unknown 0×0 is not a fail.
 - Canvas is 1080-class when `min(project.width, project.height) >= 1080` (default 1080×1920).
 - Default clip framing is **cover**. Fit / letterbox / `fit_blur` / `fit_pad` (when present) are not cover.
-- `import_file` / `import_folder` warn `SPEC-QLT-01: media {id} is {W}x{H} (short side below 720)` on visual sub-720 items. Import still succeeds.
+- `import_file` / `import_folder` / `probe` / `media_list` / `media_analyze` warn `SPEC-QLT-01: media {id} is {W}x{H} (short side below 720); soft source` on visual sub-720 items. Import and analyze still succeed (`ok: true`).
 - `media_list` and `probe` keep `width` / `height` and add `resolution` (`"1920x1080"`) and `sub_720`.
 - `review_report` / export lint **hard-block** when a clip uses cover (or default cover) AND a visual source short side is below 720 AND the canvas is 1080-class: `SPEC-QLT-01: clip {id} cover-upscales {W}x{H} into 1080 canvas (short side below 720)`.
 - Sub-720 on a smaller canvas, or on a future fit/letterbox clip, is a warning only. Do not block letterbox of a small source.
-- `shots_rank` prefers higher-resolution sources when content scores tie, with a visible HD boost.
+- `shots_rank` prefers higher-resolution sources when content scores tie, with a visible HD boost. When a candidate is sub-720 and media-role-tagged, prefer an HD take with the same media `role` (and the same `shoot_day` if both are tagged).
 
 ## Future work
 

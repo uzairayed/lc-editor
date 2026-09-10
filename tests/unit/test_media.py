@@ -74,11 +74,18 @@ def test_import_warns_and_lists_sub_720(tmp_path: Path) -> None:
     assert any("SPEC-QLT-01" in w for w in imported["warnings"])
     assert imported["media"]["resolution"] == "512x288"
     assert imported["media"]["sub_720"] is True
-    listed = editor.media_list()["media"][0]
-    assert listed["resolution"] == "512x288"
-    assert listed["sub_720"] is True
-    assert listed["width"] == 512
-    assert listed["height"] == 288
+    listed = editor.media_list()
+    item = listed["media"][0]
+    assert any("SPEC-QLT-01" in w and "soft source" in w for w in listed["warnings"])
+    assert item["resolution"] == "512x288"
+    assert item["sub_720"] is True
+    assert item["width"] == 512
+    assert item["height"] == 288
+    probed = editor.probe(media_id=item["id"])
+    assert any("SPEC-QLT-01" in w and "soft source" in w for w in probed["warnings"])
+    analyzed = editor.media_analyze()
+    assert analyzed["ok"] is True
+    assert any("SPEC-QLT-01" in w and "soft source" in w for w in analyzed["warnings"])
 
 
 def test_import_folder_warns_only_sub_720(tmp_path: Path) -> None:

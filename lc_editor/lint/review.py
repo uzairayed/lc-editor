@@ -12,6 +12,7 @@ from lc_editor.models import (
     BEAT_CONFIDENCE_WARN,
     LOCKED_STILL_MAX_S,
     MAX_CLIPS_PER_60S,
+    MIN_VIDEO_DURATION_S,
     MUSIC_KINDS,
     SHOT_ACK_MIN_S,
     STILL_ACK_MIN_S,
@@ -144,11 +145,25 @@ def video_duration_floor_warnings(
     return warnings
 
 
+def resolve_density_allow(
+    project: Project | None,
+    allow_dense: bool | None = None,
+) -> tuple[bool, str | None]:
+    if allow_dense is True:
+        return True, "allow_dense"
+    if allow_dense is False:
+        return False, None
+    if resolved_min_video_duration_s(project) >= MIN_VIDEO_DURATION_S:
+        return True, "min_video_duration_s"
+    return False, None
+
+
 def acknowledge_errors(
     timeline: Timeline,
     media: list[MediaItem] | None,
     *,
-    allow_dense: bool = False,
+    allow_dense: bool | None = None,
+    project: Project | None = None,
 ) -> list[str]:
     errors: list[str] = []
     by_id = {item.id: item for item in (media or [])}
@@ -159,7 +174,8 @@ def acknowledge_errors(
             errors.append(
                 f"SPEC-EDIT-ACK-01: clip {clip.id} is {clip.duration_s:.2f}s (floor {floor:.2f}s)"
             )
-    if not allow_dense:
+    allowed, _ = resolve_density_allow(project, allow_dense)
+    if not allowed:
         cap = max(1, ceil(timeline_duration(timeline) * MAX_CLIPS_PER_60S / 60.0))
         if len(timeline.clips) > cap:
             errors.append(f"SPEC-EDIT-ACK-02: {len(timeline.clips)} clips (cap {cap})")
@@ -233,7 +249,7 @@ def review_blockers(
     project: Project | None,
     media: list[MediaItem] | None = None,
     *,
-    allow_dense: bool = False,
+    allow_dense: bool | None = None,
     lint_media: list[MediaItem] | None = None,
 ) -> list[str]:
     errors: list[str] = []
@@ -246,10 +262,10 @@ def review_blockers(
     errors.extend(decorated_transition_issues(timeline))
     errors.extend(wipe_graph_issues(timeline))
     errors.extend(zoom_pair_issues(timeline))
-    errors.extend(acknowledge_errors(timeline, media, allow_dense=allow_dense))
+    errors.extend(acknowledge_errors(timeline, media, allow_dense=allow_dense, project=project))
     errors.extend(quality_blockers(timeline, project, media))
     errors.extend(video_duration_floor_errors(timeline, project, media))
-    cap = reject_duration(timeline)
+    cap = reject_duration(timeline, project)
     if cap:
         errors.append(cap)
     return errors
@@ -271,7 +287,7 @@ def review_warnings(
     project: Project | None = None,
     media: list[MediaItem] | None = None,
 ) -> list[str]:
-    warns = [w for w in invariant_warnings(timeline) if "locked still" not in w]
+    warns = [w for w in invariant_warnings(timeline, project) if "locked still" not in w]
     warns.extend(outdoor_denoise_warnings(timeline))
     warns.extend(density_warnings(timeline, project))
     warns.extend(style_warnings(timeline))

@@ -23,7 +23,7 @@ The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540
 
 ## SPEC-EXPORT-04: review_report
 
-`review_report` returns duration, clip count, caption lint summary, mix lint summary, transition count, grade name, whether length is in 15-28s, zoom `{pairs, punches, skipped}`, plus structured `errors` and `warnings`.
+`review_report` returns duration, the active `duration_cap_s`, clip count, caption lint summary, mix lint summary, transition count, grade name, whether length is in 15-28s, zoom `{pairs, punches, skipped}`, plus structured `errors` and `warnings`.
 
 `ok` is false and `reviewed_version` is **not** set when any of these hold:
 
@@ -32,7 +32,7 @@ The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540
 - a caption hold is shorter than required
 - music is on the timeline while `allow_music` is false
 - any SFX is less than 6 dB under the bed
-- duration exceeds 60.00s
+- duration exceeds the project `duration_cap_s` (default 60.00s)
 - a layer is missing its media or text, or sits fully off-canvas
 - a layout has the wrong pane count or missing pane media
 - an effect name is not in the registry
@@ -40,7 +40,7 @@ The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540
 - a cover (or default cover) clip upscales a source whose short side is below 720 into a 1080-class canvas (SPEC-QLT-01)
 - a video clip is shorter than the project `min_video_duration_s` floor (SPEC-EDIT-25), unless it holds its entire source
 
-A duration between 28s and 60s is a warning, not a failure. A sub-720 source on a non-1080 canvas, or framed with fit/letterbox, warns and does not fail. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
+A duration between 28s and the configured cap is a warning, not a failure. When the cap is above 60s, duration over 60s is still a SPEC-EDIT-15 warning until the configured cap. A sub-720 source on a non-1080 canvas, or framed with fit/letterbox, warns and does not fail. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
 
 ## SPEC-EXPORT-05: export writes two files
 
@@ -78,3 +78,18 @@ The sidecar records `encode: {preset, crf, width, height, pix_fmt}`.
 - A second `export` waits, or returns `ok: false` with `hero_export_busy` if `wait=false`.
 - Default: wait.
 - Source-proxy builds and 360p/540p previews do not take this lock. The 1080 hero does.
+
+## SPEC-EXPORT-10: share / phone delivery preset
+
+`export(preset=)` selects the encode:
+
+| `preset` | File | Size | Notes |
+|----------|------|------|-------|
+| `reel` (default) | `reel.mp4` | project canvas (1080×1920 or 1920×1080) | Hero. SPEC-EXPORT-08. Also writes `reel_proxy.mp4`. |
+| `share` / `phone` | `reel_share.mp4` | 720×1280 (9:16) or 1280×720 (16:9) | Delivery, not hero. CRF 22, AAC 128k, `+faststart`, `yuv420p`, tv-range. |
+
+`share` and `phone` are aliases. They write a sibling file and never replace `reel.mp4`. Same assemble graph as hero; only the final encode args change. Share is not validated as hero (CRF 22 and 720p fail SPEC-EXPORT-08).
+
+Share takes the same process-wide lock as hero, sequentially: `export(preset="share")` waits if a 1080 hero is running (or `hero_export_busy` when `wait=false`). Never run share in parallel with another 1080. Call `export()` for the hero, then `export(preset="share")` to attach a chat-sized file.
+
+Target: about ≤40MB for a 60–90s reel. The review gate (SPEC-EXPORT-03) still applies.

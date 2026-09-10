@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.app import Editor
+from lc_editor.models import DURATION_CAP_S, Project, resolved_duration_cap_s
 from tests.conftest import touch_media
 
 
@@ -115,6 +116,53 @@ def test_spec_edit_14_duration_cap(editor: Editor, media_file: Path) -> None:
     assert rejected["ok"] is False
     assert any("SPEC-EDIT-14" in w for w in rejected["warnings"])
     assert editor.timeline_get()["timeline_summary"]["duration_s"] == 60.0
+
+
+def test_resolved_duration_cap_defaults() -> None:
+    assert resolved_duration_cap_s(None) == DURATION_CAP_S
+    assert resolved_duration_cap_s(Project(id="p", name="r", duration_cap_s=0)) == DURATION_CAP_S
+    assert resolved_duration_cap_s(Project(id="p", name="r", duration_cap_s=180)) == 180.0
+
+
+def test_spec_edit_14_project_set_duration_cap(editor: Editor) -> None:
+    assert editor.project_get()["project"]["duration_cap_s"] == 60.0
+    raised = editor.project_set(duration_cap_s=180)
+    assert raised["ok"] is True
+    assert editor.project_get()["project"]["duration_cap_s"] == 180.0
+    omitted = editor.project_set(name="reel")
+    assert omitted["ok"] is True
+    assert editor.project_get()["project"]["duration_cap_s"] == 180.0
+    reset = editor.project_set(duration_cap_s=0)
+    assert reset["ok"] is True
+    assert editor.project_get()["project"]["duration_cap_s"] == 60.0
+    bad_neg = editor.project_set(duration_cap_s=-1)
+    assert bad_neg["ok"] is False
+    assert any("SPEC-EDIT-14" in w for w in bad_neg["warnings"])
+    bad_max = editor.project_set(duration_cap_s=601)
+    assert bad_max["ok"] is False
+    assert any("SPEC-EDIT-14" in w for w in bad_max["warnings"])
+    assert editor.project_get()["project"]["duration_cap_s"] == 60.0
+
+
+def test_spec_edit_14_raised_cap_allows_process_length(editor: Editor, media_file: Path) -> None:
+    editor.import_file(str(media_file))
+    mid = editor.media[-1].id
+    assert editor.project_set(duration_cap_s=180)["ok"] is True
+    last = None
+    for _ in range(26):
+        last = editor.clip_add(media_id=mid, duration_s=5.0)
+        assert last["ok"] is True
+    assert last["timeline_summary"]["duration_s"] == 130.0
+    assert any("SPEC-EDIT-15" in w for w in last["warnings"])
+    assert not any("SPEC-EDIT-14" in w for w in last["warnings"])
+    for _ in range(10):
+        last = editor.clip_add(media_id=mid, duration_s=5.0)
+        assert last["ok"] is True
+    assert last["timeline_summary"]["duration_s"] == 180.0
+    rejected = editor.clip_add(media_id=mid, duration_s=5.0)
+    assert rejected["ok"] is False
+    assert any("SPEC-EDIT-14" in w and "180.00s" in w for w in rejected["warnings"])
+    assert editor.timeline_get()["timeline_summary"]["duration_s"] == 180.0
 
 
 def test_spec_edit_15_soft_warning_over_28(editor: Editor, media_file: Path) -> None:
