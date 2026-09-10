@@ -11,6 +11,7 @@ TOOLS = [
     "import_file",
     "import_folder",
     "media_list",
+    "media_tag",
     "media_remove",
     "probe",
     "thumbnail",

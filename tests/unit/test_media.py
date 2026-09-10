@@ -15,6 +15,9 @@ def test_spec_ses_04_import_folder(editor: Editor, tmp_path: Path) -> None:
     assert len(result["media"]) == 4
     listed = editor.media_list()
     assert len(listed["media"]) == 4
+    for item in listed["media"]:
+        assert item["captured_at"]
+        assert item["captured_at_source"] in {"probe", "exif", "mtime"}
 
 
 def test_spec_ses_05_media_remove_rejected_if_used(editor: Editor, media_file: Path) -> None:

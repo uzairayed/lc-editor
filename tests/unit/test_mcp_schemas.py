@@ -49,6 +49,14 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "text" in cprops
     assert "clip_id" in cprops
     assert "op_id" in (schemas["clip_add"].get("properties") or {})
+    tag = schemas["media_tag"].get("properties") or {}
+    assert "media_id" in tag
+    assert "shoot_day" in tag
+    assert "role" in tag
+    assert "kwargs" not in tag
+    listed = schemas["media_list"].get("properties") or {}
+    assert "shoot_day" in listed
+    assert "role" in listed
     analyze = schemas["media_analyze"].get("properties") or {}
     assert "media_id" in analyze
     assert "op_id" in analyze

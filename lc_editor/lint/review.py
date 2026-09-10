@@ -215,4 +215,6 @@ def review_warnings(
             warns.append(f"SPEC-SND-02: SFX {sfx.kind} has no license")
     if timeline.beat_grid and timeline.beat_grid.confidence < BEAT_CONFIDENCE_WARN:
         warns.append(f"SPEC-SND-13: beat grid confidence {timeline.beat_grid.confidence:.2f} is low")
+    if media and any(not item.captured_at for item in media):
+        warns.append("media missing captured_at")
     return warns

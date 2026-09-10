@@ -337,6 +337,9 @@ class Timeline(BaseModel):
     version: int = 0
 
 
+CapturedAtSource = Literal["probe", "exif", "mtime"]
+
+
 class MediaItem(BaseModel):
     id: str
     path: str
@@ -350,6 +353,10 @@ class MediaItem(BaseModel):
     burst_cover: bool = False
     burst_id: str = ""
     proxy_path: str = ""
+    captured_at: str | None = None
+    captured_at_source: CapturedAtSource | None = None
+    shoot_day: int | str | None = None
+    role: str | None = None
 
 
 class Project(BaseModel):

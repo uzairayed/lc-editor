@@ -26,13 +26,15 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 `import_file` registers one file (copy or hardlink into project media). `import_folder` registers every video/image in a folder (Drive stays outside; this is a local folder). Both probe and can request thumbnails.
 
+On import, LC persists `captured_at` (ISO datetime) and `captured_at_source` (`probe` | `exif` | `mtime`). Source order: ffprobe `creation_time`, then EXIF `DateTimeOriginal` for stills, then file mtime. Photos/Drive export stays a local folder; there is no Drive API.
+
 Pixel bursts named `PXL_*BURST*` are an exception: see SPEC-SES-06.
 
 ## SPEC-SES-05: media_list / media_remove / probe / thumbnail / contact_sheet / proxy_build
 
-- `media_list` returns imported items with duration, size, kind, burst_cover hint
+- `media_list` returns imported items with duration, size, kind, burst_cover, `captured_at`, `shoot_day`, and `role`. Default order is `captured_at` ascending (missing dates last). Optional `shoot_day` / `role` filters; `sort="import"` keeps import order.
 - `media_remove` unregisters; clips using that media become `ok: false` to remove-media if still referenced, or those clips are listed in warnings and the call is rejected
-- `probe` returns ffprobe-derived width, height, duration, fps, has_audio
+- `probe` returns ffprobe-derived width, height, duration, fps, has_audio, and `captured_at` when known
 - `thumbnail` writes a JPEG
 - `contact_sheet` writes a tiled JPEG of imported media
 - `proxy_build` / `media_proxy` writes a cached 360x640 source proxy (H.264 + AAC). No LUT, captions, or denoise. A second call with the same bytes is a no-op.
@@ -88,3 +90,9 @@ The package installs and the unit suite runs on Python 3.11 and 3.12.
 ## SPEC-SES-14: Unexpected Murree acceptance
 
 When `LC_EDITOR_MURREE_DIR` points at a folder of exactly 117 readable stills, `pytest -m murree` imports that folder (COVER-only for bursts), builds a contact sheet, cuts a winter reel, writes preview stills, reviews, and exports. Proxy must be `<= 14 MB`. Target wall time for a cold proxy is about 30s on the machine that set the variable. Private stills are never committed.
+
+## SPEC-SES-15: shoot day / role tags
+
+`media_tag(media_id, shoot_day=..., role=...)` sets additive inventory fields. `shoot_day` is an int or a `day1`-style label. `role` is a free hint (`before` | `wash` | `machine` | `after` | other). Old projects without these fields still load (defaults). `review_report` warns `media missing captured_at` when any imported item has no capture date; that is not an error and does not block export.
+
+Multi-day albums: inventory (`import_folder` + `media_list`) → tag days/roles (`media_tag`) → lock the timeline → `review_report` → `export`.

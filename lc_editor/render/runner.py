@@ -48,6 +48,7 @@ class FakeRunner:
     scene_cuts: list[float] = field(default_factory=lambda: [2.0])
     fail_inputs: list[str] = field(default_factory=list)
     empty_metadata: bool = False
+    creation_time: str | None = None
 
     def run(self, args: list[str]) -> RunResult:
         self.calls.append(list(args))
@@ -56,6 +57,9 @@ class FakeRunner:
             return RunResult(1, "", "fake fail")
         tool = Path(args[0]).name.lower()
         if "ffprobe" in tool:
+            fmt: dict = {"duration": str(self.duration_s)}
+            if self.creation_time:
+                fmt["tags"] = {"creation_time": self.creation_time}
             payload = {
                 "streams": [
                     {
@@ -67,7 +71,7 @@ class FakeRunner:
                     },
                     *([{ "codec_type": "audio" }] if self.has_audio else []),
                 ],
-                "format": {"duration": str(self.duration_s)},
+                "format": fmt,
             }
             return RunResult(0, json.dumps(payload), "")
         stderr = ""

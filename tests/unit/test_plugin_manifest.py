@@ -37,6 +37,8 @@ def test_skill_md_exists() -> None:
     content = skill_path.read_text()
     assert "lc-editor" in content
     assert "review_report" in content
+    assert "media_tag" in content
+    assert "inventory" in content.lower()
 
 
 def test_serve_help_works() -> None:

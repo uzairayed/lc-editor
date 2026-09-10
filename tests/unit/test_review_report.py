@@ -87,6 +87,17 @@ def test_review_fails_over_60s(editor: Editor, media_file: Path) -> None:
     assert any("SPEC-EDIT-14" in w for w in result["warnings"])
 
 
+def test_review_warns_missing_captured_at_not_error(editor: Editor, media_file: Path) -> None:
+    editor.import_file(str(media_file))
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.4)
+    editor.media[0] = editor.media[0].model_copy(update={"captured_at": None, "captured_at_source": None})
+    result = editor.review_report()
+    assert result["ok"] is True
+    assert "media missing captured_at" in result["report"]["warnings"]
+    assert "media missing captured_at" not in result["report"]["errors"]
+    assert result["report"]["errors"] == []
+
+
 def test_review_ok_unlocks_export(editor: Editor, media_file: Path) -> None:
     _video_clip(editor, media_file)
     review = editor.review_report()
