@@ -12,6 +12,15 @@ Use this skill when asked to cut 9:16 vertical reels from raw video clips. The `
 
 The MCP server is `lc-editor`. Call its tools to build and export your reel.
 
+## If MCP tools are missing
+
+Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green.
+
+1. Run `lc-editor doctor` (and `lc-editor doctor --project <abs path>` if you have a project). Confirm ffmpeg/ffprobe, `mcp_tools` ~100, and `project_create` / `import_file` / `import_folder` / `clip_add` / `export` read `ok`.
+2. Check `mcp.json` / Cursor MCP settings: **command** `lc-editor`, **args** `serve --project <absolute path>` (stdio). On Windows use `C:/Users/you/my-reel` or escaped backslashes.
+3. Restart the agent session and confirm `project_create` is callable.
+4. Fall back to ffmpeg only if doctor is **red** (missing binary, no MCP entrypoints) and you have told the owner LC is not attached.
+
 ## Workflow
 
 1. **Analyze footage first.** Use `import_folder` or `import_file` to bring in media, then `media_analyze` and `shots_list` / `shots_rank` to find the strongest shots. Look at keyframes with `thumbnail` or `contact_sheet` before deciding what to cut.

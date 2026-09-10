@@ -88,3 +88,11 @@ The package installs and the unit suite runs on Python 3.11 and 3.12.
 ## SPEC-SES-14: Unexpected Murree acceptance
 
 When `LC_EDITOR_MURREE_DIR` points at a folder of exactly 117 readable stills, `pytest -m murree` imports that folder (COVER-only for bursts), builds a contact sheet, cuts a winter reel, writes preview stills, reviews, and exports. Proxy must be `<= 14 MB`. Target wall time for a cold proxy is about 30s on the machine that set the variable. Private stills are never committed.
+
+## SPEC-SES-15: CLI version and doctor
+
+`lc-editor version` prints the package version.
+
+`lc-editor doctor` reports Python, ffmpeg, ffprobe, MCP tool count from `TOOLS`, and whether `project_create` / `import_file` / `import_folder` / `clip_add` / `export` exist. Optional `--project` is a dry smoke: it reports whether the project exists or can be created. It does not encode or export. Exit `0` when the report is ok, else `1`.
+
+`lc-editor serve --project …` is unchanged. MCP clients attach stdio with command `lc-editor` and args `serve --project <absolute path>`.

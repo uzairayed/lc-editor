@@ -37,6 +37,8 @@ def test_skill_md_exists() -> None:
     content = skill_path.read_text()
     assert "lc-editor" in content
     assert "review_report" in content
+    assert "If MCP tools are missing" in content
+    assert "lc-editor doctor" in content
 
 
 def test_serve_help_works() -> None:
@@ -49,3 +51,21 @@ def test_serve_help_works() -> None:
     assert result.returncode == 0
     assert "--project" in result.stdout
     assert "--web" in result.stdout
+
+
+def test_version_and_doctor_help_work() -> None:
+    version = subprocess.run(
+        [sys.executable, "-m", "lc_editor", "version", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    doctor = subprocess.run(
+        [sys.executable, "-m", "lc_editor", "doctor", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+    assert version.returncode == 0
+    assert doctor.returncode == 0
+    assert "--project" in doctor.stdout
