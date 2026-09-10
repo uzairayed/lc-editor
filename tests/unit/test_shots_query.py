@@ -91,3 +91,18 @@ def test_shots_search_deterministic_order(editor: Editor, tmp_path: Path) -> Non
     ]
     again = editor.shots_search()
     assert [s["id"] for s in again["shots"]] == ids
+
+
+def test_shots_search_filters_tagged_media(editor: Editor, tmp_path: Path) -> None:
+    a = touch_media(tmp_path / "src", "a")
+    b = touch_media(tmp_path / "src", "b")
+    editor.import_file(str(a))
+    editor.import_file(str(b))
+    editor.media_tag(editor.media[0].id, shoot_day=1, role="before")
+    editor.media_tag(editor.media[1].id, shoot_day=1, role="after")
+    _plant(editor, editor.media[0], [_shot(editor.media[0].id, 0)])
+    _plant(editor, editor.media[1], [_shot(editor.media[1].id, 1)])
+    before = editor.shots_search(role="before")
+    assert [s["media_id"] for s in before["shots"]] == [editor.media[0].id]
+    day = editor.shots_search(shoot_day=1)
+    assert len(day["shots"]) == 2

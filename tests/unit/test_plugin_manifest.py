@@ -39,6 +39,8 @@ def test_skill_md_exists() -> None:
     assert "review_report" in content
     assert "If MCP tools are missing" in content
     assert "lc-editor doctor" in content
+    assert "media_tag" in content
+    assert "inventory" in content.lower()
 
 
 def test_serve_help_works() -> None:

@@ -6,13 +6,20 @@ from pathlib import Path
 
 from lc_editor.analysis.manifest import Shot, load_manifest, manifest_path, shot_id, write_manifest
 from lc_editor.analysis.media import (
+    captured_at_sort_key,
     kind_for,
-    public_media,
-    pxl_burst_id,
+    normalize_role,
+    normalize_shoot_day,
     parse_probe,
     probe_args,
+    public_media,
+    pxl_burst_id,
     quality_import_warning,
+    read_exif_tags,
+    resolve_captured_at,
+    roles_equal,
     select_import_paths,
+    shoot_days_equal,
 )
 from lc_editor.analysis.rank import ROLES, contradictory_filters, filter_shots, rank_shots, sort_shots
 from lc_editor.analysis.shots import (
@@ -386,6 +393,13 @@ class Editor:
         else:
             self.media = []
 
+    def _attach_capture(self, info: dict, path: Path) -> dict:
+        exif = read_exif_tags(path) if path.exists() else {}
+        captured_at, source = resolve_captured_at(probe=info, exif=exif, path=path)
+        info["captured_at"] = captured_at
+        info["captured_at_source"] = source
+        return info
+
     def _probe_file(self, path: Path) -> dict:
         kind = kind_for(path) or "video"
         try:
@@ -395,19 +409,22 @@ class Editor:
         result = self.runner.run(probe_args(probe_bin, path))
         if result.returncode != 0 or not result.stdout.strip():
             duration = DEFAULT_STILL_S if kind == "image" else 5.0
-            return {
-                "width": 1920,
-                "height": 1080,
-                "duration_s": duration,
-                "fps": 30,
-                "has_audio": kind == "video",
-                "kind": kind,
-            }
+            return self._attach_capture(
+                {
+                    "width": 1920,
+                    "height": 1080,
+                    "duration_s": duration,
+                    "fps": 30,
+                    "has_audio": kind == "video",
+                    "kind": kind,
+                },
+                path,
+            )
         parsed = parse_probe(result.stdout, kind)
         if parsed["kind"] == "image" or path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
             parsed["kind"] = "image"
             parsed["duration_s"] = parsed["duration_s"] or DEFAULT_STILL_S
-        return parsed
+        return self._attach_capture(parsed, path)
 
     def _import_path(self, path: Path, burst_id: str = "") -> MediaItem:
         store = self._need()
@@ -429,6 +446,8 @@ class Editor:
             fps=info["fps"],
             has_audio=info["has_audio"],
             burst_id=burst_id,
+            captured_at=info.get("captured_at"),
+            captured_at_source=info.get("captured_at_source"),
         )
         item, _cached = ensure_source_proxy(self.runner, store, item)
         self.media.append(item)
@@ -492,10 +511,57 @@ class Editor:
             store.persist()
         return result
 
-    def media_list(self) -> dict:
+    def media_list(
+        self,
+        shoot_day: int | str | None = None,
+        role: str | None = None,
+        sort: str | None = None,
+    ) -> dict:
         store = self._need()
+        items = list(self.media)
+        if shoot_day is not None:
+            items = [item for item in items if shoot_days_equal(item.shoot_day, shoot_day)]
+        if role is not None:
+            items = [item for item in items if roles_equal(item.role, role)]
+        if sort in (None, "", "captured_at"):
+            items = [
+                item
+                for _, item in sorted(
+                    enumerate(items),
+                    key=lambda pair: captured_at_sort_key(pair[1].captured_at, pair[0]),
+                )
+            ]
         result = envelope(True, store.timeline, [])
-        result["media"] = [public_media(m) for m in self.media]
+        result["media"] = [public_media(m) for m in items]
+        return result
+
+    def media_tag(
+        self,
+        media_id: str,
+        shoot_day: int | str | None = None,
+        role: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        replay = store.replay(op_id)
+        if replay is not None:
+            return replay
+        item = self._media(media_id)
+        if shoot_day is None and role is None:
+            return envelope(False, store.timeline, ["media_tag requires shoot_day or role"])
+        update: dict = {}
+        if shoot_day is not None:
+            update["shoot_day"] = normalize_shoot_day(shoot_day)
+        if role is not None:
+            update["role"] = normalize_role(role)
+        fresh = item.model_copy(update=update)
+        self.media = [fresh if m.id == media_id else m for m in self.media]
+        self._save_media()
+        result = envelope(True, store.timeline, [])
+        result["media"] = public_media(fresh)
+        if op_id:
+            store.ledger[op_id] = result
+            store.persist()
         return result
 
     def media_remove(self, media_id: str, op_id: str | None = None) -> dict:
@@ -782,6 +848,8 @@ class Editor:
         max_motion: float | None = None,
         audio_class: str | None = None,
         kind: str | None = None,
+        shoot_day: int | str | None = None,
+        role: str | None = None,
         sort: str | None = None,
         limit: int | None = None,
     ) -> dict:
@@ -803,6 +871,14 @@ class Editor:
             kinds=kinds,
             kind=kind,
         )
+        if shoot_day is not None or role is not None:
+            allowed = {
+                item.id
+                for item in self.media
+                if (shoot_day is None or shoot_days_equal(item.shoot_day, shoot_day))
+                and (role is None or roles_equal(item.role, role))
+            }
+            filtered = [shot for shot in filtered if shot.media_id in allowed]
         ordered = sort_shots(filtered, sort, [item.id for item in self.media])
         if limit is not None:
             ordered = ordered[: max(0, int(limit))]
