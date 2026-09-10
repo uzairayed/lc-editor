@@ -4,7 +4,7 @@ from pathlib import Path
 
 from lc_editor.analysis.manifest import Shot, ShotMetrics, write_manifest
 from lc_editor.app import Editor
-from lc_editor.models import SHOT_ACK_MIN_S, STILL_ACK_MIN_S
+from lc_editor.models import MIN_VIDEO_DURATION_S, SHOT_ACK_MIN_S, STILL_ACK_MIN_S
 from tests.conftest import touch_media
 
 
@@ -12,7 +12,7 @@ def test_clip_add_defaults_to_ack_floor(editor: Editor, media_file: Path) -> Non
     editor.import_file(str(media_file))
     editor.clip_add(media_id=editor.media[-1].id)
     clip = editor.timeline_get()["timeline"]["clips"][0]
-    assert clip["duration_s"] == SHOT_ACK_MIN_S
+    assert clip["duration_s"] == MIN_VIDEO_DURATION_S
 
 
 def test_ack_fragment_is_review_error(editor: Editor, media_file: Path) -> None:
@@ -34,6 +34,7 @@ def test_ack_whole_source_is_warning(editor: Editor, tmp_path: Path, runner) -> 
 
 
 def test_density_cap_and_allow_dense(editor: Editor, media_file: Path) -> None:
+    editor.project_set(min_video_duration_s=2.4)
     editor.import_file(str(media_file))
     mid = editor.media[-1].id
     for _ in range(4):
@@ -81,3 +82,4 @@ def test_shots_rank_drops_short_video_unless_pool_empty(editor: Editor, media_fi
 def test_still_ack_constant() -> None:
     assert STILL_ACK_MIN_S == 2.2
     assert SHOT_ACK_MIN_S == 2.4
+    assert MIN_VIDEO_DURATION_S == 5.0

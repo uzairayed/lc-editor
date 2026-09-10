@@ -37,8 +37,9 @@ The timeline preview encode is 540x960, `-preset veryfast`, `-crf 30`. Edit/lint
 - a layout has the wrong pane count or missing pane media
 - an effect name is not in the registry
 - a caption box or banned transition is present
+- a video clip is shorter than the project `min_video_duration_s` floor (SPEC-EDIT-25), unless it holds its entire source
 
-A duration between 28s and 60s is a warning, not a failure.
+A duration between 28s and 60s is a warning, not a failure. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
 
 ## SPEC-EXPORT-05: export writes two files
 

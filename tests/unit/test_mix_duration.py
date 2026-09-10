@@ -70,7 +70,7 @@ def test_assemble_keeps_still_silence_in_the_mix(editor, tmp_path: Path) -> None
     still = touch_media(tmp_path / "src", "card", ".jpg")
     editor.import_file(str(video))
     editor.import_file(str(still))
-    editor.clip_add(media_id=editor.media[0].id, duration_s=3.0)
+    editor.clip_add(media_id=editor.media[0].id, duration_s=5.0)
     editor.clip_add(media_id=editor.media[1].id, duration_s=2.5)
     assert editor.review_report()["ok"] is True
     assert editor.export()["ok"] is True
@@ -86,15 +86,15 @@ def test_assemble_keeps_still_silence_in_the_mix(editor, tmp_path: Path) -> None
     assert "[0:a]" in graph
     assert "[1:a]" in graph
     assert "apad" in graph
-    assert "5.5000" in graph
+    assert "7.5000" in graph
     assert "-t" in assemble
-    assert assemble[assemble.index("-t") + 1] == "5.5000"
+    assert assemble[assemble.index("-t") + 1] == "7.5000"
     assert "loudnorm=" in graph
 
 
 def test_export_sidecar_has_verify_block(editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
-    editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)
+    editor.clip_add(media_id=editor.media[-1].id, duration_s=5.0)
     assert editor.review_report()["ok"] is True
     out = editor.export()
     assert out["ok"] is True
