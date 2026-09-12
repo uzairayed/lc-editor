@@ -254,9 +254,11 @@ def metrics_for_span(
         var = sum((x - mean) ** 2 for x in ydif) / len(ydif)
         shake = min(1.0, var / 40.0)
     audio_class, rms_out = classify_audio(_mean(rms), _mean(crest), has_audio=has_audio)
+    sharpness = round(keyframe_sharpness(keyframe), 4)
     return ShotMetrics(
         motion=round(motion, 4),
-        sharpness=round(keyframe_sharpness(keyframe), 4),
+        sharpness=sharpness,
+        blur=round(max(0.0, min(1.0, 1.0 - sharpness)), 4),
         luma_mean=round(luma_mean, 4),
         luma_spread=round(luma_spread, 4),
         shake=round(shake, 4),

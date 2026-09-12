@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.analysis.manifest import Shot, ShotMetrics, write_manifest
-from lc_editor.analysis.rank import rank_shots, score_shot
+from lc_editor.analysis.rank import ROLES, pool_for_role, rank_shots, score_shot
 from lc_editor.app import Editor
 from tests.conftest import touch_media
 
@@ -64,13 +64,35 @@ def test_rank_prefers_hd_when_scores_tie() -> None:
     assert score_shot(hd, "site_detail", sizes=sizes) > score_shot(sd, "site_detail", sizes=sizes)
 
 
+def test_process_roles_are_registered() -> None:
+    for role in ("before", "wash", "detail", "after", "hero", "skip_face", "engine", "wheel", "interior", "machine"):
+        assert role in ROLES
+
+
+def test_before_role_prefers_tagged_media() -> None:
+    before = _shot("b", 0, metrics=ShotMetrics(motion=0.4, sharpness=0.4), length=3.0)
+    after = _shot("a", 1, metrics=ShotMetrics(motion=0.05, sharpness=0.95), length=3.0)
+    roles = {"b": "before", "a": "after"}
+    pooled = pool_for_role([before, after], "before", media_roles=roles)
+    assert [s.media_id for s in pooled] == ["b"]
+    ranked = rank_shots([before, after], "before", 2, media_roles=roles)
+    assert ranked[0].media_id == "b"
+
+
+def test_engine_role_boosts_engine_audio() -> None:
+    ambient = _shot("m1", 0, metrics=ShotMetrics(motion=0.8, audio_class="ambient"), length=3.0)
+    engine = _shot("m1", 1, metrics=ShotMetrics(motion=0.7, audio_class="engine"), length=3.0)
+    ranked = rank_shots([ambient, engine], "engine", 1)
+    assert ranked[0].id == "hash_01"
+
+
 def test_shots_rank_unknown_role_and_top_k(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
     mid = editor.media[0].id
     shots = [
-        _shot(mid, 0, metrics=ShotMetrics(motion=0.9, sharpness=0.2)),
-        _shot(mid, 1, metrics=ShotMetrics(motion=0.1, sharpness=0.9)),
-        _shot(mid, 2, metrics=ShotMetrics(motion=0.3, sharpness=0.4)),
+        _shot(mid, 0, metrics=ShotMetrics(motion=0.9, sharpness=0.2), length=3.0),
+        _shot(mid, 1, metrics=ShotMetrics(motion=0.1, sharpness=0.9), length=3.0),
+        _shot(mid, 2, metrics=ShotMetrics(motion=0.3, sharpness=0.4), length=3.0),
     ]
     write_manifest(editor._manifest_for(editor.media[0]), shots)
     bad = editor.shots_rank("highway")
@@ -78,6 +100,33 @@ def test_shots_rank_unknown_role_and_top_k(editor: Editor, media_file: Path) -> 
     all_roles = editor.shots_rank("hook", top_k=99)
     assert all_roles["ok"] is True
     assert len(all_roles["shots"]) == 3
+    assert "score" in all_roles["shots"][0]
+    assert "thumb" in all_roles["shots"][0]
+    assert all_roles["shots"][0]["thumb"] == all_roles["shots"][0]["keyframe"]
+
+
+def test_shots_rank_process_role_and_sheet(editor: Editor, tmp_path: Path) -> None:
+    media = touch_media(tmp_path / "src", "detail")
+    editor.import_file(str(media))
+    editor.media_tag(editor.media[0].id, role="detail")
+    mid = editor.media[0].id
+    keys = []
+    shots = []
+    for i, sharp in enumerate((0.2, 0.9, 0.4)):
+        kf = editor.store.keyframes_dir / f"k{i}.jpg"
+        kf.parent.mkdir(parents=True, exist_ok=True)
+        kf.write_bytes(b"\xff\xd8\xff" + b"\x00" * 120 + b"\xd9")
+        keys.append(kf)
+        shots.append(
+            _shot(mid, i, metrics=ShotMetrics(motion=0.1, sharpness=sharp), keyframe=str(kf), length=3.0)
+        )
+    write_manifest(editor._manifest_for(editor.media[0]), shots)
+    ranked = editor.shots_rank("detail", top_k=2, sheet=True)
+    assert ranked["ok"] is True
+    assert len(ranked["shots"]) == 2
+    assert ranked["shots"][0]["metrics"]["sharpness"] == 0.9
+    assert ranked["shots"][0]["score"] >= ranked["shots"][1]["score"]
+    assert Path(ranked["path"]).exists()
 
 
 def test_shots_rank_sheet_uses_only_candidates(editor: Editor, tmp_path: Path) -> None:
@@ -91,7 +140,7 @@ def test_shots_rank_sheet_uses_only_candidates(editor: Editor, tmp_path: Path) -
         kf.parent.mkdir(parents=True, exist_ok=True)
         kf.write_bytes(b"\xff\xd8\xff" + b"\x00" * 120 + b"\xd9")
         keys.append(kf)
-        shots.append(_shot(mid, i, metrics=ShotMetrics(motion=motion), keyframe=str(kf)))
+        shots.append(_shot(mid, i, metrics=ShotMetrics(motion=motion), keyframe=str(kf), length=3.0))
     write_manifest(editor._manifest_for(editor.media[0]), shots)
     ranked = editor.shots_rank("journey", top_k=2, sheet=True)
     assert ranked["ok"] is True
@@ -128,8 +177,8 @@ def test_shots_rank_prefers_hd_source(editor: Editor, tmp_path: Path) -> None:
 
 
 def test_rank_prefers_same_role_hd_even_when_soft_scores_higher() -> None:
-    soft = _shot("soft", 0, metrics=ShotMetrics(motion=0.05, sharpness=0.95))
-    hd = _shot("hd", 1, metrics=ShotMetrics(motion=0.4, sharpness=0.35))
+    soft = _shot("soft", 0, metrics=ShotMetrics(motion=0.05, sharpness=0.95), length=3.0)
+    hd = _shot("hd", 1, metrics=ShotMetrics(motion=0.4, sharpness=0.35), length=3.0)
     sizes = {"soft": (512, 288), "hd": (1920, 1080)}
     assert score_shot(soft, "site_detail", sizes=sizes) > score_shot(hd, "site_detail", sizes=sizes)
     plain = rank_shots([soft, hd], "site_detail", 2, sizes=sizes)

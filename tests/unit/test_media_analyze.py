@@ -18,8 +18,11 @@ def _manifest(editor: Editor, media_id: str | None = None) -> Path:
 
 
 def test_media_analyze_empty_metadata_fails_video(editor: Editor, media_file: Path) -> None:
-    editor.import_file(str(media_file))
     editor.runner.empty_metadata = True
+    imported = editor.import_file(str(media_file))
+    assert imported["ok"] is True
+    assert any("empty metadata" in w for w in imported["warnings"])
+    assert not _manifest(editor).exists()
     version = editor.timeline_get()["timeline_summary"]["version"]
     result = editor.media_analyze()
     assert result["ok"] is False
@@ -38,12 +41,17 @@ def test_media_analyze_empty_project(editor: Editor) -> None:
 
 
 def test_media_analyze_writes_manifest_and_keyframes(editor: Editor, media_file: Path) -> None:
-    editor.import_file(str(media_file))
+    imported = editor.import_file(str(media_file))
+    assert imported["ok"] is True
+    assert imported["indexed"] is True
+    assert imported["shots"] >= 1
+    assert imported["cached"] == [False]
+    assert Path(imported["sheet"]).exists()
     version = editor.timeline_get()["timeline_summary"]["version"]
     result = editor.media_analyze()
     assert result["ok"] is True
     assert result["shots"] >= 1
-    assert result["cached"] == [False]
+    assert result["cached"] == [True]
     assert result["timeline_summary"]["version"] == version
     dest = _manifest(editor)
     assert dest.exists()
@@ -53,11 +61,13 @@ def test_media_analyze_writes_manifest_and_keyframes(editor: Editor, media_file:
     for shot in listed["shots"]:
         assert Path(shot["keyframe"]).exists()
         assert shot["in_s"] < shot["out_s"]
+        assert "blur" in shot["metrics"]
 
 
 def test_media_analyze_second_call_is_cached(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
     first = editor.media_analyze()
+    assert first["cached"] == [True]
     n = len(editor.runner.calls)
     second = editor.media_analyze()
     assert second["ok"] is True
@@ -68,9 +78,8 @@ def test_media_analyze_second_call_is_cached(editor: Editor, media_file: Path) -
 
 def test_media_analyze_image_is_one_still_without_audio_pass(editor: Editor, tmp_path: Path) -> None:
     image = touch_media(tmp_path / "src", "still", ".jpg")
-    editor.import_file(str(image))
     before = len(editor.runner.calls)
-    result = editor.media_analyze()
+    result = editor.import_file(str(image))
     assert result["ok"] is True
     assert result["shots"] == 1
     blob = " ".join(" ".join(c) for c in editor.runner.calls[before:])
@@ -90,6 +99,7 @@ def test_media_analyze_silent_video(tmp_path: Path) -> None:
     assert editor.media[0].has_audio is False
     result = editor.media_analyze()
     assert result["ok"] is True
+    assert result["cached"] == [True]
     for shot in editor.shots_list()["shots"]:
         assert shot["metrics"]["audio_class"] == "silent"
         assert shot["metrics"]["audio_rms_db"] is None
@@ -97,13 +107,16 @@ def test_media_analyze_silent_video(tmp_path: Path) -> None:
 
 def test_media_analyze_ffmpeg_fail_writes_no_manifest(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
+    dest = _manifest(editor)
+    assert dest.exists()
+    dest.unlink()
     version = editor.timeline_get()["timeline_summary"]["version"]
     editor.runner.fail = True
     result = editor.media_analyze()
     assert result["ok"] is False
     assert result["warnings"]
     assert result["timeline_summary"]["version"] == version
-    assert not _manifest(editor).exists()
+    assert not dest.exists()
 
 
 def test_media_analyze_batch_isolates_failure(editor: Editor, tmp_path: Path) -> None:
@@ -111,12 +124,14 @@ def test_media_analyze_batch_isolates_failure(editor: Editor, tmp_path: Path) ->
     b = touch_media(tmp_path / "src", "bad")
     editor.import_file(str(a))
     editor.import_file(str(b))
+    bad_manifest = _manifest(editor, editor.media[1].id)
+    bad_manifest.unlink()
     editor.runner.fail_inputs.append(Path(editor.media[1].proxy_path).name)
     result = editor.media_analyze()
     assert result["ok"] is False
     assert any(editor.media[1].id in w for w in result["warnings"])
     assert _manifest(editor, editor.media[0].id).exists()
-    assert not _manifest(editor, editor.media[1].id).exists()
+    assert not bad_manifest.exists()
     listed = editor.shots_list()
     assert all(s["media_id"] == editor.media[0].id for s in listed["shots"])
 
@@ -145,7 +160,6 @@ def test_media_analyze_builds_missing_proxy(editor: Editor, media_file: Path) ->
 
 def test_media_remove_hides_shots(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
-    editor.media_analyze()
     assert editor.shots_list()["shots"]
     editor.media_remove(editor.media[0].id)
     listed = editor.shots_list()
@@ -153,8 +167,9 @@ def test_media_remove_hides_shots(editor: Editor, media_file: Path) -> None:
     assert listed["shots"] == []
 
 
-def test_shots_list_before_analyze_warns(editor: Editor, media_file: Path) -> None:
+def test_shots_list_missing_manifest_warns(editor: Editor, media_file: Path) -> None:
     editor.import_file(str(media_file))
+    _manifest(editor).unlink()
     listed = editor.shots_list()
     assert listed["ok"] is True
     assert listed["shots"] == []
@@ -165,9 +180,10 @@ def test_media_analyze_unicode_filename(editor: Editor, tmp_path: Path) -> None:
     media = touch_media(tmp_path / "src", "café ride")
     imported = editor.import_file(str(media))
     assert imported["ok"]
+    assert imported["shots"] >= 1
     result = editor.media_analyze()
     assert result["ok"] is True
-    assert result["shots"] >= 1
+    assert result["cached"] == [True]
 
 
 def test_media_analyze_burst_cover_only(editor: Editor, tmp_path: Path) -> None:
@@ -177,7 +193,10 @@ def test_media_analyze_burst_cover_only(editor: Editor, tmp_path: Path) -> None:
     imported = editor.import_folder(str(folder))
     assert imported["ok"]
     assert len(imported["media"]) == 1
+    assert imported["shots"] == 1
+    assert imported["indexed"] is True
+    assert Path(imported["sheet"]).exists()
     result = editor.media_analyze()
     assert result["ok"] is True
-    assert result["shots"] == 1
+    assert result["cached"] == [True]
     assert len(editor.shots_list()["shots"]) == 1

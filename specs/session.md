@@ -55,9 +55,9 @@ Until a tool is implemented it returns `ok: false` and `warnings: ["not implemen
 A real session, in order:
 
 1. `project_create` 9:16
-2. `import_folder`
-3. `media_analyze`
-4. `shots_rank` per section (hook, journey, site_wide, closer); optional scoped sheet
+2. `import_folder` (indexes shots; optional `media_analyze` is a cache no-op)
+3. Optional `media_tag` for `shoot_day` / process `role`
+4. `shots_rank` per section (`hook`, `journey`, `site_wide`, `closer`, or process roles like `before` / `wash` / `after`); optional scoped sheet
 5. `contact_sheet` of candidates, then `clip_add` enough shots to fill 15 to 28s without exceeding `ceil(duration_s * 16 / 60)` clips
 6. `clip_refocus` on faces / subjects
 7. `motion_kenburns` on wides

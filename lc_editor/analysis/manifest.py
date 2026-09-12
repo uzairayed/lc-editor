@@ -13,11 +13,24 @@ AudioClass = Literal["engine", "ambient", "speech", "silent"]
 class ShotMetrics(BaseModel):
     motion: float = Field(default=0.0, ge=0.0, le=1.0)
     sharpness: float = Field(default=0.0, ge=0.0, le=1.0)
+    blur: float = Field(default=0.0, ge=0.0, le=1.0)
     luma_mean: float = Field(default=0.0, ge=0.0, le=1.0)
     luma_spread: float = Field(default=0.0, ge=0.0, le=1.0)
     shake: float = Field(default=0.0, ge=0.0, le=1.0)
     audio_rms_db: float | None = None
     audio_class: AudioClass = "silent"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blur_from_sharpness(cls, data):
+        # Older manifests omit blur; derive it so agents always see both.
+        if isinstance(data, dict) and "blur" not in data and "sharpness" in data:
+            try:
+                sharp = float(data["sharpness"])
+            except (TypeError, ValueError):
+                return data
+            data = {**data, "blur": round(max(0.0, min(1.0, 1.0 - sharp)), 4)}
+        return data
 
 
 class Shot(BaseModel):

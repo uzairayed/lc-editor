@@ -57,15 +57,20 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     listed = schemas["media_list"].get("properties") or {}
     assert "shoot_day" in listed
     assert "role" in listed
+    assert "min_motion" in listed
     analyze = schemas["media_analyze"].get("properties") or {}
     assert "media_id" in analyze
     assert "op_id" in analyze
     assert "kwargs" not in analyze
     search = schemas["shots_search"].get("properties") or {}
     assert "media_id" in search
+    assert "shoot_day" in search
+    assert "role" in search
+    assert "min_motion" in search
     rank = schemas["shots_rank"].get("properties") or {}
     assert "role" in rank
     assert "top_k" in rank
+    assert "shoot_day" in rank
     assert "kwargs" not in rank
     review = schemas["review_report"].get("properties") or {}
     assert "allow_dense" in review

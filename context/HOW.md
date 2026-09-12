@@ -22,7 +22,7 @@ Analysis splits shots at 8.0s (`SHOT_MAX_S`). A long door or walk-in may arrive 
 
 ## Steps
 
-1. After `media_analyze`, look at keyframes (and `shots_rank` sheets if you made them). Name every subject you can see in a kept shot: object, action, place.
+1. After import (or `media_analyze`), look at keyframes (and `shots_rank` sheets if you made them). Name every subject you can see in a kept shot: object, action, place.
 2. Open `context/INDEX.md`. Collect every card whose trigger matches a named subject. Read those files. Skip the rest.
 3. Resolve overlaps on one clip: action beats object, reveal beats passing, the longer hold wins. Then re-budget the reel so the sum still lands in 15 to 28s. A 15 to 28s cut gets **one** reveal or **one** vista as its long hold, not both at the top of their ranges. A 30s owner experiment may sit in the 28 to 60s warning band.
 4. Choose a layout card, not a generic stack:

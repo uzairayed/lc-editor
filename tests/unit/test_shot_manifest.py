@@ -38,6 +38,15 @@ def test_shot_rejects_metric_out_of_range() -> None:
         ShotMetrics(motion=1.5)
     with pytest.raises(ValidationError):
         ShotMetrics(sharpness=-0.1)
+    with pytest.raises(ValidationError):
+        ShotMetrics(blur=1.5)
+
+
+def test_blur_derived_from_sharpness_on_old_manifest() -> None:
+    metrics = ShotMetrics.model_validate({"motion": 0.2, "sharpness": 0.75})
+    assert metrics.blur == 0.25
+    explicit = ShotMetrics(motion=0.1, sharpness=0.4, blur=0.55)
+    assert explicit.blur == 0.55
 
 
 def test_shot_id_is_deterministic() -> None:
