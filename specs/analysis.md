@@ -95,8 +95,8 @@ Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor 
 - Default clip framing is **cover**. Fit / letterbox / `fit_blur` / `fit_pad` (when present) are not cover.
 - `import_file` / `import_folder` / `probe` / `media_list` / `media_analyze` warn `SPEC-QLT-01: media {id} is {W}x{H} (short side below 720); soft source` on visual sub-720 items. Import and analyze still succeed (`ok: true`).
 - `media_list` and `probe` keep `width` / `height` and add `resolution` (`"1920x1080"`) and `sub_720`.
-- `review_report` / export lint **hard-block** when a clip uses cover (or default cover) AND a visual source short side is below 720 AND the canvas is 1080-class: `SPEC-QLT-01: clip {id} cover-upscales {W}x{H} into 1080 canvas (short side below 720)`.
-- Sub-720 on a smaller canvas, or on a future fit/letterbox clip, is a warning only. Do not block letterbox of a small source.
+- `review_report` / export lint **warn** (never hard-block) when a clip uses cover (or default cover) AND a visual source short side is below 720 AND the canvas is 1080-class: `SPEC-QLT-01: clip {id} cover-upscales {W}x{H} into 1080 canvas (short side below 720)`. Soft sources stay exportable; agents should prefer HD or switch to fit / fit_blur.
+- Sub-720 on a smaller canvas, or framed with fit / letterbox / fit_blur / fit_pad, is also a warning only. Do not block letterbox of a small source.
 - `shots_rank` prefers higher-resolution sources when content scores tie, with a visible HD boost. When a candidate is sub-720 and media-role-tagged, prefer an HD take with the same media `role` (and the same `shoot_day` if both are tagged).
 
 ## Future work

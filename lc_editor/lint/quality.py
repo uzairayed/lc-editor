@@ -45,20 +45,9 @@ def quality_blockers(
     project: Project | None,
     media: list[MediaItem] | None,
 ) -> list[str]:
-    if not canvas_is_1080_class(project):
-        return []
-    by_id = {item.id: item for item in (media or [])}
-    errors: list[str] = []
-    for clip in timeline.clips:
-        if not clip_uses_cover(clip):
-            continue
-        for item in _sub720_sources(clip, by_id):
-            label = resolution_label(item.width, item.height)
-            errors.append(
-                f"SPEC-QLT-01: clip {clip.id} cover-upscales {label} into 1080 canvas "
-                f"(short side below {SOURCE_SHORT_MIN})"
-            )
-    return errors
+    """QLT-01 never hard-blocks export; soft sources are warnings only."""
+    del timeline, project, media
+    return []
 
 
 def quality_warnings(
@@ -67,19 +56,17 @@ def quality_warnings(
     media: list[MediaItem] | None,
 ) -> list[str]:
     by_id = {item.id: item for item in (media or [])}
-    blocked = {
-        (clip.id, item.id)
-        for clip in timeline.clips
-        if clip_uses_cover(clip) and canvas_is_1080_class(project)
-        for item in _sub720_sources(clip, by_id)
-    }
     warns: list[str] = []
     for clip in timeline.clips:
         for item in _sub720_sources(clip, by_id):
-            if (clip.id, item.id) in blocked:
-                continue
             label = resolution_label(item.width, item.height)
-            warns.append(
-                f"SPEC-QLT-01: clip {clip.id} source {label} is below {SOURCE_SHORT_MIN} short side"
-            )
+            if clip_uses_cover(clip) and canvas_is_1080_class(project):
+                warns.append(
+                    f"SPEC-QLT-01: clip {clip.id} cover-upscales {label} into 1080 canvas "
+                    f"(short side below {SOURCE_SHORT_MIN})"
+                )
+            else:
+                warns.append(
+                    f"SPEC-QLT-01: clip {clip.id} source {label} is below {SOURCE_SHORT_MIN} short side"
+                )
     return warns
