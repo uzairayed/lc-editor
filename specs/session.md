@@ -20,7 +20,7 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 ## SPEC-SES-03: project_open / get / set / list
 
-`project_open` loads a project directory. `project_get` returns project + summary. `project_set` updates allowed fields (name, overlay flags, `allow_music`, `min_video_duration_s`, `duration_cap_s`). Setting `allow_music` false while music tracks exist is `ok: false`. `min_video_duration_s` of `0` means the default 5.0s video hold (SPEC-EDIT-25). `duration_cap_s` of `0` means the default 60.0s hard cap (SPEC-EDIT-14). `project_list` lists project dirs under the workspace root.
+`project_open` loads a project directory. `project_get` returns project + summary. `project_set` updates allowed fields (name, overlay flags, `allow_music`, `min_video_duration_s`, `duration_cap_s`, `caption_font`, `caption_contrast`). Setting `allow_music` false while music tracks exist is `ok: false`. `min_video_duration_s` of `0` means the default 5.0s video hold (SPEC-EDIT-25). `duration_cap_s` of `0` means the default 60.0s hard cap (SPEC-EDIT-14). `project_list` lists project dirs under the workspace root.
 
 ## SPEC-SES-04: import_file / import_folder
 

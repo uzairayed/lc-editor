@@ -128,7 +128,7 @@ An imported still becomes a clip with a duration (default 2.50s) and motion `ken
 A clip must stay on screen long enough to register. Caption hold is not the same as a picture floor.
 
 - `SHOT_ACK_MIN_S = 2.4` for video on the timeline.
-- `STILL_ACK_MIN_S = 2.2` for stills (already above locked-still 1.4s).
+- `STILL_ACK_MIN_S = 2.2` for stills. Coherent with SPEC-CRAFT-05: ACK keeps the floor; locked-still over 1.40s is a soft warn so process cards can hold motion_none stills ~2-3s.
 - A fragment shorter than the floor is `SPEC-EDIT-ACK-01` and fails `review_report`, unless the clip holds its entire source. A whole-source hold shorter than the floor is a warning, not an error.
 - Clip count may not exceed `ceil(duration_s * 16 / 60)` (`SPEC-EDIT-ACK-02`). A 60s reel therefore lands at most 16 clips. The cap is skipped when resolved `min_video_duration_s` ≥ 5.0 (process / ambient default). Spoken-word projects that lower the floor keep the cap. Override with `review_report(allow_dense=true)`; `allow_dense=false` always enforces it.
 - `shots_rank` drops video shots shorter than `SHOT_ACK_MIN_S`. If that empties the pool, it falls back to all shots with a warning.

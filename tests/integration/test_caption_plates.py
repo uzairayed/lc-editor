@@ -93,7 +93,7 @@ def test_dark_plate_lint_ok(tmp_path: Path) -> None:
 
 
 @skip_no_ffmpeg
-def test_bright_plate_contrast_fails(tmp_path: Path) -> None:
+def test_bright_plate_contrast_warns_under_lenient(tmp_path: Path) -> None:
     plate = _plate(tmp_path / "cap_bright.jpg", "0xF6EBD4")
     editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
     editor.project_create(name="reel", project_dir=str(tmp_path / "reel"))
@@ -103,7 +103,26 @@ def test_bright_plate_contrast_fails(tmp_path: Path) -> None:
     added = editor.caption_add(clip_id, "600-year-old city of tombs")
     assert added["ok"]
     lint = editor.caption_lint()
-    assert lint["ok"] is False
+    assert lint["ok"] is True
     blob = " ".join(lint["errors"] + lint["warnings"])
     assert "SPEC-CAP-06" in blob
+    assert not any("SPEC-CAP-06" in e for e in lint["errors"])
     assert "box" not in blob.lower() or "never" in blob.lower()
+    review = editor.review_report()
+    assert review["ok"] is True
+    assert any("SPEC-CAP-06" in w for w in review["warnings"])
+
+
+def test_bright_plate_contrast_fails_when_strict(tmp_path: Path) -> None:
+    plate = _plate(tmp_path / "cap_bright_strict.jpg", "0xF6EBD4")
+    editor = Editor(workspace=tmp_path, runner=FfmpegRunner())
+    editor.project_create(name="reel", project_dir=str(tmp_path / "reel_strict"))
+    assert editor.project_set(caption_contrast="strict")["ok"] is True
+    editor.import_file(str(plate))
+    editor.clip_add(media_id=editor.media[0].id, duration_s=3.0)
+    clip_id = editor.timeline_get()["timeline"]["clips"][0]["id"]
+    added = editor.caption_add(clip_id, "600-year-old city of tombs")
+    assert added["ok"]
+    lint = editor.caption_lint()
+    assert lint["ok"] is False
+    assert any("SPEC-CAP-06" in e for e in lint["errors"])

@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from lc_editor.fonts import face_for_caption, font_for, font_label, resolve_font, role_for_caption
 from lc_editor.models import (
+    contrast_is_lenient,
     CANVAS_H,
     CANVAS_W,
     CAPTION_BAND_Y0,
@@ -330,19 +331,24 @@ def density_warnings(timeline: Timeline, project: Project | None = None) -> list
     return warnings
 
 
+def _is_cap06(msg: str) -> bool:
+    return "SPEC-CAP-06" in msg
+
+
 def timeline_caption_issues(
     timeline: Timeline,
     *,
     media: list[MediaItem] | None = None,
     project: Project | None = None,
 ) -> list[str]:
+    """Hard caption failures for review/export. CAP-06 is soft when contrast is lenient."""
     clips = {c.id: c for c in timeline.clips}
     media_map = {m.id: m for m in (media or [])}
-    warnings: list[str] = []
+    issues: list[str] = []
     for cap in timeline.captions:
         clip = clips.get(cap.clip_id)
         item = media_map.get(clip.media_id) if clip else None
-        warnings.extend(
+        issues.extend(
             caption_issues(
                 cap.text,
                 y_pct=cap.y_pct,
@@ -353,7 +359,68 @@ def timeline_caption_issues(
                 caption=cap,
             )
         )
-    return warnings
+    if contrast_is_lenient(project):
+        return [msg for msg in issues if not _is_cap06(msg)]
+    return issues
+
+
+def timeline_caption_warnings(
+    timeline: Timeline,
+    *,
+    media: list[MediaItem] | None = None,
+    project: Project | None = None,
+) -> list[str]:
+    """CAP-06 soft notes when contrast is lenient (process/ambient default)."""
+    if not contrast_is_lenient(project):
+        return []
+    clips = {c.id: c for c in timeline.clips}
+    media_map = {m.id: m for m in (media or [])}
+    warns: list[str] = []
+    for cap in timeline.captions:
+        clip = clips.get(cap.clip_id)
+        item = media_map.get(clip.media_id) if clip else None
+        for msg in caption_issues(
+            cap.text,
+            y_pct=cap.y_pct,
+            clip=clip,
+            lines=cap.lines,
+            role=cap.role,
+            underlay_path=item.path if item else None,
+            caption=cap,
+        ):
+            if _is_cap06(msg):
+                warns.append(msg)
+    return warns
+
+
+def suggest_darker_y(
+    text: str,
+    *,
+    clip: Clip | None,
+    role: str,
+    underlay_path: str | None,
+    caption: Caption | None,
+    y_pct: float,
+) -> float | None:
+    """Pick a darker in-band y when sand contrast fails."""
+    best: float | None = None
+    for y in (0.28, 0.32, 0.36, 0.40, 0.44, 0.48):
+        if abs(y - y_pct) < 1e-6:
+            continue
+        probe = caption.model_copy(update={"y_pct": y}) if caption is not None else None
+        issues = caption_issues(
+            text,
+            y_pct=y,
+            clip=clip,
+            role=role,
+            underlay_path=underlay_path,
+            caption=probe,
+        )
+        if any(_is_cap06(msg) for msg in issues):
+            continue
+        if best is None or abs(y - y_pct) < abs(best - y_pct):
+            best = y
+    return best
 
 
 def card_report(

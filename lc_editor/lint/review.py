@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from math import ceil
 
-from lc_editor.lint.captions import density_warnings, style_warnings, timeline_caption_issues
+from lc_editor.lint.captions import (
+    density_warnings,
+    style_warnings,
+    timeline_caption_issues,
+    timeline_caption_warnings,
+)
 from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.layers import layer_issues
 from lc_editor.lint.layouts import layout_issues
@@ -31,13 +36,20 @@ from lc_editor.render.transitions import banned_transition, graph_has_wipe, tran
 
 
 def locked_still_issues(timeline: Timeline) -> list[str]:
-    errors: list[str] = []
+    """SPEC-CRAFT-05 soft warn for motion_none stills over 1.40s.
+
+    Process cards may hold stills ~2-3s. SPEC-EDIT-ACK-01 still requires
+    stills >= 2.20s. Ken Burns remains the default; locked stills warn
+    instead of blocking review/export.
+    """
+    warnings: list[str] = []
     for clip in timeline.clips:
         if clip.is_still and clip.motion == "none" and clip.duration_s > LOCKED_STILL_MAX_S:
-            errors.append(
-                f"SPEC-CRAFT-05: clip {clip.id} is a locked still of {clip.duration_s:.2f}s (limit 1.40s)"
+            warnings.append(
+                f"SPEC-CRAFT-05: clip {clip.id} is a locked still of {clip.duration_s:.2f}s "
+                f"(prefer kenburns/punch; process cards may hold ~2-3s)"
             )
-    return errors
+    return warnings
 
 
 def music_issues(timeline: Timeline, project: Project | None) -> list[str]:
@@ -255,7 +267,6 @@ def review_blockers(
     errors: list[str] = []
     errors.extend(timeline_caption_issues(timeline, media=lint_media if lint_media is not None else media, project=project))
     errors.extend(mix_issues(timeline))
-    errors.extend(locked_still_issues(timeline))
     errors.extend(music_issues(timeline, project))
     errors.extend(layer_issues(timeline, media))
     errors.extend(layout_issues(timeline, media))
@@ -288,6 +299,8 @@ def review_warnings(
     media: list[MediaItem] | None = None,
 ) -> list[str]:
     warns = [w for w in invariant_warnings(timeline, project) if "locked still" not in w]
+    warns.extend(locked_still_issues(timeline))
+    warns.extend(timeline_caption_warnings(timeline, media=media, project=project))
     warns.extend(outdoor_denoise_warnings(timeline))
     warns.extend(density_warnings(timeline, project))
     warns.extend(style_warnings(timeline))

@@ -27,7 +27,6 @@ The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540
 
 `ok` is false and `reviewed_version` is **not** set when any of these hold:
 
-- a still has `motion=none` and duration greater than 1.40s
 - a caption center is outside 22-50%
 - a caption hold is shorter than required
 - music is on the timeline while `allow_music` is false
@@ -39,8 +38,11 @@ The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540
 - a caption box or banned transition is present
 - a cover (or default cover) clip upscales a source whose short side is below 720 into a 1080-class canvas (SPEC-QLT-01)
 - a video clip is shorter than the project `min_video_duration_s` floor (SPEC-EDIT-25), unless it holds its entire source
+- sand underlay contrast (SPEC-CAP-06) when `caption_contrast="strict"` only
 
-A duration between 28s and the configured cap is a warning, not a failure. When the cap is above 60s, duration over 60s is still a SPEC-EDIT-15 warning until the configured cap. A sub-720 source on a non-1080 canvas, or framed with fit/letterbox, warns and does not fail. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
+Warnings (do **not** block export): locked still over 1.40s (SPEC-CRAFT-05), CAP-06 under default `caption_contrast="lenient"`, and a sub-720 source framed with fit / fit_blur / fit_pad / letterbox (SPEC-QLT-01).
+
+A duration between 28s and the configured cap is a warning, not a failure. When the cap is above 60s, duration over 60s is still a SPEC-EDIT-15 warning until the configured cap. A sub-720 source on a non-1080 canvas, or framed with fit/letterbox/fit_blur, warns and does not fail. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
 
 ## SPEC-EXPORT-05: export writes two files
 
