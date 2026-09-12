@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import fcntl
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
 import hashlib
 import json
 import os
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -42,7 +46,8 @@ from lc_editor.store import Store
 
 THUMB_W = 270
 THUMB_H = 480
-HERO_LOCK_PATH = Path("/tmp/lc-editor-hero-export.lock")
+_HERO_THREAD_LOCK = threading.Lock()
+HERO_LOCK_PATH = Path(os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp") / "lc-editor-hero-export.lock"
 
 
 class AssembleError(RuntimeError):
@@ -110,7 +115,17 @@ def _finish_hero_run(
 
 @contextmanager
 def hero_export_lock(wait: bool = True):
-    fd = os.open(HERO_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    HERO_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if fcntl is None:
+        acquired = _HERO_THREAD_LOCK.acquire(blocking=wait)
+        if not acquired:
+            raise HeroExportBusy("hero_export_busy")
+        try:
+            yield
+        finally:
+            _HERO_THREAD_LOCK.release()
+        return
+    fd = os.open(str(HERO_LOCK_PATH), os.O_CREAT | os.O_RDWR, 0o644)
     try:
         flags = fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB
         try:

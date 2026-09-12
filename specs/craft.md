@@ -22,7 +22,7 @@ Target 15.00s to 28.00s (warning). Hard cap 60.00s (reject mutation and fail rev
 
 ## SPEC-CRAFT-05: locked still
 
-A still with `motion=none` and duration greater than **1.40s** fails `review_report`. Ken Burns or punch makes the still a clip, not a slideshow.
+A still with `motion=none` and duration greater than **1.40s** is a **warning**, not a review failure. Process / ambient cards may hold stills about **2-3s** (SPEC-EDIT-ACK still requires >= 2.20s). Ken Burns or punch remains the default so a still reads as a clip, not a slideshow. `SPEC-EDIT-12` still warns at >= 3.00s.
 
 ## SPEC-CRAFT-06: SFX under the bed
 

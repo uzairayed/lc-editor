@@ -98,7 +98,7 @@ The wheel ships `Anton-Regular.ttf` and static `SpaceGrotesk-Bold.ttf` (OFL). Cl
 
 ## SPEC-FX: motion extras and look
 
-- `motion_hold` is an alias of `none`. Stills with `none`/`hold` over 1.40s still fail SPEC-CRAFT-05.
+- `motion_hold` is an alias of `none`. Stills with `none`/`hold` over 1.40s warn under SPEC-CRAFT-05 (do not fail review).
 - `motion_speed(clip_id, rate)` is video only. Rate must be in **0.85–1.15**. Reject on stills. Never used to fit a caption.
 - `fx_grain(amount)` and `fx_vignette(amount)` are 0–1 project-wide and write the adjustment layer. Implemented as light ffmpeg `noise` / `vignette` after concat, not a plugin pack.
 

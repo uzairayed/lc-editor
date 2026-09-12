@@ -448,6 +448,7 @@ class Project(BaseModel):
     reviewed_version: int | None = None
     preset: str | None = None
     caption_font: str = ""
+    caption_contrast: Literal["strict", "lenient"] = "lenient"
     loudnorm: LoudnormProfile = "cinema"
     min_video_duration_s: float = MIN_VIDEO_DURATION_S
     duration_cap_s: float = DURATION_CAP_S
@@ -471,6 +472,13 @@ def resolved_duration_cap_s(project: Project | None) -> float:
     if raw is None or raw <= 0:
         return DURATION_CAP_S
     return min(float(raw), DURATION_CAP_MAX_S)
+
+
+def contrast_is_lenient(project: Project | None) -> bool:
+    """Default lenient: CAP-06 warns. Set caption_contrast=strict to hard-fail."""
+    if project is None:
+        return True
+    return project.caption_contrast != "strict"
 
 
 class TimelineSummary(BaseModel):

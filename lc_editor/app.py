@@ -40,7 +40,9 @@ from lc_editor.lint.captions import (
     density_warnings,
     hold_s,
     style_warnings,
+    suggest_darker_y,
     timeline_caption_issues,
+    timeline_caption_warnings,
     wrap_text,
     write_phone_proof,
 )
@@ -344,6 +346,7 @@ class Editor:
         min_video_duration_s: float | None = None,
         duration_cap_s: float | None = None,
         caption_font: str | None = None,
+        caption_contrast: str | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -402,6 +405,12 @@ class Editor:
                         [f"unknown font {caption_font}; use {FONT_ALIAS_HELP}"],
                     )
                 update["caption_font"] = resolved
+        if caption_contrast is not None:
+            mode = str(caption_contrast).strip().lower()
+            if mode not in {"strict", "lenient"}:
+                return envelope(False, store.timeline, ["caption_contrast must be strict or lenient"])
+            update["caption_contrast"] = mode
+            update["reviewed_version"] = None
         if update:
             store.project = store.project.model_copy(update=update)
             store.persist()
@@ -1484,8 +1493,10 @@ class Editor:
     def caption_lint(self) -> dict:
         store = self._need()
         lint_media = self._lint_media()
-        errors = timeline_caption_issues(store.timeline, media=lint_media, project=store.project)
-        warns = density_warnings(store.timeline, store.project) + style_warnings(store.timeline)
+        hard = timeline_caption_issues(store.timeline, media=lint_media, project=store.project)
+        soft = timeline_caption_warnings(store.timeline, media=lint_media, project=store.project)
+        errors = list(hard)
+        warns = density_warnings(store.timeline, store.project) + style_warnings(store.timeline) + list(soft)
         cards = []
         media_map = {m.id: m for m in lint_media}
         clips = {c.id: c for c in store.timeline.clips}

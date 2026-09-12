@@ -17,18 +17,19 @@ def _video_clip(editor: Editor, media_file: Path) -> str:
     return editor.timeline_get()["timeline"]["clips"][-1]["id"]
 
 
-def test_review_fails_locked_still_over_1_4s(editor: Editor, tmp_path: Path) -> None:
+def test_review_warns_locked_still_over_1_4s_without_blocking(editor: Editor, tmp_path: Path) -> None:
     still = touch_media(tmp_path / "src", "photo", ".jpg")
     editor.import_file(str(still))
     editor.clip_add(media_id=editor.media[-1].id, duration_s=2.5)
     clip = editor.store.timeline.clips[0]
     editor.store.timeline = editor.store.timeline.model_copy(
-        update={"clips": [clip.model_copy(update={"motion": "none", "is_still": True, "duration_s": 2.0})]}
+        update={"clips": [clip.model_copy(update={"motion": "none", "is_still": True, "duration_s": 2.2})]}
     )
     result = editor.review_report()
-    assert result["ok"] is False
+    assert result["ok"] is True
     assert any("SPEC-CRAFT-05" in w for w in result["warnings"])
-    assert editor.store.project.reviewed_version is None
+    assert not any("SPEC-CRAFT-05" in e for e in result["errors"])
+    assert editor.store.project.reviewed_version == editor.store.timeline.version
 
 
 def test_review_fails_caption_safe_zone(editor: Editor, media_file: Path) -> None:

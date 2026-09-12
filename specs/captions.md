@@ -138,9 +138,14 @@ Pop words accept `emphasis`: `pop` (default), `enlarge`, or `scream`. `caption_e
 
 After placing a card, sample the underlay in the text bbox on the midpoint still.
 
-Fail review / lint if mean underlay luminance is too close to `#F6EBD4` (both in 0.70–1.0). Suggested fix: `caption_move` to a darker band, or pick another frame. **Never suggest a box.**
+When mean underlay luminance is too close to `#F6EBD4` (both in 0.70-1.0):
 
-White / sand plates fail. Dark plates pass.
+- Default `project.caption_contrast="lenient"` (process / ambient): **warning only**. Never blocks `review_report` / export.
+- `project_set(caption_contrast="strict")`: hard-fails review / lint (spoken-word polish).
+
+Suggested fix: `caption_move` to a darker band, or pick another frame. **Never suggest a box.**
+
+White / sand plates warn (lenient) or fail (strict). Dark plates pass.
 
 ## SPEC-CAP-07: density
 
