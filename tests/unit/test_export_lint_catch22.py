@@ -41,6 +41,22 @@ def test_soft_512_fit_blur_never_blocks_export(tmp_path: Path) -> None:
     assert editor.export()["ok"] is True
 
 
+def test_soft_512_default_cover_warns_never_blocks_export(tmp_path: Path) -> None:
+    runner = FakeRunner(duration_s=5.0, width=512, height=288)
+    editor = Editor(workspace=tmp_path, runner=runner)
+    editor.project_create(name="detail", project_dir=str(tmp_path / "detail"))
+    soft = touch_media(tmp_path / "src", "wash", ".jpg")
+    editor.import_file(str(soft))
+    mid = editor.media[-1].id
+    editor.media_tag(mid, role="wash")
+    editor.clip_add(media_id=mid, duration_s=5.0)
+    result = editor.review_report()
+    assert result["ok"] is True, result
+    assert any("SPEC-QLT-01" in w and "cover-upscales" in w for w in result["warnings"])
+    assert result["errors"] == []
+    assert editor.export()["ok"] is True
+
+
 def test_cap06_lenient_warns_strict_blocks(editor: Editor, tmp_path: Path, monkeypatch) -> None:
     still = touch_media(tmp_path / "src", "photo", ".jpg")
     editor.import_file(str(still))
