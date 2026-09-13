@@ -1,6 +1,31 @@
 from __future__ import annotations
 
-from lc_editor.models import CANVAS_H, CANVAS_W, CLOSE_FADE_FRAMES, FPS, PUNCH_FRAMES, PUNCH_ZOOM, WHIP_FRAMES
+from lc_editor.models import (
+    CANVAS_H,
+    CANVAS_W,
+    CLOSE_FADE_FRAMES,
+    FADE_FRAMES_DEFAULT,
+    FADE_FRAMES_MAX,
+    FADE_FRAMES_MIN,
+    FPS,
+    PUNCH_FRAMES,
+    PUNCH_ZOOM,
+    WHIP_FRAMES,
+)
+
+
+def fade_frames(duration_s: float | None = None) -> int:
+    if duration_s is None:
+        return FADE_FRAMES_DEFAULT
+    n = int(round(float(duration_s) * FPS))
+    return max(FADE_FRAMES_MIN, min(FADE_FRAMES_MAX, n))
+
+
+def whip_frames(duration_s: float | None = None) -> int:
+    if duration_s is None:
+        return WHIP_FRAMES
+    n = int(round(float(duration_s) * FPS))
+    return max(6, min(10, n))
 
 
 def whip_filter(frames: int = WHIP_FRAMES, fps: int = FPS) -> str:
@@ -58,6 +83,8 @@ def l_cut_video() -> str:
 def transition_video(kind: str) -> str:
     if kind == "whip":
         return whip_filter()
+    if kind == "fade":
+        return f"xfade=transition=fade:duration={FADE_FRAMES_DEFAULT / FPS:.4f}:offset=0"
     if kind == "punch":
         return punch_in_filter()
     if kind == "close_fade":
@@ -91,3 +118,10 @@ def banned_transition(kind: str) -> bool:
 def graph_has_wipe(graph: str) -> bool:
     lowered = graph.lower()
     return any(name in lowered for name in ("wiperight", "wipeleft", "circleopen", "slidedown", "slideup"))
+
+
+def source_hold_filter(hold_s: float) -> str:
+    """Freeze last frame to fill a short source (SPEC-SND-12)."""
+    if hold_s <= 1e-6:
+        return ""
+    return f"tpad=stop_mode=clone:stop_duration={hold_s:.4f}"

@@ -157,6 +157,15 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "key" in sfx_place
     assert "at_s" in sfx_place
     assert "kwargs" not in sfx_place
+    transition = schemas["transition_set"].get("properties") or {}
+    assert "from_clip_id" in transition or "clip_id" in transition
+    assert "at_s" in transition
+    assert "duration_s" in transition
+    assert "kind" in transition
+    assert "kwargs" not in transition
+    kind_blob = str(transition.get("kind")).lower()
+    for tag in ("cut", "fade", "whip", "match"):
+        assert tag in kind_blob
 
 
 def test_spec_ses_11_python_311_ok() -> None:

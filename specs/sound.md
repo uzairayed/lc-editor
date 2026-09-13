@@ -123,6 +123,8 @@ The denoise graph never contains a music bed. Music is mixed after clip denoise 
 
 Every hero intermediate, including stills and muted clips, emits audio of exactly `clip.duration_s` (live: `apad` + `atrim`; still/mute: `anullsrc`). `assemble` pads the mix and caps with `-t` equal to the timeline duration.
 
+When `clip_add` / `clip_set_duration` requests a video duration longer than the available source span (`source.duration_s - in_s`), LC soft auto-holds the last frame with `tpad=stop_mode=clone` and warns `SPEC-SND-12` (source duration vs requested). Agents should not pre-pad outside LC. Explicit `out_s` past the source remains `ok: false` (`SPEC-EDIT-05`).
+
 `export` probes the hero. `|audio_dur - video_dur| > 50ms` or a full-scale peak lasting more than 10 ms is `ok: false` (`SPEC-SND-12`). The sidecar records `verify`. Preview proxies stay video-only (`-an`). Hero assemble never passes `-shortest`. Picture is the clock (`-t` / `apad`+`atrim`).
 
 ## SPEC-SND-16: hero intermediates keep audio

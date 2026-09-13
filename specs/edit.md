@@ -85,13 +85,15 @@ Do pair when most of these hold: duration ≥ 3.5s, picture is stable, a payoff 
 
 ## SPEC-EDIT-13: transitions
 
-Legal kinds: `hard`, `whip`, `punch`, `close_fade`, `j_cut`, `l_cut`, `flash`, `match`. See `specs/transitions.md`.
+Legal kinds: `cut`/`hard`, `fade`, `whip`, `punch`, `close_fade`, `j_cut`, `l_cut`, `flash`, `match`. See `specs/transitions.md`.
 
-- `hard` is the default between clips. Video stays concat. Audio may acrossfade 8–12 ms.
+- `cut` / `hard` is the default between clips. Video stays concat. Audio may acrossfade 8–12 ms.
+- `fade` is a short luma crossfade (4–12 frames typical) between two clips.
 - `close_fade` is a 4-frame luma fade and is only legal on the last clip.
-- Decorated: whip, punch, close_fade, j_cut, l_cut, flash, match.
-- More than 3 decorated transitions: mutation succeeds with a warning. `review_report` fails.
-- Wipes, spins, cross-dissolves, packs: `ok: false`.
+- Decorated: fade, whip, punch, close_fade, j_cut, l_cut, flash, match.
+- More than 3 decorated transitions on a ≤60s reel: mutation succeeds with a warning. `review_report` fails.
+- `transition_set` accepts `from_clip_id` / `clip_id` / `from_id` or `at_s`, plus optional `duration_s`.
+- Wipes, spins, cross-dissolves between unrelated shots, packs: `ok: false`.
 
 ## SPEC-EDIT-14: hard duration cap
 

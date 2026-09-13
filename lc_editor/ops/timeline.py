@@ -5,6 +5,7 @@ from lc_editor.models import (
     LEGAL_TRANSITIONS,
     SPEED_MAX,
     SPEED_MIN,
+    TRANSITION_ALIASES,
     FPS,
     ZOOM_HIT_AMOUNT,
     ZOOM_HIT_FRAMES,
@@ -43,8 +44,11 @@ def remove_clip(timeline: Timeline, clip_id: str) -> Timeline:
     clips = [c for c in timeline.clips if c.id != clip_id]
     captions = [c for c in timeline.captions if c.clip_id != clip_id]
     transitions = {k: v for k, v in timeline.transitions.items() if k != clip_id}
+    durations = {k: v for k, v in timeline.transition_duration_s.items() if k != clip_id}
     return recompute_starts(
-        timeline.model_copy(update={"clips": clips, "captions": captions, "transitions": transitions})
+        timeline.model_copy(
+            update={"clips": clips, "captions": captions, "transitions": transitions, "transition_duration_s": durations}
+        )
     )
 
 
@@ -293,19 +297,77 @@ def set_audio_xfade(timeline: Timeline, ms: float) -> Timeline:
     return timeline.model_copy(update={"audio_xfade_ms": ms})
 
 
-def set_transition(timeline: Timeline, clip_id: str, kind: str) -> Timeline:
+def normalize_transition_kind(kind: str) -> str:
+    return TRANSITION_ALIASES.get(kind, kind)
+
+
+def clip_id_for_transition_at(timeline: Timeline, at_s: float) -> str:
+    """Outgoing clip whose end boundary is nearest to at_s (not the last clip)."""
+    if len(timeline.clips) < 2:
+        raise Reject("SPEC-EDIT-13: at_s needs a boundary between clips")
+    best_id: str | None = None
+    best_dist: float | None = None
+    for clip in timeline.clips[:-1]:
+        end = clip.start_s + clip.duration_s
+        dist = abs(end - at_s)
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            best_id = clip.id
+    if best_id is None:
+        raise Reject("SPEC-EDIT-13: no transition boundary at at_s")
+    return best_id
+
+
+def source_available_s(clip: Clip, source: MediaItem) -> float:
+    if source.kind == "image":
+        return max(0.01, float(clip.duration_s))
+    return max(0.0, float(source.duration_s) - float(clip.in_s))
+
+
+def source_hold_s(clip: Clip, source: MediaItem) -> float:
+    if source.kind != "video":
+        return 0.0
+    avail = source_available_s(clip, source)
+    return max(0.0, round(float(clip.duration_s) - avail, 4))
+
+
+def source_hold_warning(clip: Clip, source: MediaItem) -> str | None:
+    hold = source_hold_s(clip, source)
+    if hold <= 1e-3:
+        return None
+    return (
+        f"SPEC-SND-12: auto-hold last frame "
+        f"({source.duration_s:.2f}s source < {clip.duration_s:.2f}s requested)"
+    )
+
+
+def set_transition(
+    timeline: Timeline,
+    clip_id: str,
+    kind: str,
+    duration_s: float | None = None,
+) -> Timeline:
+    kind = normalize_transition_kind(kind)
     if kind not in LEGAL_TRANSITIONS:
         raise Reject("SPEC-EDIT-13: illegal transition")
     i = _clip_index(timeline, clip_id)
     last = i == len(timeline.clips) - 1
     if kind == "close_fade" and not last:
         raise Reject("SPEC-EDIT-13: close_fade is only legal on the last clip")
+    if duration_s is not None and duration_s <= 0:
+        raise Reject("SPEC-EDIT-13: duration_s must be positive")
     transitions = dict(timeline.transitions)
+    durations = dict(timeline.transition_duration_s)
     if kind == "hard":
         transitions.pop(clip_id, None)
+        durations.pop(clip_id, None)
     else:
         transitions[clip_id] = kind  # type: ignore[assignment]
-    return timeline.model_copy(update={"transitions": transitions})
+        if duration_s is None:
+            durations.pop(clip_id, None)
+        else:
+            durations[clip_id] = round(float(duration_s), 4)
+    return timeline.model_copy(update={"transitions": transitions, "transition_duration_s": durations})
 
 
 def protect_clip(timeline: Timeline, clip_id: str, enabled: bool, intensity: float | None = None) -> Timeline:

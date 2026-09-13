@@ -30,6 +30,10 @@ A still with `motion=none` and duration greater than **1.40s** is a **warning**,
 
 SFX must sit at least 6 dB under the bed (bed treated as 0 dB when none is set). Hot SFX fails review.
 
+## SPEC-CRAFT-09: transitions are punctuation
+
+Default is a hard cut. Decorated transitions (`fade`, `whip`, `match`, …) mark section changes only (for process cards: before→process and process→after). Never every cut. Cap **3** decorated on a ≤60s reel (`specs/transitions.md`). Star wipes, spins, and slideshow dissolves between unrelated shots stay banned.
+
 ## SPEC-CRAFT-08: outdoor audio is denoised
 
 Ride wind is not a highpass-only problem. Outdoor audio uses SPEC-SND-10. SPEC-CRAFT-01 still applies.
