@@ -30,7 +30,7 @@ ROLES = NARRATIVE_ROLES + PROCESS_ROLES
 SORTS = ("in_s", "motion", "duration_s")
 
 # Roles that prefer media tagged with the same name when any are tagged.
-TAG_FILTER_ROLES = frozenset({"before", "wash", "after", "machine", "detail", "wheel", "interior"})
+TAG_FILTER_ROLES = frozenset({"before", "wash", "after", "machine", "detail", "wheel", "interior", "engine", "hero", "skip_face"})
 
 # Map album / process roles onto narrative scorers (or a named alias).
 ROLE_SCORE_ALIAS = {
