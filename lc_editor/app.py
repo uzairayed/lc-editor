@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from lc_editor.analysis.detect import detect_box
 from lc_editor.analysis.manifest import Shot, load_manifest, manifest_path, shot_id, write_manifest
 from lc_editor.analysis.media import (
     captured_at_sort_key,
@@ -92,6 +93,7 @@ from lc_editor.models import (
     Caption,
     CaptionWord,
     Clip,
+    ClipBlur,
     EffectInstance,
     Keyframe,
     LayerItem,
@@ -108,6 +110,16 @@ from lc_editor.models import (
     recompute_starts,
     resolve_canvas,
     timeline_duration,
+)
+from lc_editor.ops.blurs import (
+    add_blur,
+    list_blurs,
+    remove_blur,
+    update_blur,
+    validate_blur_box,
+    validate_blur_feather,
+    validate_blur_kind,
+    validate_blur_strength,
 )
 from lc_editor.ops.layouts import (
     add_layout,
@@ -1430,6 +1442,108 @@ class Editor:
 
     def fx_wrap(self, clip_id: str, mode: str = "off", op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_wrap(tl, clip_id, mode))
+
+    def clip_blur_add(
+        self,
+        clip_id: str,
+        kind: Annotated[
+            Literal["face", "plate", "region"],
+            Field(description="Privacy blur kind: face, plate, or region."),
+        ] = "region",
+        x: float | None = None,
+        y: float | None = None,
+        w: float | None = None,
+        h: float | None = None,
+        strength: float | None = None,
+        feather: float | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        """Add a soft-mask face / plate / region blur on one clip (post-fit canvas box)."""
+        store = self._need()
+        clip = self._clip(clip_id)
+        warnings: list[str] = []
+        try:
+            resolved_kind = validate_blur_kind(kind)
+            sigma = validate_blur_strength(strength)
+            soft = validate_blur_feather(feather)
+            box_given = None not in (x, y, w, h)
+            if resolved_kind == "region" and not box_given:
+                raise Reject("SPEC-FX-11: kind=region requires box x,y,w,h (0-1 of post-fit frame)")
+            if box_given:
+                box = validate_blur_box(x, y, w, h)  # type: ignore[arg-type]
+            else:
+                box = self._detect_blur_box(clip, resolved_kind)
+                if box is None:
+                    result = envelope(True, store.timeline, [f"SPEC-FX-11: no {resolved_kind} found; no blur applied"])
+                    result["blur_id"] = None
+                    return result
+        except Reject as exc:
+            return envelope(False, store.timeline, [str(exc)])
+        blur = ClipBlur(
+            id=new_id("blur"),
+            kind=resolved_kind,  # type: ignore[arg-type]
+            x=box[0],
+            y=box[1],
+            w=box[2],
+            h=box[3],
+            strength=sigma,
+            feather=soft,
+        )
+        if not box_given:
+            warnings.append(f"SPEC-FX-11: auto {resolved_kind} box from local detector")
+        result = self._mutate(op_id, lambda tl: add_blur(tl, clip_id, blur))
+        if result.get("ok"):
+            result["blur_id"] = blur.id
+            result["blur"] = {**blur.model_dump(), "clip_id": clip_id}
+            result["warnings"] = [*result.get("warnings", []), *warnings]
+        return result
+
+    def clip_blur_update(
+        self,
+        blur_id: str,
+        x: float | None = None,
+        y: float | None = None,
+        w: float | None = None,
+        h: float | None = None,
+        strength: float | None = None,
+        feather: float | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        """Move or retune an existing soft-mask blur."""
+        return self._mutate(
+            op_id,
+            lambda tl: update_blur(tl, blur_id, x=x, y=y, w=w, h=h, strength=strength, feather=feather),
+        )
+
+    def clip_blur_remove(self, blur_id: str, op_id: str | None = None) -> dict:
+        return self._mutate(op_id, lambda tl: remove_blur(tl, blur_id))
+
+    def clip_blur_list(self, clip_id: str | None = None) -> dict:
+        store = self._need()
+        try:
+            rows = list_blurs(store.timeline, clip_id)
+        except Reject as exc:
+            return envelope(False, store.timeline, [str(exc)])
+        result = envelope(True, store.timeline, [])
+        result["blurs"] = rows
+        return result
+
+    def _detect_blur_box(self, clip: Clip, kind: str) -> tuple[float, float, float, float] | None:
+        store = self._need()
+        media = self._media(clip.media_id)
+        fresh, _ = ensure_source_proxy(self.runner, store, media)
+        self.media = [fresh if m.id == media.id else m for m in self.media]
+        ff = "ffmpeg" if isinstance(self.runner, FakeRunner) else find_tool("ffmpeg")
+        dest = store.stills_dir / f"{clip.id}_{kind}_detect.jpg"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        src = fresh.proxy_path or fresh.path
+        seek = None if fresh.kind == "image" else round(clip.in_s + max(0.0, clip.duration_s) * 0.5, 3)
+        self.runner.run(
+            extract_frame_args(ff, src, dest, kind=fresh.kind, seek_s=seek, scale=None)
+        )
+        if not dest.exists() or dest.stat().st_size < 32:
+            return None
+        return detect_box(dest, kind)
 
     # --- captions ---
 

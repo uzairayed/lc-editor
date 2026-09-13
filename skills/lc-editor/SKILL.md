@@ -35,9 +35,11 @@ Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green. This is th
 
 5. **Build the timeline.** Use `clip_add`, trim, split, reorder, motion, and transitions. An occasional two-up is `context/scenes/pair.md`. A reel that is mostly stacks is `context/scenes/collage.md`. Two ride POVs is `context/scenes/ride-pair.md`. Add layers or apply a template if needed.
 
-6. **Run `review_report` before export.** Fix every warning it returns. `media missing captured_at` is a warning only — backfill from `probe` if you still need day order.
+6. **Privacy blur after story lock.** Scan keyframes or use `shots_rank(role="skip_face")` / tagged skip. If a kept clip still shows a face or plate, call `clip_blur_add` (`kind=face|plate|region`) before review. Prefer an explicit `region` box from the frame you inspected. Never invent boxes: if unsure, ask or skip. Auto-detect is local Haar only (no cloud VLM); missing detections warn and apply nothing.
 
-7. **Show preview stills at each pass.** Use `preview_stills` so the user can see progress.
+7. **Run `review_report` before export.** Fix every warning it returns. `media missing captured_at` is a warning only - backfill from `probe` if you still need day order.
+
+8. **Show preview stills at each pass.** Use `preview_stills` so the user can see progress.
 
 ## Key constraints
 
@@ -56,6 +58,8 @@ Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail o
 **Media:** `import_file`, `import_folder`, `media_list`, `media_tag`, `probe`
 
 **Timeline:** `clip_add`, `clip_remove`, `clip_reorder`, `clip_trim`, `clip_split`, `clip_set_duration`, `clip_fit` (duration hold), `clip_set_fit` (visual cover/letterbox), `clip_refocus`
+
+**Privacy blur:** `clip_blur_add` (`face`|`plate`|`region`), `clip_blur_update`, `clip_blur_remove`, `clip_blur_list` (soft-mask after fit; SPEC-FX-11)
 
 **Motion:** `motion_kenburns`, `motion_punch`, `motion_zoom_in`, `motion_zoom_out`, `motion_none`, `motion_hold`
 

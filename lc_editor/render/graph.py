@@ -16,6 +16,7 @@ from lc_editor.models import (
     even_dim,
     proxy_wh,
 )
+from lc_editor.render.blurs import soft_mask_blur_chain
 from lc_editor.render.captions import drawtext_filter, fontfile_for, karaoke_filters, word_textfiles
 from lc_editor.render.motion import canvas_fit_filters, motion_chain
 from lc_editor.render.paths import ffmpeg_path
@@ -28,7 +29,11 @@ COLORBALANCE_KEYS = frozenset({"rs", "gs", "bs", "rm", "gm", "bm", "rh", "gh", "
 def preview_video_filters(clip: Clip, media: MediaItem, project: Project | None = None) -> str:
     del media
     pw, ph = proxy_wh(project)
-    return canvas_fit_filters(clip, pw, ph, preview=True)
+    parts = [canvas_fit_filters(clip, pw, ph, preview=True)]
+    blur = soft_mask_blur_chain(clip.blurs, pw, ph)
+    if blur:
+        parts.append(blur)
+    return ",".join(parts)
 
 
 def clip_video_filters(
@@ -49,6 +54,11 @@ def clip_video_filters(
     parts: list[str] = []
     if not composed:
         parts.append(canvas_fit_filters(clip, dest_w, dest_h))
+    # Soft-mask privacy blur after fit so cover / fit_blur framing is correct,
+    # and before motion so Ken Burns / zoom carries the blurred pixels.
+    blur = soft_mask_blur_chain(clip.blurs, dest_w, dest_h)
+    if blur:
+        parts.append(blur)
     if clip.motion != "none":
         parts.append(motion_chain(clip, frames, dest_w, dest_h))
     elif composed:
@@ -292,6 +302,7 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "zoom_frames_out": clip.zoom_frames_out,
         "zoom_at_s": clip.zoom_at_s,
         "effects": [e.model_dump() for e in clip.effects],
+        "blurs": [b.model_dump() for b in clip.blurs],
         "layout": clip.layout,
         "panes": [pane.model_dump() for pane in clip.panes],
         "captions": [

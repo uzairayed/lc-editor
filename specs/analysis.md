@@ -1,6 +1,6 @@
 # SPEC-ANA: Media intelligence (shot index)
 
-Source: index once at import, query at edit time. Analysis runs on the 360x640 source proxy and writes a shot manifest the agent can list, search, and rank without watching footage. No full-video VLM. Face / plate hints are out of scope for v1.
+Source: index once at import, query at edit time. Analysis runs on the 360x640 source proxy and writes a shot manifest the agent can list, search, and rank without watching footage. No full-video VLM. Face / plate **hints in the shot index** remain out of scope for analysis v1; privacy blur on the timeline is SPEC-FX-11 (`clip_blur_*`).
 
 Agent workflow: **index → rank → story lock → timeline**.
 
