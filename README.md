@@ -152,6 +152,7 @@ The primary track is still the gapless `clips` list (`clip_add`, trim, split, re
 - Music: default is off. `project_set(allow_music=true)` is the owner opt-in. Then `import_file` a local `.mp3`/`.wav`/`.m4a` and `music_add`. `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply`. There is no stock catalog; licensing stays with the owner.
 - Layouts: `layout_add("stack_v"|"stack_h"|"stack_v3"|"grid_2x2", panes=[...])` composites two to four sources into one clip. `layout_pane` refocuses a cell. `layout_clear` flattens back to pane 0. A vista or reveal stays full-frame.
 - Captions: `caption_add` still works and syncs to a bound text layer. No box, banner, or scrim. Process / product reels use `style="card"` (Clash Display via `font="clash"`). `pop` / `karaoke` are spoken-word only.
+- Album cards: `media_card_propose` / `media_card_confirm` lock day, role, and what's in frame before story lock. `shoot_day_suggest` clusters capture times. Folder names (`before/`, `day1`) tag untagged imports. `review_report` warns on inverted before/after capture order and uncarded bookend slots.
 
 Optional: `project_create(..., preset="karachi")` loads series branding. Other reels do not need it.
 
@@ -169,6 +170,7 @@ Optional: `project_create(..., preset="karachi")` loads series branding. Other r
 | Sound | Natural audio, beds, SFX (ride kinds plus reel `sparkle`/`swipe`/`bubble`/`button`/`paper`/`cash`/`click`/`correct`/`success`). Owner free imports via `sfx_import` / `sfx_pack_add` into project `user-sfx/` (license `CC0` / `Mixkit` / `Pixabay`; Mixkit / Pixabay / Freesound; never CapCut). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
 | Beat sync | `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply` |
 | Look | One adjustment layer (LUT, grain, vignette) after the cut |
+| Album cards | Propose / confirm per-media day + role + subjects. Capture-order guard. Folder-name hints |
 
 ## Giving this to grokbot
 

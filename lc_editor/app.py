@@ -71,6 +71,16 @@ from lc_editor.analysis.highlights import (
     normalize_style,
     suggest_highlight_sheets,
 )
+from lc_editor.analysis.provenance import (
+    FOLDER_HINT_CONFIDENCE,
+    card_coverage,
+    cluster_shoot_days,
+    confirmed_roles_map,
+    day_for_media,
+    hints_from_path,
+    is_carded,
+    propose_card,
+)
 from lc_editor.analysis.understand import (
     DEFAULT_REFINE_BUDGET,
     apply_understand_tags,
@@ -148,6 +158,7 @@ from lc_editor.models import (
     Keyframe,
     LayerItem,
     LayoutPane,
+    MediaCard,
     MediaItem,
     MusicTrack,
     Project,
@@ -600,8 +611,67 @@ class Editor:
             size_bytes=self._file_size(path) or self._file_size(dest),
         )
         item, _cached = ensure_source_proxy(self.runner, store, item)
+        item = self._apply_path_hints(item, path)
         self.media.append(item)
         return item
+
+    def _apply_path_hints(self, item: MediaItem, source: Path) -> MediaItem:
+        if item.role is not None or item.shoot_day is not None:
+            return item
+        hints = hints_from_path(source)
+        if hints.role is None and hints.shoot_day is None:
+            return item
+        card = MediaCard(
+            role=hints.role,
+            shoot_day=hints.shoot_day,
+            confidence=FOLDER_HINT_CONFIDENCE,
+            source="folder",
+            confirmed=False,
+        )
+        update: dict = {"card": card}
+        if hints.role:
+            update["role"] = hints.role
+        if hints.shoot_day is not None:
+            update["shoot_day"] = hints.shoot_day
+        return item.model_copy(update=update)
+
+    def _folder_hints_payload(self, items: list[MediaItem]) -> list[dict]:
+        rows: list[dict] = []
+        for item in items:
+            if item.card is None or item.card.source != "folder":
+                continue
+            rows.append(
+                {
+                    "media_id": item.id,
+                    "role": item.role,
+                    "shoot_day": item.shoot_day,
+                    "source": "folder",
+                }
+            )
+        return rows
+
+    def _understand_spans_for_lint(self) -> dict[str, list]:
+        spans: dict[str, list] = {}
+        for item in self.media:
+            cached = load_understand_cache(self._understand_for(item))
+            if cached and cached.get("cards"):
+                spans[item.id] = list(cached["cards"])
+                continue
+            path = self._manifest_for(item)
+            if path.exists():
+                spans[item.id] = load_manifest(path)
+        return spans
+
+    def _cluster_cover(self, media_ids: list[str]) -> str | None:
+        for mid in media_ids:
+            try:
+                item = self._media(mid)
+            except Exception:
+                continue
+            key = self._index_summary_for(item).get("keyframe")
+            if key:
+                return key
+        return None
 
     def _index_summary_for(self, item: MediaItem) -> dict:
         path = self._manifest_for(item)
@@ -671,6 +741,9 @@ class Editor:
         result["shots"] = shots
         result["cached"] = cached
         result["indexed"] = True
+        hints = self._folder_hints_payload([self._media(item.id)])
+        if hints:
+            result["hints"] = hints
         if sheet:
             result["sheet"] = sheet
         if op_id:
@@ -721,6 +794,9 @@ class Editor:
         result["shots"] = shots
         result["cached"] = cached
         result["indexed"] = True
+        hints = self._folder_hints_payload([self._media(m.id) for m in imported])
+        if hints:
+            result["hints"] = hints
         if sheet:
             result["sheet"] = sheet
         if op_id:
@@ -760,7 +836,13 @@ class Editor:
                 )
             ]
         result = envelope(True, store.timeline, quality_soft_warnings(items))
-        result["media"] = [public_media(m, index=summaries.get(m.id)) for m in items]
+        rows = []
+        for m in items:
+            row = public_media(m, index=summaries.get(m.id))
+            row["carded"] = is_carded(m)
+            rows.append(row)
+        result["media"] = rows
+        result["card_coverage"] = card_coverage(self.media)
         return result
 
     def media_tag(
@@ -787,6 +869,147 @@ class Editor:
         self._save_media()
         result = envelope(True, store.timeline, [])
         result["media"] = self._public_media(fresh)
+        if op_id:
+            store.ledger[op_id] = result
+            store.persist()
+        return result
+
+    def shoot_day_suggest(self, apply: bool = False, op_id: str | None = None) -> dict:
+        store = self._need()
+        if apply:
+            replay = store.replay(op_id)
+            if replay is not None:
+                return replay
+        clusters, unclustered = cluster_shoot_days(self.media)
+        rows = []
+        for cluster in clusters:
+            rows.append(
+                {
+                    "shoot_day": cluster.shoot_day,
+                    "media_ids": cluster.media_ids,
+                    "start_at": cluster.start_at,
+                    "end_at": cluster.end_at,
+                    "cover_keyframe": self._cluster_cover(cluster.media_ids),
+                }
+            )
+        applied: list[str] = []
+        if apply:
+            by_id = {item.id: item for item in self.media}
+            updated: list[MediaItem] = []
+            for item in self.media:
+                day = day_for_media(item.id, clusters)
+                if day is None or item.shoot_day is not None:
+                    updated.append(item)
+                    continue
+                card = item.card
+                if card is None or not card.confirmed:
+                    card = MediaCard(
+                        role=item.role or (card.role if card else None),
+                        shoot_day=day,
+                        subjects=list(card.subjects) if card else [],
+                        confidence=card.confidence if card else 0.4,
+                        source=card.source if card else "suggested",
+                        confirmed=False,
+                        note=card.note if card else "",
+                    )
+                else:
+                    card = card.model_copy(update={"shoot_day": card.shoot_day or day})
+                fresh = item.model_copy(update={"shoot_day": day, "card": card})
+                updated.append(fresh)
+                applied.append(item.id)
+                by_id[item.id] = fresh
+            self.media = updated
+            self._save_media()
+        result = envelope(True, store.timeline, [])
+        result["clusters"] = rows
+        result["unclustered"] = unclustered
+        result["applied"] = applied
+        if apply and op_id:
+            store.ledger[op_id] = result
+            store.persist()
+        return result
+
+    def media_card_propose(self, media_id: str | None = None) -> dict:
+        store = self._need()
+        targets = [self._media(media_id)] if media_id else [m for m in self.media if m.kind != "audio"]
+        clusters, unclustered = cluster_shoot_days(self.media)
+        proposals = []
+        for item in targets:
+            cached = load_understand_cache(self._understand_for(item)) or {}
+            cards = list(cached.get("cards") or [])
+            shots: list = []
+            path = self._manifest_for(item)
+            if path.exists():
+                shots = load_manifest(path)
+            proposals.append(
+                propose_card(
+                    item,
+                    understand_cards=cards,
+                    shots=shots,
+                    cluster_day=day_for_media(item.id, clusters),
+                    peers=self.media,
+                )
+            )
+        result = envelope(True, store.timeline, [])
+        result["proposals"] = proposals
+        result["card_coverage"] = card_coverage(self.media)
+        result["unclustered"] = unclustered
+        return result
+
+    def media_card_confirm(
+        self,
+        media_id: str,
+        role: str | None = None,
+        shoot_day: int | str | None = None,
+        subjects: list[str] | None = None,
+        note: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        replay = store.replay(op_id)
+        if replay is not None:
+            return replay
+        item = self._media(media_id)
+        final_role = normalize_role(role) if role is not None else item.role
+        final_day = normalize_shoot_day(shoot_day) if shoot_day is not None else item.shoot_day
+        final_subjects = list(subjects) if subjects is not None else []
+        final_note = note or ""
+        if item.card is not None:
+            if role is None:
+                final_role = final_role or item.card.role
+            if shoot_day is None and final_day is None:
+                final_day = item.card.shoot_day
+            if subjects is None:
+                final_subjects = list(item.card.subjects)
+            if note is None:
+                final_note = item.card.note
+        if final_role is None and final_day is None and not final_subjects:
+            return envelope(
+                False,
+                store.timeline,
+                ["media_card_confirm requires role, shoot_day, or subjects"],
+            )
+        card = MediaCard(
+            role=final_role,
+            shoot_day=final_day,
+            subjects=final_subjects,
+            confidence=1.0,
+            source="agent",
+            confirmed=True,
+            note=final_note,
+        )
+        update: dict = {"card": card}
+        if final_role is not None:
+            update["role"] = final_role
+        if final_day is not None:
+            update["shoot_day"] = final_day
+        fresh = item.model_copy(update=update)
+        self.media = [fresh if m.id == media_id else m for m in self.media]
+        self._save_media()
+        result = envelope(True, store.timeline, [])
+        result["media"] = self._public_media(fresh)
+        result["card"] = card.model_dump()
+        result["card_coverage"] = card_coverage(self.media)
         if op_id:
             store.ledger[op_id] = result
             store.persist()
@@ -1560,7 +1783,11 @@ class Editor:
             if not refreshed.get("ok", True):
                 warnings.extend(refreshed.get("warnings") or [])
         media_meta = {
-            item.id: {"shoot_day": item.shoot_day, "role": item.role}
+            item.id: {
+                "shoot_day": item.shoot_day,
+                "role": item.role,
+                "captured_at": item.captured_at,
+            }
             for item in self.media
         }
         cards: list[dict] = []
@@ -1623,7 +1850,11 @@ class Editor:
         targets = [self._media(media_id)] if media_id else list(self.media)
         visual = [item for item in targets if item.kind != "audio"]
         media_meta = {
-            item.id: {"shoot_day": item.shoot_day, "role": item.role}
+            item.id: {
+                "shoot_day": item.shoot_day,
+                "role": item.role,
+                "captured_at": item.captured_at,
+            }
             for item in self.media
         }
         cards: list[dict] = []
@@ -1640,6 +1871,7 @@ class Editor:
                             "source": card.get("source") or "understand",
                             "shoot_day": card.get("shoot_day", info.get("shoot_day")),
                             "media_role": card.get("media_role", info.get("role")),
+                            "captured_at": card.get("captured_at", info.get("captured_at")),
                         }
                     )
                 from_cache += len(cached["cards"])
@@ -1810,6 +2042,7 @@ class Editor:
         sizes = {item.id: (item.width, item.height) for item in self.media}
         media_roles = {item.id: item.role for item in self.media}
         shoot_days = {item.id: item.shoot_day for item in self.media}
+        confirmed_roles = confirmed_roles_map(self.media)
         ranked = rank_shots(
             pool,
             role,
@@ -1818,6 +2051,7 @@ class Editor:
             sizes=sizes,
             media_roles=media_roles,
             shoot_days=shoot_days,
+            confirmed_roles=confirmed_roles,
         )
         result = envelope(True, store.timeline, warnings)
         result["shots"] = [
@@ -2930,7 +3164,13 @@ class Editor:
             allow_dense=allow_dense,
             lint_media=self._lint_media(),
         )
-        warns = review_warnings(store.timeline, store.project, media=self.media, user_sfx_dir=store.user_sfx_dir)
+        warns = review_warnings(
+            store.timeline,
+            store.project,
+            media=self.media,
+            user_sfx_dir=store.user_sfx_dir,
+            understand_spans=self._understand_spans_for_lint(),
+        )
         # Train D soft cover-focus suggestions from spatial densify cache.
         hints: dict[str, dict] = {}
         for clip in store.timeline.clips:

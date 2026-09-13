@@ -2,13 +2,13 @@
 
 Source: index once at import, query at edit time. Analysis runs on the 360x640 source proxy and writes a shot manifest the agent can list, search, and rank without watching footage. No full-video VLM. Face / plate **hints in the shot index** remain out of scope for analysis v1; privacy blur on the timeline is SPEC-FX-11 (`clip_blur_*`).
 
-Agent workflow: **index → understand (optional) → understand_timeline → highlights_suggest (optional) → rank → story lock → timeline**.
+Agent workflow: **index → understand (optional) → card → confirm → rank → story lock → timeline**.
 
-1. `import_folder` / `import_file` (indexes automatically; re-run `media_analyze` is a cache no-op)
+1. `import_folder` / `import_file` (indexes automatically; re-run `media_analyze` is a cache no-op). Folder / filename tokens (`before/`, `day1`) become unconfirmed `source="folder"` cards on untagged media.
 2. Optional `media_understand` for process/album span cards (then `media_understand_refine` on uncertain spans)
-3. Optional `understand_timeline` for Director role-labeled beats; optional `media_tag(shoot_day=…, role=before|wash|after|…)`
+3. `media_card_propose` then `media_card_confirm` (album lock). Optional `shoot_day_suggest` / `understand_timeline` / `media_tag`
 4. Optional `highlights_suggest(target_s, style=process|reel)` for ranked candidate beat sheets (suggest only; agent locks story)
-5. `shots_rank` / `shots_search` / `media_list` to pick candidates from thumbs + scores (prefer understand-tagged spans)
+5. `shots_rank` / `shots_search` / `media_list` to pick candidates from thumbs + scores (prefer confirmed cards, then understand-tagged spans)
 6. Story lock: choose day/role order, then `clip_add(media_id, in_s, out_s)`
 
 ## SPEC-ANA-01: shot manifest
@@ -105,7 +105,7 @@ ffmpeg failure on one file: that file gets `ok: false` treatment (warning, no ma
 
 ## SPEC-ANA-09: MCP surface
 
-`media_analyze`, `media_understand`, `media_understand_refine`, `media_understand_spatial`, `understand_timeline`, `highlights_suggest`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags; default sort prefers understand-tagged). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day` (understand-tagged pool preferred). `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`, `spatial`. `media_understand_spatial` exposes `media_id`, `in_s`, `out_s`, `budget_frames`, `reason`. `understand_timeline` exposes `media_id`, `top_per_role`, `roles`, `refresh`. `highlights_suggest` exposes `target_s`, `style`, `media_id`, `refresh`.
+`media_analyze`, `media_understand`, `media_understand_refine`, `media_understand_spatial`, `understand_timeline`, `highlights_suggest`, `shots_list`, `shots_search`, `shots_rank`, `media_list`, `shoot_day_suggest`, `media_card_propose`, `media_card_confirm` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion` and returns `card` / `carded` plus `card_coverage`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags; default sort prefers understand-tagged). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day` (confirmed-card pool, then understand-tagged). `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`, `spatial`. `media_understand_spatial` exposes `media_id`, `in_s`, `out_s`, `budget_frames`, `reason`. `understand_timeline` exposes `media_id`, `top_per_role`, `roles`, `refresh`. `highlights_suggest` exposes `target_s`, `style`, `media_id`, `refresh`. `shoot_day_suggest` exposes `apply`, `op_id`. `media_card_propose` exposes `media_id`. `media_card_confirm` exposes `media_id`, `role`, `shoot_day`, `subjects`, `note`, `op_id`.
 
 ## SPEC-ANA-10: performance budget
 
@@ -122,7 +122,7 @@ One ffmpeg decode pass per video for metrics, plus one keyframe grab per shot. B
 - `cached`: per-file cache flags (same meaning as `media_analyze`)
 - `sheet`: path to `output/index_sheet.jpg` (one cover keyframe per indexed item) when any keyframes exist
 
-Media rows include `size_bytes` (source file size) and capture fields. `shoot_day` / `role` remain agent tags via `media_tag` (not inferred).
+Media rows include `size_bytes` (source file size) and capture fields. `media_tag` still writes `shoot_day` / `role`. Whole-segment path tokens (`before/`, `after/`, `wash/`, `day1`, `d2`, …) auto-apply to **untagged** media as an unconfirmed card with `source="folder"` and write through to those tags. Agent / owner tags always win. Import responses list applied hints under `hints`.
 
 ## SPEC-ANA-12: hierarchical understand (Train A)
 
@@ -289,6 +289,31 @@ Follow-up after Train A–E acceptance: detailing albums must not collapse to `w
 - Pack toward `target_s` by selecting enough spans across media (role + media diversity), not by stretching one short window. Process default sense remains ~60s.
 - Acceptance: `highlights_suggest(target_s=60, style=process)` returns ≥1 candidate with `arc_complete≈true` and `duration_s` within ~45–70s when the album has bookends + process spans.
 - Still suggest-only: no timeline mutate, no auto-export, no VLM weights in the pip path.
+
+## SPEC-ANA-18: capture provenance
+
+Inference proposes. Capture time disposes. All checks are **warnings** (never export blockers).
+
+### Shoot-day clustering
+
+`shoot_day_suggest(apply=false)` clusters dated media: a new day when the calendar date changes or the gap between consecutive `captured_at` exceeds 4 hours. Media without `captured_at` stay unclustered and are reported. `apply=true` writes `shoot_day` only onto **untagged** media (`op_id` replay like `media_tag`). Cover keyframes come from the shot index.
+
+### Arc-order guard
+
+A transformation `after` / `hero` whose source `captured_at` precedes a `before` is `SPEC-ANA-18` in `review_report`. Clip role resolves from the media tag first, then `understand:{role}` shot tags. `highlights_suggest` sets `arc_order_ok` per candidate; inverted capture order takes a rank penalty below `ARC_PARTIAL_BONUS`. Cross-day bookends take a softer penalty unless both media share the same `shoot_day` tag.
+
+## SPEC-ANA-19: album cards
+
+A first-class per-media card (`MediaCard` on `MediaItem`): `role`, `shoot_day`, `subjects`, `confidence`, `source` (`agent` / `owner` / `folder` / `suggested`), `confirmed`, `note`. Old sessions load with `card: null`.
+
+### Propose / confirm
+
+- `media_card_propose(media_id?)` is read-only. One proposed card per visual media from understand cache, day clustering, and path hints. Response: `proposed_role`, `proposed_day`, `confidence`, `keyframes` (2–3 contrasting JPEGs), `needs_confirmation`, and a `question` when the top-two role scores are close or the role contradicts capture order.
+- `media_card_confirm` persists `confirmed=true`, writes through to `shoot_day` / `role`, supports `op_id` replay.
+- `media_list` rows include `card` and `carded`. The envelope adds `card_coverage: {carded, total}`.
+- `review_report` warns `SPEC-ANA-19: clip {id} fills '{role}' from uncarded media {media_id}` when a `before` / `after` slot uses unconfirmed media.
+- `shots_rank` pool ladder: **confirmed-card role > understand-tagged spans > media role tag > full pool**.
+- Understand span cards with a tiny `role_hint` margin stamp `needs_confirmation: true` so `understand_timeline` surfaces uncertainty.
 
 ## SPEC-QLT-01: source quality floor
 

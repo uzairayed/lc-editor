@@ -231,8 +231,17 @@ def pool_for_role(
     role: str,
     *,
     media_roles: dict[str, str | None] | None = None,
+    confirmed_roles: dict[str, str | None] | None = None,
 ) -> list[Shot]:
-    """Prefer understand-tagged spans, then media role tags, else the full pool."""
+    """Confirmed card > understand-tagged spans > media role tags > full pool."""
+    if confirmed_roles:
+        confirmed = [
+            shot
+            for shot in shots
+            if roles_equal(confirmed_roles.get(shot.media_id), role)
+        ]
+        if confirmed:
+            return confirmed
     understand_pool = [shot for shot in shots if shot_has_understand_role(shot, role)]
     if understand_pool:
         return understand_pool
@@ -415,8 +424,11 @@ def rank_shots(
     sizes: dict[str, tuple[int, int]] | None = None,
     media_roles: dict[str, str | None] | None = None,
     shoot_days: dict[str, int | str | None] | None = None,
+    confirmed_roles: dict[str, str | None] | None = None,
 ) -> list[Shot]:
-    pool = pool_for_role(shots, role, media_roles=media_roles)
+    pool = pool_for_role(
+        shots, role, media_roles=media_roles, confirmed_roles=confirmed_roles
+    )
 
     def key(shot: Shot) -> tuple:
         width, height = _size_of(shot, sizes)

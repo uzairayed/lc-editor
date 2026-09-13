@@ -476,6 +476,17 @@ class Timeline(BaseModel):
 
 
 CapturedAtSource = Literal["probe", "exif", "mtime"]
+CardSource = Literal["agent", "owner", "folder", "suggested"]
+
+
+class MediaCard(BaseModel):
+    role: str | None = None
+    shoot_day: int | str | None = None
+    subjects: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    source: CardSource = "suggested"
+    confirmed: bool = False
+    note: str = ""
 
 
 class MediaItem(BaseModel):
@@ -496,6 +507,7 @@ class MediaItem(BaseModel):
     shoot_day: int | str | None = None
     role: str | None = None
     size_bytes: int = 0
+    card: MediaCard | None = None
 
 
 class Project(BaseModel):

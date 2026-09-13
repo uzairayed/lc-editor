@@ -54,6 +54,21 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "shoot_day" in tag
     assert "role" in tag
     assert "kwargs" not in tag
+    day_suggest = schemas["shoot_day_suggest"].get("properties") or {}
+    assert "apply" in day_suggest
+    assert "op_id" in day_suggest
+    assert "kwargs" not in day_suggest
+    propose = schemas["media_card_propose"].get("properties") or {}
+    assert "media_id" in propose
+    assert "kwargs" not in propose
+    confirm = schemas["media_card_confirm"].get("properties") or {}
+    assert "media_id" in confirm
+    assert "role" in confirm
+    assert "shoot_day" in confirm
+    assert "subjects" in confirm
+    assert "note" in confirm
+    assert "op_id" in confirm
+    assert "kwargs" not in confirm
     listed = schemas["media_list"].get("properties") or {}
     assert "shoot_day" in listed
     assert "role" in listed

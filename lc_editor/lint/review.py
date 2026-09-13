@@ -13,6 +13,7 @@ from lc_editor.lint.invariants import invariant_warnings, reject_duration
 from lc_editor.lint.layers import layer_issues
 from lc_editor.lint.layouts import layout_issues
 from lc_editor.lint.mix import mix_issues
+from lc_editor.lint.provenance import provenance_warnings
 from lc_editor.lint.quality import quality_blockers, quality_warnings
 from lc_editor.models import (
     BEAT_CONFIDENCE_WARN,
@@ -300,6 +301,7 @@ def review_warnings(
     project: Project | None = None,
     media: list[MediaItem] | None = None,
     user_sfx_dir: Path | None = None,
+    understand_spans: dict[str, list] | None = None,
 ) -> list[str]:
     warns = [w for w in invariant_warnings(timeline, project) if "locked still" not in w]
     warns.extend(locked_still_issues(timeline))
@@ -336,4 +338,5 @@ def review_warnings(
         warns.append(f"SPEC-SND-13: beat grid confidence {timeline.beat_grid.confidence:.2f} is low")
     if media and any(not item.captured_at for item in media):
         warns.append("media missing captured_at")
+    warns.extend(provenance_warnings(timeline, media, understand_spans=understand_spans))
     return warns

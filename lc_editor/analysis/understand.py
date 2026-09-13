@@ -343,6 +343,12 @@ def card_from_shot(
         sizes=sizes,
         media_role=media_role,
     )
+    margin = None
+    if scores and len(scores) > 1:
+        ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+        runner = next((name for name, _ in ranked if name != role), None)
+        if runner is not None:
+            margin = scores[role] - scores[runner]
     return {
         "media_id": shot.media_id,
         "in_s": round(float(shot.in_s), 4),
@@ -354,6 +360,7 @@ def card_from_shot(
         "role_scores": scores,
         "shot_id": shot.id,
         "media_role": _normalize_media_role(media_role),
+        "needs_confirmation": bool(margin is not None and margin <= ROLE_MARGIN_PREFER),
     }
 
 
@@ -435,7 +442,7 @@ def _beat_from_card(
     source: str = "understand",
 ) -> dict:
     role = str(card.get("role_hint") or card.get("role") or "detail")
-    return {
+    beat = {
         "role": role,
         "media_id": card.get("media_id"),
         "in_s": round(float(card.get("in_s", 0.0)), 4),
@@ -448,6 +455,9 @@ def _beat_from_card(
         "media_role": media_role,
         "source": source,
     }
+    if card.get("needs_confirmation"):
+        beat["needs_confirmation"] = True
+    return beat
 
 
 def _story_rank(role: str) -> int:
@@ -550,6 +560,7 @@ def cards_from_tagged_shots(
                     "source": "shot_tag",
                     "shoot_day": info.get("shoot_day"),
                     "media_role": info.get("role"),
+                    "captured_at": info.get("captured_at"),
                     "shot_id": shot.id,
                 }
             )

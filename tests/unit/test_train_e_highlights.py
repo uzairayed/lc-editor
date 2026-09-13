@@ -46,6 +46,8 @@ def _card(
     score: float,
     reason: str | None = None,
     focus_hint: dict | None = None,
+    captured_at: str | None = None,
+    shoot_day: int | None = None,
 ) -> dict:
     card = {
         "media_id": media_id,
@@ -57,6 +59,8 @@ def _card(
         "reason": reason or f"{role} span",
         "role_scores": {role: score},
         "source": "understand",
+        "captured_at": captured_at,
+        "shoot_day": shoot_day,
     }
     if focus_hint:
         card["focus_hint"] = focus_hint
@@ -340,3 +344,23 @@ def test_highlights_suggest_reel_style(editor: Editor, tmp_path: Path) -> None:
     assert result["candidates"]
     assert result["candidates"][0]["duration_s"] <= 22.0
     assert result["candidates"][0]["arc_complete"] is True
+
+
+def test_arc_order_ok_and_inverted_penalty() -> None:
+    ordered = [
+        _card("early", "before", in_s=0, out_s=8, score=0.7, captured_at="2024-03-01T10:00:00Z", shoot_day=1),
+        _card("mid", "wash", in_s=8, out_s=16, score=0.8, captured_at="2024-03-01T11:00:00Z", shoot_day=1),
+        _card("late", "after", in_s=16, out_s=24, score=0.9, captured_at="2024-03-01T12:00:00Z", shoot_day=1),
+    ]
+    inverted = [
+        _card("late", "before", in_s=0, out_s=8, score=0.9, captured_at="2024-03-02T10:00:00Z", shoot_day=2),
+        _card("mid", "wash", in_s=8, out_s=16, score=0.85, captured_at="2024-03-01T11:00:00Z", shoot_day=1),
+        _card("early", "after", in_s=16, out_s=24, score=0.95, captured_at="2024-03-01T10:00:00Z", shoot_day=1),
+    ]
+    ok_sheet = build_candidate_sheet(ordered, target_s=24.0, style="process", process_count=1)
+    bad_sheet = build_candidate_sheet(inverted, target_s=24.0, style="process", process_count=1)
+    assert ok_sheet is not None and bad_sheet is not None
+    assert ok_sheet["arc_order_ok"] is True
+    assert bad_sheet["arc_order_ok"] is False
+    assert "capture-order" in bad_sheet["reason"]
+    assert ok_sheet["score"] > bad_sheet["score"]

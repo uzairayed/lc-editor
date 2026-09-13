@@ -10,6 +10,7 @@ or auto-export.
 
 from __future__ import annotations
 
+from lc_editor.analysis.provenance import beats_arc_order
 from lc_editor.analysis.rank import PROCESS_STORY_ORDER
 from lc_editor.analysis.spatial import pick_hint_for_span
 from lc_editor.models import (
@@ -46,6 +47,9 @@ MAX_CANDIDATES = 3
 SPEECH_PENALTY = 0.18
 ARC_COMPLETE_BONUS = 0.7
 ARC_PARTIAL_BONUS = 0.18
+# SPEC-ANA-18: inverted capture order ranks below a partial-arc bonus.
+ARC_ORDER_PENALTY = 0.15
+CROSS_DAY_PENALTY = 0.08
 DIVERSITY_BONUS = 0.08
 MEDIA_DIVERSITY_BONUS = 0.06
 SPATIAL_CONF_BOOST = 0.06
@@ -211,6 +215,7 @@ def materialize_beat(
         "source": card.get("source") or "understand",
         "shoot_day": card.get("shoot_day"),
         "media_role": card.get("media_role"),
+        "captured_at": card.get("captured_at"),
     }
     if hint:
         beat["focus_hint"] = hint
@@ -581,12 +586,22 @@ def build_candidate_sheet(
         for i, card in enumerate(selected)
     ]
     score, reason, complete = _score_candidate(beats, style=style, target_s=target)
+    order_ok, cross_day, order_notes = beats_arc_order(beats)
+    if not order_ok:
+        score = round(score - ARC_ORDER_PENALTY, 4)
+        reason = f"{reason}; capture-order inverted"
+    elif cross_day:
+        score = round(score - CROSS_DAY_PENALTY, 4)
+        reason = f"{reason}; cross-day bookends"
+    if order_notes and not order_ok:
+        reason = f"{reason} ({order_notes[0]})"
     roles = [str(b.get("role") or "") for b in beats]
     return {
         "score": score,
         "duration_s": round(sum(float(b["duration_s"]) for b in beats), 4),
         "arc": _arc_label(roles),
         "arc_complete": complete,
+        "arc_order_ok": order_ok,
         "reason": reason,
         "beats": beats,
         "style": style,
