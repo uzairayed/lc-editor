@@ -196,7 +196,7 @@ Default `media_understand` roles are process Director roles: `before`, `wash`, `
 - `role_hint`, `score`, `reason` (metrics + role hint + margin vs runner-up)
 - `role_scores`: per-role score map used to pick the hint
 
-Scoring is role-specific (not a single `site_detail` alias): dusty/low-luma for `before`, wet-work motion for `wash`, bright sharp payoff for `after`/`polish`, tool motion for `machine`, engine audio for `engine`, sharp stills for `wheel`/`interior`/`detail`, calm wides for `skip_face`, mid-luma hero energy for `hero`. Train F (SPEC-ANA-17) further reduces wash/skip_face monopoly on silent detailing and adds a soft media-role prior.
+Scoring is role-specific (not a single `site_detail` alias): dusty/low-luma for `before`, wet-work motion for `wash`, bright sharp payoff for `after`/`polish`, tool motion for `machine`, engine audio for `engine`, sharp stills for `wheel`/`interior`/`detail`, calm wides for `skip_face`, mid-luma hero energy for `hero`. Train F/G (SPEC-ANA-17/18) reduce wash/skip_face monopoly on silent detailing via retuned scorers, soft media-role / filename / order / temporal priors, and an album diversify pass.
 
 ### Strong preference wiring
 
@@ -260,7 +260,7 @@ LC-native ranked candidate beat sheets from understand spans. Agent still locks 
 ### `highlights_suggest(target_s, style=process|reel, media_id?, refresh=false)`
 
 - Builds ranked `candidates[]` packed toward `target_s` (clamp ~8–180s; process default sense ~60s, reel ~28s when target omitted/invalid).
-- Prefers **transformation arcs**: `before` → process ASMR middle (`wash` / `engine` / `machine` / `wheel` / `interior` / `detail`) → `after` (optional `hero`). Rank complete arcs above thin or incomplete ones. Train F packs enough spans across media so a process `target_s≈60` candidate can land near 45–70s with `arc_complete`.
+- Prefers **transformation arcs**: `before` → process ASMR middle (`wash` / `engine` / `machine` / `wheel` / `interior` / `detail`) → `after` (optional `hero`). Rank complete arcs above thin or incomplete ones. Train F/G pack enough spans across media so a process `target_s≈60` candidate can land near 45–70s with `arc_complete` (Train G soft-bookends when understand collapsed to wash/engine).
 - Prefer understand cache cards (Train A–C). Fall back to `understand:{role}` shot tags; if still empty, run `media_understand` once. `refresh=true` re-runs understand first.
 - Attach soft Train D `focus_hint` when spatial cache overlaps a suggested beat.
 - Detailing is often silent: speech / transcript peaks are a soft penalty for `style=process`, never a requirement. No virality / CapCut / transcript-first podcast clipping heuristics.
@@ -315,6 +315,37 @@ A first-class per-media card (`MediaCard` on `MediaItem`): `role`, `shoot_day`, 
 - `shots_rank` pool ladder: **confirmed shot-card role > confirmed media-card role > understand-tagged spans > media role tag > full pool**. A confirmed shot override of a different role drops that shot from later pools.
 - Durable shot cards live in `{project}/shot_cards.json` (not the analysis cache). `shot_card_confirm` / `labels_clear` / `labels_undo` persist them. `label_queue`, `label_get`, `label_conflicts`, and `label_readiness` return the same resolved labels the GUI shows: confirmed shot → confirmed media card → analysis → folder hint.
 - Understand span cards with a tiny `role_hint` margin stamp `needs_confirmation: true` so `understand_timeline` surfaces uncertainty.
+## SPEC-ANA-20: soft priors + album diversify (Train G)
+
+Hard follow-up after Train F: real detailing albums still collapsed to `engine` / `machine` / `wash` / `skip_face` with **zero** `before` / `after` / `interior` / `wheel`, so packed sheets hit ~60s with `arc_complete=false`.
+
+### Soft priors (when visual cues are weak)
+
+Apply additive soft boosts before monopoly-margin mapping:
+
+1. **`media_tag(role=…)`** (`MEDIA_ROLE_PRIOR`) when the agent tagged inventory roles.
+2. **Filename / path tokens** (`FILENAME_ROLE_PRIOR`): word-boundary matches such as `before`, `after`, `wash`, `interior`, `wheel`, `engine`, `machine`.
+3. **Album order** (`ORDER_ROLE_PRIOR`): early clips bias `before`, late clips bias `after`, mid album softly prefers process / detail stills.
+4. **Temporal thirds** inside a clip (`TEMPORAL_ROLE_PRIOR`): first third → `before`, middle → process/detail, last third → `after`.
+
+When a monopoly role (`wash` / `skip_face` / `hero`) barely wins but a story role has a positive soft prior, use the wider `ROLE_MARGIN_PRIOR` to prefer the story label.
+
+### Album diversify pass
+
+After scoring an album batch, `diversify_process_album` guarantees the histogram includes ≥1 each of:
+
+- `before`
+- `wash` **or** `machine`
+- `interior` **or** `wheel`
+- `after`
+
+by promoting the best soft-prior / score candidates (early→before, late→after, sharp stills→interior/wheel). Rewrites understand cache + `understand:{role}` tags. If a class is still impossible (empty / single-span edge cases), document via span `reason` and fall back to `media_tag` priors on a re-run.
+
+### Arc packing follow-up
+
+- `highlights_suggest` soft-bookends earliest/latest monopoly spans to `before`/`after` when bookends are missing (no wash-only padding as a fake arc).
+- Complete arc = ≥1 before-class + ≥1 process-class (`wash`|`detail`|`wheel`|`interior`|`machine`|`engine`) + ≥1 after-class (`after`|`hero`).
+- Acceptance unchanged in spirit: `target_s=60` yields ≥1 candidate with `arc_complete=true` and duration in 45–70s; suggest-only; no VLM weights.
 
 ## SPEC-QLT-01: source quality floor
 
