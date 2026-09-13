@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Annotated, Literal
+
+from pydantic import Field
 
 from lc_editor.analysis.manifest import Shot, load_manifest, manifest_path, shot_id, write_manifest
 from lc_editor.analysis.media import (
@@ -66,9 +69,11 @@ from lc_editor.models import (
     FPS,
     DURATION_CAP_MAX_S,
     DURATION_CAP_S,
+    DURATION_SOFT_MIN_S,
     MIN_VIDEO_DURATION_S,
     SHOT_ACK_MIN_S,
     resolved_duration_cap_s,
+    resolved_duration_soft_max_s,
     resolved_min_video_duration_s,
     SOURCE_PROXY_H,
     SOURCE_PROXY_W,
@@ -344,9 +349,15 @@ class Editor:
         preset: str | None = None,
         loudnorm: str | None = None,
         min_video_duration_s: float | None = None,
-        duration_cap_s: float | None = None,
+        duration_cap_s: Annotated[
+            float | None,
+            Field(description="Hard duration cap in seconds. 0 resets to the default 60.0s."),
+        ] = None,
         caption_font: str | None = None,
-        caption_contrast: str | None = None,
+        caption_contrast: Annotated[
+            Literal["strict", "lenient"] | None,
+            Field(description="strict hard-fails CAP-06; lenient (default) warns only."),
+        ] = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -1822,7 +1833,9 @@ class Editor:
             "mix_warnings": [e for e in errors if "SPEC-SND" in e or "SPEC-CRAFT-06" in e],
             "transition_count": envelope(True, store.timeline, [])["timeline_summary"]["transition_count"],
             "grade": store.project.grade_preset if store.project else None,
-            "in_target_length": 15.0 <= dur <= 28.0,
+            "in_target_length": DURATION_SOFT_MIN_S
+            <= dur
+            <= resolved_duration_soft_max_s(store.project),
             "errors": errors,
             "warnings": warns,
             "zoom": {
@@ -1840,7 +1853,15 @@ class Editor:
         result["report"] = report
         return result
 
-    def export(self, op_id: str | None = None, wait: bool = True, preset: str = "reel") -> dict:
+    def export(
+        self,
+        op_id: str | None = None,
+        wait: bool = True,
+        preset: Annotated[
+            Literal["reel", "share", "phone"],
+            Field(description="reel=1080 hero; share|phone=720 delivery sidecar."),
+        ] = "reel",
+    ) -> dict:
         store = self._need()
         replay = store.replay(op_id)
         if replay is not None:

@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.app import Editor
-from lc_editor.models import DURATION_CAP_S, Project, resolved_duration_cap_s
+from lc_editor.models import (
+    DURATION_CAP_S,
+    DURATION_SOFT_MAX_S,
+    Project,
+    resolved_duration_cap_s,
+    resolved_duration_soft_max_s,
+)
 from tests.conftest import touch_media
 
 
@@ -124,6 +130,13 @@ def test_resolved_duration_cap_defaults() -> None:
     assert resolved_duration_cap_s(Project(id="p", name="r", duration_cap_s=180)) == 180.0
 
 
+def test_resolved_duration_soft_max_respects_raised_cap() -> None:
+    assert resolved_duration_soft_max_s(None) == DURATION_SOFT_MAX_S
+    assert resolved_duration_soft_max_s(Project(id="p", name="r")) == DURATION_SOFT_MAX_S
+    assert resolved_duration_soft_max_s(Project(id="p", name="r", duration_cap_s=180)) == 180.0
+    assert resolved_duration_soft_max_s(Project(id="p", name="r", duration_cap_s=20)) == DURATION_SOFT_MAX_S
+
+
 def test_spec_edit_14_project_set_duration_cap(editor: Editor) -> None:
     assert editor.project_get()["project"]["duration_cap_s"] == 60.0
     raised = editor.project_set(duration_cap_s=180)
@@ -153,7 +166,8 @@ def test_spec_edit_14_raised_cap_allows_process_length(editor: Editor, media_fil
         last = editor.clip_add(media_id=mid, duration_s=5.0)
         assert last["ok"] is True
     assert last["timeline_summary"]["duration_s"] == 130.0
-    assert any("SPEC-EDIT-15" in w for w in last["warnings"])
+    assert any("SPEC-EDIT-15" in w and "60.00s default" in w for w in last["warnings"])
+    assert not any("over 28.00s target" in w for w in last["warnings"])
     assert not any("SPEC-EDIT-14" in w for w in last["warnings"])
     for _ in range(10):
         last = editor.clip_add(media_id=mid, duration_s=5.0)
@@ -172,7 +186,23 @@ def test_spec_edit_15_soft_warning_over_28(editor: Editor, media_file: Path) -> 
         result = editor.clip_add(media_id=mid, duration_s=2.0)
     assert result["ok"] is True
     assert result["timeline_summary"]["duration_s"] == 30.0
-    assert any("SPEC-EDIT-15" in w for w in result["warnings"])
+    assert any("SPEC-EDIT-15" in w and "over 28.00s target" in w for w in result["warnings"])
+
+
+def test_spec_edit_15_raised_cap_skips_28s_target_warning(editor: Editor, media_file: Path) -> None:
+    editor.import_file(str(media_file))
+    mid = editor.media[-1].id
+    assert editor.project_set(duration_cap_s=180)["ok"] is True
+    for _ in range(8):
+        result = editor.clip_add(media_id=mid, duration_s=5.0)
+        assert result["ok"] is True
+    assert result["timeline_summary"]["duration_s"] == 40.0
+    assert not any("over 28.00s target" in w for w in result["warnings"])
+    assert not any("SPEC-EDIT-15" in w for w in result["warnings"])
+    review = editor.review_report()
+    assert review["ok"] is True
+    assert review["report"]["in_target_length"] is True
+    assert not any("over 28.00s target" in w for w in review["warnings"])
 
 
 def test_spec_edit_16_op_id_idempotent(editor: Editor, media_file: Path) -> None:

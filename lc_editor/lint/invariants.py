@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from lc_editor.models import (
     DURATION_CAP_S,
-    DURATION_SOFT_MAX_S,
     DURATION_SOFT_MIN_S,
     Project,
     Timeline,
     decorated_transition_count,
     resolved_duration_cap_s,
+    resolved_duration_soft_max_s,
     timeline_duration,
 )
 
@@ -32,8 +32,9 @@ def invariant_warnings(timeline: Timeline, project: Project | None = None) -> li
     warnings: list[str] = []
     dur = timeline_duration(timeline)
     cap = resolved_duration_cap_s(project)
-    if timeline.clips and dur > DURATION_SOFT_MAX_S:
-        warnings.append(f"SPEC-EDIT-15: duration {dur:.2f}s is over 28.00s target")
+    soft_max = resolved_duration_soft_max_s(project)
+    if timeline.clips and dur > soft_max + 1e-9:
+        warnings.append(f"SPEC-EDIT-15: duration {dur:.2f}s is over {soft_max:.2f}s target")
     if timeline.clips and dur > DURATION_CAP_S and cap > DURATION_CAP_S + 1e-9:
         warnings.append(
             f"SPEC-EDIT-15: duration {dur:.2f}s is over {DURATION_CAP_S:.2f}s default (cap {cap:.2f}s)"

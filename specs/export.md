@@ -41,7 +41,7 @@ The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540
 
 Warnings (do **not** block export): locked still over 1.40s (SPEC-CRAFT-05), CAP-06 under default `caption_contrast="lenient"`, and SPEC-QLT-01 soft sources (cover-upscales into 1080, or sub-720 with fit / fit_blur / fit_pad / letterbox / non-1080 canvas).
 
-A duration between 28s and the configured cap is a warning, not a failure. When the cap is above 60s, duration over 60s is still a SPEC-EDIT-15 warning until the configured cap. SPEC-QLT-01 never fails export. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
+A duration between the soft target and the configured cap is a warning, not a failure. Soft target is 28s by default; when `duration_cap_s` is raised above the default 60s hard cap, that cap is the soft target (SPEC-EDIT-15). When the cap is above 60s, duration over 60s is still a SPEC-EDIT-15 warning until the configured cap. SPEC-QLT-01 never fails export. `export` re-checks SPEC-EDIT-25 even if `reviewed_version` matches, so older timelines fail closed.
 
 ## SPEC-EXPORT-05: export writes two files
 

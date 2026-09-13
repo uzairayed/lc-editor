@@ -474,6 +474,19 @@ def resolved_duration_cap_s(project: Project | None) -> float:
     return min(float(raw), DURATION_CAP_MAX_S)
 
 
+def resolved_duration_soft_max_s(project: Project | None) -> float:
+    """Soft upper length target (SPEC-EDIT-15).
+
+    Default short-form target is 28.00s. When ``duration_cap_s`` is raised above
+    the default hard cap (60.00s) for process / ambient reels, that configured
+    cap is the soft target so review does not keep warning ``over 28.00s``.
+    """
+    cap = resolved_duration_cap_s(project)
+    if cap > DURATION_CAP_S + 1e-9:
+        return cap
+    return DURATION_SOFT_MAX_S
+
+
 def contrast_is_lenient(project: Project | None) -> bool:
     """Default lenient: CAP-06 warns. Set caption_contrast=strict to hard-fail."""
     if project is None:
