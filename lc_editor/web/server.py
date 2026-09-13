@@ -30,6 +30,7 @@ WRITE_TOOLS = {
     "labels_clear",
     "labels_undo",
     "media_card_confirm",
+    "media_remove",
 }
 HTTP_TOOLS = READ_TOOLS | WRITE_TOOLS
 assert WRITE_TOOLS <= set(GUI_DOMAIN_TOOLS)

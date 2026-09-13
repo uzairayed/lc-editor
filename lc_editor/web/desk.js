@@ -280,6 +280,28 @@ async function undo() {
   await refresh();
 }
 
+function setStatus(text, kind) {
+  const el = document.getElementById("status");
+  if (!el) return;
+  el.textContent = text || "";
+  el.className = kind === "bad" ? "conflict" : "muted";
+}
+
+async function deleteCurrent() {
+  const row = state.current;
+  if (!row || !row.media_id) return;
+  const name = row.filename || row.media_id;
+  if (!window.confirm(`Delete ${name} from this project?`)) return;
+  const result = await api("media_remove", { method: "POST", body: { media_id: row.media_id } });
+  if (!result.ok) {
+    setStatus((result.warnings && result.warnings[0]) || "could not delete", "bad");
+    return;
+  }
+  state.current = null;
+  setStatus("");
+  await refresh();
+}
+
 function bind() {
   document.getElementById("filters").addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-filter]");
@@ -296,6 +318,7 @@ function bind() {
   document.getElementById("skip").addEventListener("click", skip);
   document.getElementById("clear").addEventListener("click", clearCurrent);
   document.getElementById("undo").addEventListener("click", undo);
+  document.getElementById("delete").addEventListener("click", deleteCurrent);
   document.addEventListener("keydown", (e) => {
     const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement && document.activeElement.tagName);
     if (e.key === "/" && !typing) {

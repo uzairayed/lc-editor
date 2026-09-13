@@ -112,5 +112,10 @@ def test_label_http_matches_mcp_and_rejects_abuse(editor, tmp_path: Path) -> Non
         editor.project_open(str(editor.store.root))
         assert editor.shot_cards["abc_00"].role == "after"
         assert editor.media[0].card.confirmed is True
+        status, removed = _req(httpd, "POST", "/api/media_remove", {"media_id": mid})
+        assert status == 200
+        assert removed["ok"] is True
+        assert editor.media == []
+        assert "abc_00" not in editor.shot_cards
     finally:
         httpd.shutdown()

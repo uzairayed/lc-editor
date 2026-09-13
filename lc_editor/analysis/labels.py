@@ -32,6 +32,7 @@ GUI_DOMAIN_TOOLS = (
     "media_proxy",
     "media_card_confirm",
     "media_card_propose",
+    "media_remove",
 )
 
 

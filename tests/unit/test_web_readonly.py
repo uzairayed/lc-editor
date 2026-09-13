@@ -8,3 +8,4 @@ def test_spec_ses_09_web_has_no_timeline_mutations() -> None:
     assert "timeline_reset" not in HTTP_TOOLS
     assert "media_card_confirm" in WRITE_TOOLS
     assert "shot_card_confirm" in WRITE_TOOLS
+    assert "media_remove" in WRITE_TOOLS

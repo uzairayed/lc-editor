@@ -1448,7 +1448,11 @@ class Editor:
         if used:
             return envelope(False, store.timeline, [f"SPEC-SES-05: media still used by clips {used}"])
         self.media = [m for m in self.media if m.id != media_id]
+        for sid, card in list(self.shot_cards.items()):
+            if card.media_id == media_id:
+                del self.shot_cards[sid]
         self._save_media()
+        self._save_shot_cards()
         return envelope(True, store.timeline, [])
 
     def probe(self, media_id: str | None = None, path: str | None = None) -> dict:
