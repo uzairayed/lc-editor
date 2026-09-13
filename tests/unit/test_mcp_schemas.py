@@ -67,6 +67,8 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "query" in understand
     assert "budget_frames" in understand
     assert "roles" in understand
+    assert "shared_budget" in understand
+    assert "selection" in understand
     assert "kwargs" not in understand
     refine = schemas["media_understand_refine"].get("properties") or {}
     assert "media_id" in refine

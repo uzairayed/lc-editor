@@ -1,7 +1,11 @@
-"""Hierarchical cheap media understanding (Train A).
+"""Hierarchical cheap media understanding (Train A + Train B selection).
 
 Reuses the import shot index. Scores only candidate spans (keyframes already
 on disk). No full-video VLM. No large weights required.
+
+Train B swaps the default candidate picker for FOCUS/AKS-inspired adaptive
+selection (see ``lc_editor.analysis.adaptive``) while keeping Train A card
+shapes and refine APIs stable.
 """
 
 from __future__ import annotations
@@ -329,14 +333,18 @@ __all__ = [
     "DEFAULT_REFINE_BUDGET",
     "MAX_BUDGET_FRAMES",
     "MIN_BUDGET_FRAMES",
+    "QUERY_PROCESS",
     "apply_understand_tags",
     "best_role_hint",
     "card_from_shot",
+    "candidate_priority",
     "clamp_budget",
+    "coverage_indices",
     "load_understand_cache",
     "parent_shot_for_span",
     "refine_windows",
     "resolve_understand_roles",
+    "score_role_for_shot",
     "select_candidate_shots",
     "shot_has_understand_role",
     "understand_boost",
