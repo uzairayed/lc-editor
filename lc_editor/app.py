@@ -37,11 +37,26 @@ from lc_editor.analysis.rank import (
 )
 from lc_editor.analysis.shots import (
     analysis_pass_args,
+    keyframe_sharpness,
     metrics_for_span,
     parse_astats,
     parse_scdet,
     parse_signalstats,
     segment_shots,
+)
+from lc_editor.analysis.understand import (
+    DEFAULT_REFINE_BUDGET,
+    apply_understand_tags,
+    card_from_shot,
+    clamp_budget,
+    load_understand_cache,
+    parent_shot_for_span,
+    refine_windows,
+    resolve_understand_roles,
+    select_candidate_shots,
+    shot_has_understand_role,
+    understand_path,
+    write_understand_cache,
 )
 from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest
 from lc_editor.assets.user_sfx import (
@@ -858,6 +873,9 @@ class Editor:
     def _manifest_for(self, item: MediaItem) -> Path:
         return manifest_path(self._need().analysis_dir, self._proxy_key(item))
 
+    def _understand_for(self, item: MediaItem) -> Path:
+        return understand_path(self._need().analysis_dir, self._proxy_key(item))
+
     def _extract_keyframe(self, item: MediaItem, dest: Path, seek_s: float) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         src = Path(item.path)
@@ -1005,6 +1023,203 @@ class Editor:
             store.persist()
         return result
 
+    def _understand_one(
+        self,
+        item: MediaItem,
+        *,
+        roles: list[str],
+        budget: int,
+        first_media_id: str | None,
+        sizes: dict[str, tuple[int, int]],
+    ) -> tuple[list[dict], list[str]]:
+        warnings: list[str] = []
+        path = self._manifest_for(item)
+        if not path.exists():
+            count, _cached, fresh, warning = self._analyze_one(item)
+            if warning:
+                return [], [warning]
+            if count == 0:
+                return [], [f"not analyzed: {fresh.id}"]
+            item = fresh
+            path = self._manifest_for(item)
+        shots = load_manifest(path)
+        if not shots:
+            return [], [f"not analyzed: {item.id}"]
+        # Score without prior understand tags so re-runs stay stable.
+        clean = [
+            s.model_copy(
+                update={"tags": [t for t in (s.tags or []) if not str(t).startswith("understand:")]}
+            )
+            for s in shots
+        ]
+        candidates = select_candidate_shots(clean, budget)
+        cards = [
+            card_from_shot(shot, roles, first_media_id=first_media_id, sizes=sizes)
+            for shot in candidates
+        ]
+        cards.sort(key=lambda c: (-float(c["score"]), c["in_s"], c["shot_id"]))
+        tagged = apply_understand_tags(clean, cards)
+        write_manifest(path, tagged)
+        payload = {
+            "media_id": item.id,
+            "query_roles": roles,
+            "budget_frames": budget,
+            "frames_scored": len(cards),
+            "cards": [{k: v for k, v in card.items() if k != "shot_id"} for card in cards],
+            "cards_internal": cards,
+        }
+        write_understand_cache(self._understand_for(item), payload)
+        public = [{k: v for k, v in card.items() if k != "shot_id"} for card in cards]
+        return public, warnings
+
+    def media_understand(
+        self,
+        media_id: str | None = None,
+        query: str | None = None,
+        budget_frames: int | None = None,
+        roles: list[str] | None = None,
+    ) -> dict:
+        """Cheap hierarchical understanding from the import shot index.
+
+        Scores only candidate keyframes (motion / audio peaks / coverage grid).
+        Default query is process/album roles. No full-video VLM.
+        """
+        store = self._need()
+        budget = clamp_budget(budget_frames)
+        role_list = resolve_understand_roles(query=query, roles=roles)
+        targets = [self._media(media_id)] if media_id else list(self.media)
+        if not targets:
+            result = envelope(True, store.timeline, [])
+            result["spans"] = []
+            result["budget_frames"] = budget
+            result["roles"] = role_list
+            return result
+        first = self.media[0].id if self.media else None
+        sizes = {item.id: (item.width, item.height) for item in self.media}
+        spans: list[dict] = []
+        warnings: list[str] = []
+        frames_scored = 0
+        for item in targets:
+            if item.kind == "audio":
+                continue
+            cards, local_warn = self._understand_one(
+                item,
+                roles=role_list,
+                budget=budget,
+                first_media_id=first,
+                sizes=sizes,
+            )
+            warnings.extend(local_warn)
+            spans.extend(cards)
+            frames_scored += len(cards)
+        spans.sort(key=lambda c: (-float(c["score"]), c["media_id"], c["in_s"]))
+        result = envelope(True, store.timeline, warnings)
+        result["spans"] = spans
+        result["budget_frames"] = budget
+        result["frames_scored"] = frames_scored
+        result["roles"] = role_list
+        result["query"] = query or "process"
+        return result
+
+    def media_understand_refine(
+        self,
+        media_id: str,
+        in_s: float,
+        out_s: float,
+        reason: str | None = None,
+        budget_frames: int | None = None,
+    ) -> dict:
+        """Dense local re-sample inside one span when the agent is uncertain."""
+        store = self._need()
+        item = self._media(media_id)
+        budget = clamp_budget(budget_frames, default=DEFAULT_REFINE_BUDGET)
+        start = round(float(in_s), 4)
+        end = round(float(out_s), 4)
+        if end <= start:
+            result = envelope(False, store.timeline, ["out_s must be greater than in_s"])
+            result["spans"] = []
+            return result
+        path = self._manifest_for(item)
+        if not path.exists():
+            count, _cached, fresh, warning = self._analyze_one(item)
+            if warning:
+                result = envelope(False, store.timeline, [warning])
+                result["spans"] = []
+                return result
+            item = fresh
+            path = self._manifest_for(item)
+        shots = load_manifest(path)
+        windows = refine_windows(start, end, budget)
+        roles = resolve_understand_roles(query="process")
+        cached = load_understand_cache(self._understand_for(item)) or {}
+        if cached.get("query_roles"):
+            roles = list(cached["query_roles"])
+        first = self.media[0].id if self.media else None
+        sizes = {item.id: (item.width, item.height) for item in self.media}
+        cards: list[dict] = []
+        for index, (win_in, win_out) in enumerate(windows):
+            parent = parent_shot_for_span(shots, win_in, win_out)
+            if parent is None:
+                continue
+            sid = f"{self._proxy_key(item)}_u{index}_{int(win_in * 1000)}"
+            keyframe = store.keyframes_dir / f"{sid}.jpg"
+            mid = (win_in + win_out) / 2.0
+            self._extract_keyframe(item, keyframe, mid)
+            sharp = round(keyframe_sharpness(keyframe), 4)
+            metrics = parent.metrics.model_copy(
+                update={
+                    "sharpness": sharp,
+                    "blur": round(max(0.0, min(1.0, 1.0 - sharp)), 4),
+                }
+            )
+            pseudo = Shot(
+                id=sid,
+                media_id=item.id,
+                in_s=win_in,
+                out_s=win_out,
+                duration_s=round(win_out - win_in, 4),
+                keyframe=str(keyframe.resolve()),
+                metrics=metrics,
+                tags=list(parent.tags or []),
+            )
+            card = card_from_shot(pseudo, roles, first_media_id=first, sizes=sizes)
+            if reason:
+                card["reason"] = f"{reason}; {card['reason']}"
+            cards.append(card)
+        cards.sort(key=lambda c: (-float(c["score"]), c["in_s"], c.get("shot_id", "")))
+        # Prefer the best refine window's role on the parent overlapping shot.
+        if cards:
+            best = cards[0]
+            mid = (float(best["in_s"]) + float(best["out_s"])) / 2.0
+            stamped = []
+            for shot in shots:
+                tags = [t for t in (shot.tags or []) if not str(t).startswith("understand:")]
+                if shot.in_s - 1e-6 <= mid < shot.out_s + 1e-6:
+                    tag = f"understand:{best['role_hint']}"
+                    tags.append(tag)
+                stamped.append(shot.model_copy(update={"tags": tags}))
+            write_manifest(path, stamped)
+        public = [{k: v for k, v in card.items() if k != "shot_id"} for card in cards]
+        payload = {
+            **(cached or {}),
+            "media_id": item.id,
+            "refined": {
+                "in_s": start,
+                "out_s": end,
+                "reason": reason,
+                "budget_frames": budget,
+                "spans": public,
+            },
+        }
+        write_understand_cache(self._understand_for(item), payload)
+        result = envelope(True, store.timeline, [])
+        result["spans"] = public
+        result["budget_frames"] = budget
+        result["frames_scored"] = len(public)
+        result["in_s"] = start
+        result["out_s"] = end
+        return result
+
     def _load_shots(self, media_id: str | None = None) -> tuple[list[Shot], list[str]]:
         items = [self._media(media_id)] if media_id else list(self.media)
         shots: list[Shot] = []
@@ -1060,13 +1275,21 @@ class Editor:
             kind=kind,
         )
         if shoot_day is not None or role is not None:
-            allowed = {
-                item.id
-                for item in self.media
-                if (shoot_day is None or shoot_days_equal(item.shoot_day, shoot_day))
-                and (role is None or roles_equal(item.role, role))
-            }
-            filtered = [shot for shot in filtered if shot.media_id in allowed]
+            media_by_id = {item.id: item for item in self.media}
+
+            def _matches(shot: Shot) -> bool:
+                item = media_by_id.get(shot.media_id)
+                if shoot_day is not None:
+                    if item is None or not shoot_days_equal(item.shoot_day, shoot_day):
+                        return False
+                if role is not None:
+                    media_ok = item is not None and roles_equal(item.role, role)
+                    tag_ok = shot_has_understand_role(shot, str(role).strip().lower())
+                    if not media_ok and not tag_ok:
+                        return False
+                return True
+
+            filtered = [shot for shot in filtered if _matches(shot)]
         ordered = sort_shots(filtered, sort, [item.id for item in self.media])
         if limit is not None:
             ordered = ordered[: max(0, int(limit))]

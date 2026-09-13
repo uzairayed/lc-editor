@@ -12,6 +12,19 @@ from lc_editor.analysis.media import (
 )
 from lc_editor.models import SHOT_MAX_S
 
+UNDERSTAND_TAG_PREFIX = "understand:"
+UNDERSTAND_BOOST = 0.15
+
+
+def understand_boost(shot: Shot, role: str) -> float:
+    """Prefer spans stamped by media_understand for the same role."""
+    tags = shot.tags or []
+    if f"{UNDERSTAND_TAG_PREFIX}{role}" in tags:
+        return UNDERSTAND_BOOST
+    if role == "after" and f"{UNDERSTAND_TAG_PREFIX}polish" in tags:
+        return UNDERSTAND_BOOST
+    return 0.0
+
 # Narrative roles (travel / reel sections) plus process / album roles for story lock.
 NARRATIVE_ROLES = ("hook", "journey", "site_wide", "site_detail", "closer")
 PROCESS_ROLES = (
@@ -229,7 +242,7 @@ def score_shot(
     else:
         raise ValueError(role)
     width, height = _size_of(shot, sizes)
-    return score + resolution_boost(width, height)
+    return score + resolution_boost(width, height) + understand_boost(shot, role)
 
 
 def rank_shots(
