@@ -132,6 +132,29 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "strength" in blur_update
     assert "feather" in blur_update
     assert "kwargs" not in blur_update
+    sfx_import = schemas["sfx_import"].get("properties") or {}
+    assert "path" in sfx_import
+    assert "kind" in sfx_import
+    assert "source_name" in sfx_import
+    assert "license" in sfx_import
+    assert "source_url" in sfx_import
+    assert "kwargs" not in sfx_import
+    kind_blob = str(sfx_import.get("kind")).lower()
+    for tag in ("whoosh", "swipe", "sparkle", "cash", "button", "correct"):
+        assert tag in kind_blob
+    license_blob = str(sfx_import.get("license")).lower()
+    assert "cc0" in license_blob
+    sfx_pack = schemas["sfx_pack_add"].get("properties") or {}
+    assert "path" in sfx_pack
+    assert "kind" in sfx_pack
+    assert "source_name" in sfx_pack
+    assert "license" in sfx_pack
+    assert "kwargs" not in sfx_pack
+    sfx_place = schemas["sfx_place"].get("properties") or {}
+    assert "kind" in sfx_place
+    assert "key" in sfx_place
+    assert "at_s" in sfx_place
+    assert "kwargs" not in sfx_place
 
 
 def test_spec_ses_11_python_311_ok() -> None:

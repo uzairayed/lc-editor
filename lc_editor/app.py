@@ -44,6 +44,13 @@ from lc_editor.analysis.shots import (
     segment_shots,
 )
 from lc_editor.assets.pack import cube_path, ensure_assets, sfx_manifest
+from lc_editor.assets.user_sfx import (
+    attribution_path,
+    find_user_sfx,
+    import_user_sfx_file,
+    import_user_sfx_pack,
+    list_user_sfx_items,
+)
 from lc_editor.ids import new_id
 from lc_editor.fonts import FONT_ALIAS_HELP, normalize_font
 from lc_editor.lint.captions import (
@@ -87,6 +94,7 @@ from lc_editor.models import (
     SOURCE_PROXY_H,
     SOURCE_PROXY_W,
     MUSIC_KINDS,
+    Cc0SfxKind,
     AdjustmentLayer,
     BeatGrid,
     CamPip,
@@ -1772,29 +1780,109 @@ class Editor:
     def sfx_list(self) -> dict:
         store = self._need()
         items = list(sfx_manifest())
-        for extra in store.user_sfx_dir.glob("*"):
-            if extra.suffix.lower() in {".wav", ".mp3", ".aiff"}:
-                items.append({"kind": extra.stem, "file": str(extra), "user": True})
+        user_items = list_user_sfx_items(store.user_sfx_dir)
+        user_kinds = {i["kind"] for i in user_items}
+        # Imported keys win over bundled entries of the same kind.
+        items = [i for i in items if i.get("kind") not in user_kinds]
+        items.extend(user_items)
         result = envelope(True, store.timeline, [])
         result["sfx"] = items
+        result["attribution"] = str(attribution_path(store.user_sfx_dir))
         return result
 
-    def sfx_place(self, kind: str, at_s: float, gain_db: float = -12.0, auto: bool = False, key: str = "", op_id: str | None = None) -> dict:
+    def sfx_import(
+        self,
+        path: str,
+        kind: Annotated[
+            Cc0SfxKind,
+            Field(description="CC0 kind tag: whoosh, pop, click, swipe, sparkle, cash, success, paper, bubble, button, correct."),
+        ],
+        source_name: str = "",
+        license: Annotated[Literal["CC0"], Field(description="Must be CC0 (Mixkit / Pixabay / Freesound).")] = "CC0",
+        source_url: str = "",
+    ) -> dict:
         store = self._need()
-        if kind in MUSIC_KINDS or kind.startswith("music"):
+        entry, errors = import_user_sfx_file(
+            store.user_sfx_dir,
+            Path(path),
+            kind=kind,
+            source_name=source_name,
+            license=license,
+            source_url=source_url,
+        )
+        if errors or entry is None:
+            return envelope(False, store.timeline, errors or ["SPEC-SND-18: import failed"])
+        result = envelope(True, store.timeline, [])
+        result["sfx"] = entry
+        result["attribution"] = str(attribution_path(store.user_sfx_dir))
+        return result
+
+    def sfx_pack_add(
+        self,
+        path: str,
+        kind: Annotated[
+            str,
+            Field(
+                description="CC0 kind tag when path is a single file (whoosh, pop, click, swipe, sparkle, cash, success, paper, bubble, button, correct). Omit for a pack folder."
+            ),
+        ] = "",
+        source_name: str = "",
+        license: Annotated[Literal["CC0"], Field(description="Must be CC0 (Mixkit / Pixabay / Freesound).")] = "CC0",
+        source_url: str = "",
+    ) -> dict:
+        store = self._need()
+        imported, errors = import_user_sfx_pack(
+            store.user_sfx_dir,
+            Path(path),
+            kind=kind,
+            source_name=source_name,
+            license=license,
+            source_url=source_url,
+        )
+        if errors and not imported:
+            return envelope(False, store.timeline, errors)
+        result = envelope(True, store.timeline, errors)
+        result["sfx"] = imported
+        result["attribution"] = str(attribution_path(store.user_sfx_dir))
+        return result
+
+    def sfx_place(
+        self,
+        kind: str = "",
+        at_s: float = 0.0,
+        gain_db: float = -12.0,
+        auto: bool = False,
+        key: str = "",
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        place_kind = (kind or key or "").strip()
+        if not place_kind:
+            return envelope(False, store.timeline, ["SPEC-SND-02: kind or key is required"])
+        if place_kind in MUSIC_KINDS or place_kind.startswith("music"):
             return envelope(False, store.timeline, ["SPEC-SND-01: music is rejected"])
         legal = {i["kind"] for i in sfx_manifest()}
-        if kind not in legal and not (store.user_sfx_dir / f"{kind}.wav").exists():
-            return envelope(False, store.timeline, [f"unknown sfx {kind}"])
+        user_path = find_user_sfx(store.user_sfx_dir, place_kind)
+        if place_kind not in legal and user_path is None:
+            return envelope(False, store.timeline, [f"unknown sfx {place_kind}"])
         if sfx_too_hot(gain_db, store.timeline.bed_gain_db, store.timeline.bed_kind):
             return envelope(False, store.timeline, ["SPEC-SND-05: SFX must be at least 6 dB under the bed"])
 
         def apply(tl: Timeline) -> Timeline:
             from lc_editor.models import SfxPlacement
 
-            if key and any(s.key == key for s in tl.sfx):
+            # `key` alone places by imported key; with `kind`, `key` is auto-idempotency only.
+            place_key = key if kind else ""
+            if place_key and any(s.key == place_key for s in tl.sfx):
                 return tl
-            sfx = SfxPlacement(id=new_id("s"), kind=kind, at_s=at_s, gain_db=gain_db, auto=auto, key=key)
+            sfx = SfxPlacement(
+                id=new_id("s"),
+                kind=place_kind,
+                at_s=at_s,
+                gain_db=gain_db,
+                auto=auto,
+                key=place_key,
+            )
             return tl.model_copy(update={"sfx": [*tl.sfx, sfx]})
 
         return self._mutate(op_id, apply)
@@ -2047,7 +2135,7 @@ class Editor:
             allow_dense=allow_dense,
             lint_media=self._lint_media(),
         )
-        warns = review_warnings(store.timeline, store.project, media=self.media)
+        warns = review_warnings(store.timeline, store.project, media=self.media, user_sfx_dir=store.user_sfx_dir)
         dur = timeline_duration(store.timeline)
         density_relaxed, density_reason = resolve_density_allow(store.project, allow_dense)
         ok = len(errors) == 0

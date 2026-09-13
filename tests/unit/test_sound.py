@@ -136,3 +136,87 @@ def test_spec_snd_09_mix_true_peak(editor: Editor, media_file: Path) -> None:
     editor.sfx_place("whoosh", at_s=1.0, gain_db=-6.0)
     mix = editor.mix_preview()
     assert "true_peak_dbtp" in mix
+
+
+def _tiny_wav(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Minimal RIFF/WAVE header + silence; ffmpeg and place only need a real file on disk.
+    path.write_bytes(b"RIFF" + b"\x00" * 40)
+    return path
+
+
+def test_spec_snd_18_import_cc0_and_place(editor: Editor, media_file: Path, tmp_path: Path) -> None:
+    _clip(editor, media_file)
+    src = _tiny_wav(tmp_path / "mixkit-whoosh.wav")
+    imported = editor.sfx_import(
+        str(src),
+        kind="whoosh",
+        source_name="Mixkit Whoosh",
+        license="CC0",
+        source_url="https://mixkit.co/free-sound-effects/",
+    )
+    assert imported["ok"] is True, imported
+    assert imported["sfx"]["kind"] == "whoosh"
+    assert imported["sfx"]["license"] == "CC0"
+    attr = Path(imported["attribution"])
+    assert attr.name == "ATTRIBUTION.json"
+    assert attr.exists()
+    assert "Mixkit" in attr.read_text(encoding="utf-8")
+
+    listed = editor.sfx_list()
+    whoosh = next(i for i in listed["sfx"] if i["kind"] == "whoosh")
+    assert whoosh.get("imported") is True
+    assert whoosh.get("key") == "whoosh"
+    assert whoosh.get("license") == "CC0"
+    assert listed["sfx"].count(whoosh) == 1 or sum(1 for i in listed["sfx"] if i["kind"] == "whoosh") == 1
+
+    by_kind = editor.sfx_place(kind="whoosh", at_s=0.2, gain_db=-12.0)
+    assert by_kind["ok"] is True
+    by_key = editor.sfx_place(key="whoosh", at_s=0.5, gain_db=-12.0)
+    assert by_key["ok"] is True
+    review = editor.review_report()
+    assert not any("SPEC-SND-02" in w and "whoosh" in w.lower() for w in review["warnings"])
+
+
+def test_spec_snd_18_rejects_capcut_and_non_cc0(editor: Editor, tmp_path: Path) -> None:
+    bad = _tiny_wav(tmp_path / "capcut-swipe-222764.wav")
+    rejected = editor.sfx_import(str(bad), kind="swipe", source_name="Mixkit Swipe", license="CC0")
+    assert rejected["ok"] is False
+    assert any("SPEC-SND-18" in w for w in rejected["warnings"])
+
+    from lc_editor.assets.user_sfx import import_user_sfx_file
+
+    ok_src = _tiny_wav(tmp_path / "pixabay-click.wav")
+    entry, errors = import_user_sfx_file(
+        editor.store.user_sfx_dir,
+        ok_src,
+        kind="click",
+        source_name="Pixabay Click",
+        license="royalty-free",
+    )
+    assert entry is None
+    assert any("CC0" in e for e in errors)
+    missing_name = editor.sfx_import(str(ok_src), kind="click", source_name="", license="CC0")
+    assert missing_name["ok"] is False
+
+
+def test_spec_snd_18_pack_add_folder(editor: Editor, tmp_path: Path) -> None:
+    pack = tmp_path / "cc0-pack"
+    pack.mkdir()
+    _tiny_wav(pack / "button.wav")
+    _tiny_wav(pack / "cash.mp3")
+    (pack / "ATTRIBUTION.json").write_text(
+        '{"note":"test","items":[{"kind":"button","license":"CC0","source_name":"Freesound Button"},'
+        '{"kind":"cash","license":"CC0","source_name":"Mixkit Cash","source_url":"https://mixkit.co/"}]}',
+        encoding="utf-8",
+    )
+    added = editor.sfx_pack_add(str(pack))
+    assert added["ok"] is True, added
+    kinds = {i["kind"] for i in added["sfx"]}
+    assert kinds == {"button", "cash"}
+    listed = {i["kind"]: i for i in editor.sfx_list()["sfx"]}
+    assert listed["button"].get("imported") is True
+    assert listed["cash"].get("key") == "cash"
+    assert (editor.store.user_sfx_dir / "button.wav").exists()
+    assert (editor.store.user_sfx_dir / "cash.mp3").exists()
+    assert editor.sfx_place(kind="cash", at_s=0.0, gain_db=-12.0)["ok"] is True
