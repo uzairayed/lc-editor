@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from lc_editor.assets.pack import cube_path as bundled_cube
+from lc_editor.assets.user_sfx import find_user_sfx
 from lc_editor.models import (
     SOURCE_PROXY_H,
     SOURCE_PROXY_W,
@@ -637,8 +638,8 @@ def assemble(
         path = sfx_path(sfx.kind)
         if path.exists():
             sfx_files[sfx.kind] = path
-        user = store.user_sfx_dir / f"{sfx.kind}.wav"
-        if user.exists():
+        user = find_user_sfx(store.user_sfx_dir, sfx.kind)
+        if user is not None:
             sfx_files[sfx.kind] = user
     bed = None
     name = bed_asset_name(timeline.bed_kind)

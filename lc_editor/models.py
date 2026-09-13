@@ -135,6 +135,34 @@ SfxKind = Literal[
     "correct",
     "success",
 ]
+# Owner-imported CC0 tags (Mixkit / Pixabay / Freesound). Not shipped in the pip package.
+CC0_SFX_KINDS = (
+    "whoosh",
+    "pop",
+    "click",
+    "swipe",
+    "sparkle",
+    "cash",
+    "success",
+    "paper",
+    "bubble",
+    "button",
+    "correct",
+)
+Cc0SfxKind = Literal[
+    "whoosh",
+    "pop",
+    "click",
+    "swipe",
+    "sparkle",
+    "cash",
+    "success",
+    "paper",
+    "bubble",
+    "button",
+    "correct",
+]
+USER_SFX_EXTS = {".wav", ".mp3", ".aiff"}
 MEDIA_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi"}
 MEDIA_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 MEDIA_AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".aiff"}

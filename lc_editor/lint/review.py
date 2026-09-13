@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from math import ceil
+from pathlib import Path
 
 from lc_editor.lint.captions import (
     density_warnings,
@@ -32,6 +33,7 @@ from lc_editor.models import (
     timeline_duration,
 )
 from lc_editor.assets.pack import sfx_manifest
+from lc_editor.assets.user_sfx import attribution_by_kind, find_user_sfx
 from lc_editor.render.transitions import banned_transition, graph_has_wipe, transition_video
 
 
@@ -297,6 +299,7 @@ def review_warnings(
     timeline: Timeline,
     project: Project | None = None,
     media: list[MediaItem] | None = None,
+    user_sfx_dir: Path | None = None,
 ) -> list[str]:
     warns = [w for w in invariant_warnings(timeline, project) if "locked still" not in w]
     warns.extend(locked_still_issues(timeline))
@@ -313,11 +316,20 @@ def review_warnings(
         if any(track.gain_db > -3.0 for track in timeline.music):
             warns.append("SPEC-SND-15: music gain is hotter than -3 dB")
     licenses = {item["kind"]: str(item.get("license") or "").strip() for item in sfx_manifest()}
+    bundled = set(licenses)
+    attrs = attribution_by_kind(user_sfx_dir) if user_sfx_dir is not None else {}
+    for kind, meta in attrs.items():
+        lic = str(meta.get("license") or "").strip()
+        if lic:
+            licenses[kind] = lic
     seen_sfx: set[str] = set()
     for sfx in timeline.sfx:
         if sfx.kind in seen_sfx:
             continue
         seen_sfx.add(sfx.kind)
+        if user_sfx_dir is not None and find_user_sfx(user_sfx_dir, sfx.kind):
+            if sfx.kind not in attrs and sfx.kind not in bundled:
+                licenses[sfx.kind] = ""
         if not licenses.get(sfx.kind):
             warns.append(f"SPEC-SND-02: SFX {sfx.kind} has no license")
     if timeline.beat_grid and timeline.beat_grid.confidence < BEAT_CONFIDENCE_WARN:

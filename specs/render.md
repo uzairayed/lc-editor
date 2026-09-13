@@ -128,7 +128,7 @@ Soft-mask blur runs **after fit** and **before motion** so cover / fit_blur fram
 
 ### Out of scope (v1)
 
-Full tracked mocap / multi-frame optical flow, auto plate OCR, CC0 SFX, SND-12 auto-tpad.
+Full tracked mocap / multi-frame optical flow, auto plate OCR, SND-12 auto-tpad.
 
 ## SPEC-ADJ: adjustment layer
 

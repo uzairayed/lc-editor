@@ -72,6 +72,8 @@ TOOLS = [
     "caption_emphasis",
     "caption_lint",
     "sfx_list",
+    "sfx_import",
+    "sfx_pack_add",
     "sfx_place",
     "sfx_caption_auto",
     "sfx_transition_auto",

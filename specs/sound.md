@@ -36,6 +36,29 @@ Each bundled item has `duration_s`, `file`, `kind`, and a one-line `license` (`o
 
 `steps_snow` and `steps_gravel` are different waveforms (different SHA-256). Snow is a soft crunch. Gravel is a sharper multi-grain impact.
 
+## SPEC-SND-18: owner CC0 SFX import
+
+Owners may import short CC0 wav/mp3 files into the project `user-sfx/` folder so reel kinds use real stock instead of CapCut rips or Python-synth generators. Third-party audio is **never** shipped inside the pip package.
+
+Preferred sources: **Mixkit**, **Pixabay**, or **Freesound** (CC0 only). CapCut library filenames / ids are rejected.
+
+### Tools
+
+- `sfx_import(path, kind, source_name, license="CC0", source_url?)` copies one `.wav` / `.mp3` / `.aiff` to `user-sfx/{kind}{ext}` and upserts `user-sfx/ATTRIBUTION.json`.
+- `sfx_pack_add(path, kind?, source_name?, license="CC0", source_url?)` imports a single file (kind required) or a folder of `{kind}.wav|mp3` files. If the pack folder has its own `ATTRIBUTION.json`, per-kind `source_name` / `source_url` / `license` are reused.
+
+Legal `kind` tags: `whoosh`, `pop`, `click`, `swipe`, `sparkle`, `cash`, `success`, `paper`, `bubble`, `button`, `correct`.
+
+### List / place / render
+
+- `sfx_list` returns bundled items plus imported keys (`user` / `imported`, `key`, `license`, `source_name`). An imported kind replaces the bundled entry of the same name.
+- `sfx_place(kind=…)` or `sfx_place(key=…)` places by that kind tag. Render prefers the imported file over the bundled wav when present.
+- `user-sfx/ATTRIBUTION.json` is the license attribution file for the pack folder. Review still warns (SPEC-SND-02) when a non-bundled user file has no license entry.
+
+### Out of scope
+
+Vendoring Mixkit / Pixabay / Freesound binaries in `lc_editor/assets/sfx/`. Generating replacement CC0 wavs with Python synth for this path.
+
 ## SPEC-SND-03: auto tick on caption in
 
 `sfx_caption_auto` places a `tick` (or `pop`) at each caption start that does not already have an auto tick. Same call twice does not duplicate (idempotent, or no-op when already placed).
