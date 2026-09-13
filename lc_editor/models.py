@@ -91,6 +91,9 @@ SOURCE_PROXY_H = 640
 PUNCH_FRAMES = 4
 WHIP_FRAMES = 8
 CLOSE_FADE_FRAMES = 4
+FADE_FRAMES_DEFAULT = 8
+FADE_FRAMES_MIN = 4
+FADE_FRAMES_MAX = 12
 KENBURNS_ZOOM = 1.06
 PUNCH_ZOOM = 1.08
 ZOOM_HIT_FRAMES = 27
@@ -107,10 +110,13 @@ STROKE = "0x1A1410"
 STROKE_W = 3
 
 MotionKind = Literal["none", "kenburns", "punch", "zoom_in", "zoom_out", "zoom_pair"]
-TransitionKind = Literal["hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match"]
+TransitionKind = Literal["hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match", "fade"]
 DenoiseProfile = Literal["off", "outdoor", "indoor", "auto"]
-LEGAL_TRANSITIONS = ("hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
-DECORATED_TRANSITIONS = ("whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match")
+# Pack aliases: cut → hard. fade is luma crossfade (4–12 frames).
+TRANSITION_ALIASES = {"cut": "hard"}
+LEGAL_TRANSITIONS = ("hard", "whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match", "fade")
+DECORATED_TRANSITIONS = ("whip", "punch", "close_fade", "j_cut", "l_cut", "flash", "match", "fade")
+PACK_TRANSITION_KINDS = ("cut", "hard", "fade", "whip", "match", "punch", "close_fade", "j_cut", "l_cut", "flash")
 CaptionRole = Literal["title", "body"]
 BedKind = Literal["wind", "room", "none"]
 GradePreset = Literal["motovlog", "winter_trip", "neutral"]
@@ -460,6 +466,7 @@ class Timeline(BaseModel):
     beat_grid: BeatGrid | None = None
     template_id: str | None = None
     transitions: dict[str, TransitionKind] = Field(default_factory=dict)
+    transition_duration_s: dict[str, float] = Field(default_factory=dict)
     bed_kind: BedKind = "none"
     bed_gain_db: float = -6.0
     duck: bool = False

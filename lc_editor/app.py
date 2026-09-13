@@ -156,6 +156,7 @@ from lc_editor.ops.templates import apply_template, list_templates, load_templat
 from lc_editor.ops.timeline import (
     Reject,
     add_clip,
+    clip_id_for_transition_at,
     fit_clip,
     gain_clip,
     mute_clip,
@@ -175,6 +176,7 @@ from lc_editor.ops.timeline import (
     set_transition,
     set_wrap,
     set_zoom_pair,
+    source_hold_warning,
     split_clip,
     trim_clip,
 )
@@ -1164,13 +1166,34 @@ class Editor:
         video_default = min(video_target, item.duration_s or video_target)
         default_dur = DEFAULT_STILL_S if is_still else video_default
         start_in = 0.0 if in_s is None else in_s
-        if out_s is None:
-            end = start_in + (duration_s or default_dur)
+        hold_warn: str | None = None
+        if out_s is not None:
+            end = out_s
+            if not is_still and end - 1e-9 > (item.duration_s or 0.0):
+                return envelope(
+                    False,
+                    self._need().timeline,
+                    [
+                        f"SPEC-EDIT-05: out past source duration "
+                        f"(source {item.duration_s:.2f}s, requested out {end:.2f}s)"
+                    ],
+                )
+            dur = round(end - start_in, 4)
+        elif duration_s is not None:
+            dur = round(float(duration_s), 4)
+            end = round(start_in + dur, 4)
+            if not is_still:
+                avail = max(0.0, (item.duration_s or 0.0) - start_in)
+                if dur > avail + 1e-3:
+                    hold_warn = (
+                        f"SPEC-SND-12: auto-hold last frame "
+                        f"({item.duration_s:.2f}s source < {dur:.2f}s requested)"
+                    )
+        else:
+            end = start_in + default_dur
             if not is_still:
                 end = min(end, item.duration_s or end)
-        else:
-            end = out_s
-        dur = duration_s or round(end - start_in, 4)
+            dur = round(end - start_in, 4)
 
         def apply(tl: Timeline) -> Timeline:
             clip = Clip(
@@ -1184,7 +1207,10 @@ class Editor:
             )
             return add_clip(tl, clip)
 
-        return self._mutate(op_id, apply)
+        result = self._mutate(op_id, apply)
+        if hold_warn and result.get("ok"):
+            result["warnings"] = [*result.get("warnings", []), hold_warn]
+        return result
 
     def clip_remove(self, clip_id: str, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: remove_clip(tl, clip_id))
@@ -1211,7 +1237,13 @@ class Editor:
         err = video_floor_reject(clip, source, duration_s, self._need().project)
         if err:
             return envelope(False, self._need().timeline, [err])
-        return self._mutate(op_id, lambda tl: set_duration_clip(tl, clip_id, duration_s, source))
+        result = self._mutate(op_id, lambda tl: set_duration_clip(tl, clip_id, duration_s, source))
+        if result.get("ok"):
+            updated = self._clip(clip_id)
+            warn = source_hold_warning(updated, source)
+            if warn:
+                result["warnings"] = [*result.get("warnings", []), warn]
+        return result
 
     def clip_fit(self, clip_id: str, op_id: str | None = None) -> dict:
         clip = self._clip(clip_id)
@@ -1428,16 +1460,51 @@ class Editor:
     def transition_set(
         self,
         clip_id: str | None = None,
-        kind: str = "hard",
+        kind: Annotated[
+            Literal[
+                "cut",
+                "hard",
+                "fade",
+                "whip",
+                "match",
+                "punch",
+                "close_fade",
+                "j_cut",
+                "l_cut",
+                "flash",
+            ],
+            Field(
+                description=(
+                    "Pack kinds: cut (default/clear), fade (luma crossfade), whip, match. "
+                    "Legacy: hard, punch, close_fade, j_cut, l_cut, flash."
+                )
+            ),
+        ] = "cut",
         from_id: str | None = None,
+        from_clip_id: str | None = None,
+        at_s: float | None = None,
+        duration_s: float | None = None,
         op_id: str | None = None,
     ) -> dict:
-        target = clip_id or from_id
+        """Set the transition leaving a clip. Prefer section boundaries only (not every cut)."""
+        target = clip_id or from_clip_id or from_id
+        if target is None and at_s is not None:
+            try:
+                target = clip_id_for_transition_at(self._need().timeline, float(at_s))
+            except Reject as exc:
+                return envelope(False, self._need().timeline, [str(exc)])
         if not target:
-            return envelope(False, self._need().timeline, ["SPEC-EDIT-13: clip_id required"])
+            return envelope(
+                False,
+                self._need().timeline,
+                ["SPEC-EDIT-13: from_clip_id, clip_id, from_id, or at_s required"],
+            )
         if banned_transition(kind):
             return envelope(False, self._need().timeline, ["SPEC-EDIT-13: illegal transition"])
-        return self._mutate(op_id, lambda tl: set_transition(tl, target, kind))
+        return self._mutate(
+            op_id,
+            lambda tl: set_transition(tl, target, kind, duration_s=duration_s),
+        )
 
     def transition_audio_xfade(self, ms: float = 10.0, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: set_audio_xfade(tl, ms))

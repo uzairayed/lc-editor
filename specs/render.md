@@ -48,6 +48,10 @@ Filtergraph uses cubic ease in `scale=...:eval=frame`. Linear `min(1,n/12)` is `
 
 Whip is a short directional blur + slide between two clips (about 6 to 10 frames). It is not `xfade=transition=wiperight` or any wipe preset. Golden string is locked in `tests/render/`.
 
+## SPEC-RND-03b: fade
+
+Pack `fade` is a short luma crossfade (4–12 frames at 30fps, default 8) between two clips. Implemented as edge overlap + `xfade=transition=fade` so timeline duration stays the sum of clip holds. Not a wipe and not a long slideshow dissolve.
+
 ## SPEC-RND-04: close fade
 
 Closer is a **4-frame** luma fade at 30fps on the last clip only (`fade=t=out:n=4` or duration 4/30).
@@ -128,7 +132,7 @@ Soft-mask blur runs **after fit** and **before motion** so cover / fit_blur fram
 
 ### Out of scope (v1)
 
-Full tracked mocap / multi-frame optical flow, auto plate OCR, SND-12 auto-tpad.
+Full tracked mocap / multi-frame optical flow, auto plate OCR.
 
 ## SPEC-ADJ: adjustment layer
 

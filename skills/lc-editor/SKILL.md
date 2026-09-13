@@ -34,7 +34,7 @@ Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green. This is th
 
 4. **Match subjects to scene cards.** When you look at keyframes or set clip durations/roles, consult `context/INDEX.md` and read only the matching scene cards. The process is in `context/HOW.md`.
 
-5. **Build the timeline.** Use `clip_add`, trim, split, reorder, motion, and transitions. An occasional two-up is `context/scenes/pair.md`. A reel that is mostly stacks is `context/scenes/collage.md`. Two ride POVs is `context/scenes/ride-pair.md`. Add layers or apply a template if needed.
+5. **Build the timeline.** Use `clip_add`, trim, split, reorder, motion, and transitions. An occasional two-up is `context/scenes/pair.md`. A reel that is mostly stacks is `context/scenes/collage.md`. Two ride POVs is `context/scenes/ride-pair.md`. Add layers or apply a template if needed. Transitions are punctuation only: `transition_set` with `cut` (default), `fade`, `whip`, or `match` at section boundaries (process cards: before→process and process→after). Never every cut; at most 3 decorated per ≤60s reel.
 
 6. **Privacy blur after story lock.** Scan keyframes or use `shots_rank(role="skip_face")` / tagged skip. If a kept clip still shows a face or plate, call `clip_blur_add` (`kind=face|plate|region`) before review. Prefer an explicit `region` box from the frame you inspected. Never invent boxes: if unsure, ask or skip. Auto-detect is local Haar only (no cloud VLM); missing detections warn and apply nothing.
 
@@ -59,6 +59,8 @@ Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail o
 **Media:** `import_file`, `import_folder`, `media_list`, `media_tag`, `probe`
 
 **Timeline:** `clip_add`, `clip_remove`, `clip_reorder`, `clip_trim`, `clip_split`, `clip_set_duration`, `clip_fit` (duration hold), `clip_set_fit` (visual cover/letterbox), `clip_refocus`
+
+**Transitions:** `transition_set(from_clip_id|at_s, kind, duration_s?)` — `cut` (default/clear), `fade` (luma crossfade), `whip`, `match` (optional). Use at before→process and process→after only; never every cut. Cap 3 decorated. `transition_audio_xfade`
 
 **Privacy blur:** `clip_blur_add` (`face`|`plate`|`region`), `clip_blur_update`, `clip_blur_remove`, `clip_blur_list` (soft-mask after fit; SPEC-FX-11)
 

@@ -14,7 +14,6 @@ from lc_editor.models import (
     CANVAS_H,
     CANVAS_W,
     FPS,
-    WHIP_FRAMES,
     Clip,
     LayerItem,
     MediaItem,
@@ -30,7 +29,8 @@ from lc_editor.render.blurs import soft_mask_blur_chain
 from lc_editor.render.effects import compile_effects
 from lc_editor.render.motion import canvas_fit_filters, motion_chain
 from lc_editor.render.textfx import layer_drawtext
-from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter
+from lc_editor.render.transitions import close_fade_filter, flash_filter, match_filter, punch_in_filter, source_hold_filter
+from lc_editor.ops.timeline import source_hold_s
 
 
 def media_map(items: list[MediaItem]) -> dict[str, MediaItem]:
@@ -64,6 +64,7 @@ def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
             for c in timeline.clips
         ],
         "transitions": dict(timeline.transitions),
+        "transition_duration_s": dict(timeline.transition_duration_s),
         "captions": [(c.id, c.text, c.y_pct, c.role, c.enter, c.style, tuple((w.text, w.start_s, w.end_s, w.emphasis) for w in c.words)) for c in timeline.captions],
         "layers": [layer.model_dump() for layer in timeline.layers],
         "music": [m.model_dump() for m in timeline.music],
@@ -167,10 +168,19 @@ def build_assemble_command(
                 caps,
                 project,
                 last=clip.id == timeline.clips[-1].id,
-                transition=kind if kind != "whip" else None,
+                transition=kind if kind not in ("whip", "fade") else None,
             )
             if item.kind != "image":
-                trim = f"trim=start={clip.in_s}:duration={clip.duration_s},setpts=PTS-STARTPTS"
+                hold = source_hold_s(clip, item)
+                if hold > 1e-3:
+                    avail = max(0.01, clip.duration_s - hold)
+                    pad = source_hold_filter(hold)
+                    trim = (
+                        f"trim=start={clip.in_s}:duration={avail:.4f},setpts=PTS-STARTPTS,"
+                        f"{pad},setpts=PTS-STARTPTS"
+                    )
+                else:
+                    trim = f"trim=start={clip.in_s}:duration={clip.duration_s},setpts=PTS-STARTPTS"
                 filter_parts.append(f"{src}{trim},{vf}[cv{input_index}]")
             else:
                 filter_parts.append(f"{src}{vf}[cv{input_index}]")
@@ -372,33 +382,65 @@ def _join_clips(
     dest_w: int = CANVAS_W,
     dest_h: int = CANVAS_H,
 ) -> str:
-    whip_s = WHIP_FRAMES / FPS
+    from lc_editor.render.transitions import fade_frames, whip_frames
+
     current = labels[0]
     for i in range(1, len(labels)):
         prev = timeline.clips[i - 1]
         kind = timeline.transitions.get(prev.id, "hard")
+        dur_s = timeline.transition_duration_s.get(prev.id)
         nxt = labels[i]
         out = f"[j{i}]"
-        if kind == "whip" and prev.duration_s > whip_s + 0.05 and timeline.clips[i].duration_s > whip_s + 0.05:
-            a_body = f"[ab{i}]"
-            a_edge = f"[ae{i}]"
-            b_body = f"[bb{i}]"
-            b_edge = f"[be{i}]"
-            whip = f"[wh{i}]"
-            filter_parts.append(f"{current}split[as{i}a][as{i}b]")
-            filter_parts.append(
-                f"[as{i}a]trim=end={prev.duration_s - whip_s:.4f},setpts=PTS-STARTPTS{a_body}"
-            )
-            filter_parts.append(
-                f"[as{i}b]trim=start={prev.duration_s - whip_s:.4f},setpts=PTS-STARTPTS,boxblur=8:1{a_edge}"
-            )
-            filter_parts.append(f"{nxt}split[bs{i}a][bs{i}b]")
-            filter_parts.append(f"[bs{i}b]trim=end={whip_s:.4f},setpts=PTS-STARTPTS,boxblur=8:1{b_edge}")
-            filter_parts.append(f"[bs{i}a]trim=start={whip_s:.4f},setpts=PTS-STARTPTS{b_body}")
-            filter_parts.append(
-                f"{a_edge}{b_edge}hstack=inputs=2,crop={dest_w}:{dest_h}:'{dest_w}*n/{WHIP_FRAMES}':0{whip}"
-            )
-            filter_parts.append(f"{a_body}{whip}{b_body}concat=n=3:v=1:a=0{out}")
+        if kind == "whip" and prev.duration_s > 0.1 and timeline.clips[i].duration_s > 0.1:
+            frames = whip_frames(dur_s)
+            whip_s = frames / FPS
+            if prev.duration_s > whip_s + 0.05 and timeline.clips[i].duration_s > whip_s + 0.05:
+                a_body = f"[ab{i}]"
+                a_edge = f"[ae{i}]"
+                b_body = f"[bb{i}]"
+                b_edge = f"[be{i}]"
+                whip = f"[wh{i}]"
+                filter_parts.append(f"{current}split[as{i}a][as{i}b]")
+                filter_parts.append(
+                    f"[as{i}a]trim=end={prev.duration_s - whip_s:.4f},setpts=PTS-STARTPTS{a_body}"
+                )
+                filter_parts.append(
+                    f"[as{i}b]trim=start={prev.duration_s - whip_s:.4f},setpts=PTS-STARTPTS,boxblur=8:1{a_edge}"
+                )
+                filter_parts.append(f"{nxt}split[bs{i}a][bs{i}b]")
+                filter_parts.append(f"[bs{i}b]trim=end={whip_s:.4f},setpts=PTS-STARTPTS,boxblur=8:1{b_edge}")
+                filter_parts.append(f"[bs{i}a]trim=start={whip_s:.4f},setpts=PTS-STARTPTS{b_body}")
+                filter_parts.append(
+                    f"{a_edge}{b_edge}hstack=inputs=2,crop={dest_w}:{dest_h}:'{dest_w}*n/{frames}':0{whip}"
+                )
+                filter_parts.append(f"{a_body}{whip}{b_body}concat=n=3:v=1:a=0{out}")
+            else:
+                filter_parts.append(f"{current}{nxt}concat=n=2:v=1:a=0{out}")
+        elif kind == "fade" and prev.duration_s > 0.1 and timeline.clips[i].duration_s > 0.1:
+            frames = fade_frames(dur_s)
+            fade_s = frames / FPS
+            if prev.duration_s > fade_s + 0.05 and timeline.clips[i].duration_s > fade_s + 0.05:
+                a_body = f"[ab{i}]"
+                a_edge = f"[ae{i}]"
+                b_body = f"[bb{i}]"
+                b_edge = f"[be{i}]"
+                faded = f"[fd{i}]"
+                filter_parts.append(f"{current}split[as{i}a][as{i}b]")
+                filter_parts.append(
+                    f"[as{i}a]trim=end={prev.duration_s - fade_s:.4f},setpts=PTS-STARTPTS{a_body}"
+                )
+                filter_parts.append(
+                    f"[as{i}b]trim=start={prev.duration_s - fade_s:.4f},setpts=PTS-STARTPTS{a_edge}"
+                )
+                filter_parts.append(f"{nxt}split[bs{i}a][bs{i}b]")
+                filter_parts.append(f"[bs{i}b]trim=end={fade_s:.4f},setpts=PTS-STARTPTS{b_edge}")
+                filter_parts.append(f"[bs{i}a]trim=start={fade_s:.4f},setpts=PTS-STARTPTS{b_body}")
+                filter_parts.append(
+                    f"{a_edge}{b_edge}xfade=transition=fade:duration={fade_s:.4f}:offset=0{faded}"
+                )
+                filter_parts.append(f"{a_body}{faded}{b_body}concat=n=3:v=1:a=0{out}")
+            else:
+                filter_parts.append(f"{current}{nxt}concat=n=2:v=1:a=0{out}")
         else:
             filter_parts.append(f"{current}{nxt}concat=n=2:v=1:a=0{out}")
         current = out

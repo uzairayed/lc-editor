@@ -389,10 +389,22 @@ def render_clip_intermediate(
         else:
             vf = vf + "," + ",".join(extra) if vf else ",".join(extra)
     args = [ff, "-y"]
+    hold = 0.0
     if media.kind == "image":
         args += ["-loop", "1", "-t", str(clip.duration_s), "-i", media.path]
     else:
-        args += ["-ss", str(clip.in_s), "-t", str(clip.duration_s), "-i", media.path]
+        from lc_editor.ops.timeline import source_available_s, source_hold_s
+
+        hold = source_hold_s(clip, media)
+        if hold > 1e-3:
+            avail = max(0.01, source_available_s(clip, media))
+            args += ["-ss", str(clip.in_s), "-t", str(avail), "-i", media.path]
+            from lc_editor.render.transitions import source_hold_filter
+
+            pad = source_hold_filter(hold)
+            vf = f"{pad},{vf}" if vf else pad
+        else:
+            args += ["-ss", str(clip.in_s), "-t", str(clip.duration_s), "-i", media.path]
     if preview:
         args += ["-an"]
     elif clip.muted or media.kind == "image" or not media.has_audio:
