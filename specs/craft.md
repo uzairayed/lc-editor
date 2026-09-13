@@ -20,6 +20,8 @@ Hold is `max(floor, chars/18 + 0.4)` with floor 1.80s (2 or 3 lines) or 1.50s (o
 
 Target 15.00s to 28.00s (warning) for short-form. Hard cap defaults to 60.00s (reject mutation and fail review). Raised `duration_cap_s` (process / ambient) moves the soft upper target to that cap; see SPEC-EDIT-14 / SPEC-EDIT-15.
 
+**Short-form vs process:** unset preset keeps short-form defaults (60s hard / 28s soft). `preset="process"` locks agent defaults for detailing / wash / build-together cards: `duration_cap_s=180`, `caption_contrast=lenient`, `min_video_duration_s=5.0`, `allow_music=false`, `loudnorm=cinema`. See SPEC-CRAFT-07 / SPEC-EDIT-26.
+
 ## SPEC-CRAFT-05: locked still
 
 A still with `motion=none` and duration greater than **1.40s** is a **warning**, not a review failure. Process / ambient cards may hold stills about **2-3s** (SPEC-EDIT-ACK still requires >= 2.20s). Ken Burns or punch remains the default so a still reads as a clip, not a slideshow. `SPEC-EDIT-12` still warns at >= 3.00s.
@@ -32,6 +34,11 @@ SFX must sit at least 6 dB under the bed (bed treated as 0 dB when none is set).
 
 Ride wind is not a highpass-only problem. Outdoor audio uses SPEC-SND-10. SPEC-CRAFT-01 still applies.
 
-## SPEC-CRAFT-07: series is a preset
+## SPEC-CRAFT-07: series and process presets
 
-A new project has `preset: null`. Karachi branding, episode cards, and no-selfie preference live in `lc_editor/presets/karachi.json` and apply only when `project_create` / `project_set` is given `preset="karachi"`. A Murree cut must pass craft rules without that preset.
+A new project has `preset: null` (short-form defaults). Optional presets:
+
+- `karachi`: series branding / episode cards / no-selfie preference in `lc_editor/presets/karachi.json`
+- `process`: detailing / wash / build-together agent defaults in `lc_editor/presets/process.json` (`duration_cap_s=180`, lenient contrast, 5.0s video floor, music off, cinema loudnorm)
+
+Apply with `project_create` / `project_set` `preset=`. A Murree cut must pass craft rules without a series preset. A preset cannot set `allow_music` true or weaken SPEC-CRAFT rules.

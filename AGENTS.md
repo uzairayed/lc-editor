@@ -1,6 +1,6 @@
 # Agent
 
-Engine craft lives in `specs/craft.md`. Karachi episode shape lives in `instructions.md` and applies only with `preset="karachi"`.
+Engine craft lives in `specs/craft.md`. Karachi episode shape lives in `instructions.md` and applies only with `preset="karachi"`. Process / detailing cards use `preset="process"` (see SPEC-EDIT-26 / SPEC-CRAFT-07).
 
 Scene library: when you look at keyframes or set a clip's duration or role, follow `context/HOW.md`. Match subjects in `context/INDEX.md` and read only the matching cards.
 

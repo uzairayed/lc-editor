@@ -98,6 +98,12 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     contrast = project_set["caption_contrast"]
     contrast_blob = str(contrast).lower()
     assert "strict" in contrast_blob and "lenient" in contrast_blob
+    preset = project_set.get("preset")
+    preset_blob = str(preset).lower()
+    assert "process" in preset_blob and "karachi" in preset_blob
+    project_create = schemas["project_create"].get("properties") or {}
+    create_preset = str(project_create.get("preset")).lower()
+    assert "process" in create_preset and "karachi" in create_preset
     emphasis = schemas["caption_emphasis"].get("properties") or {}
     assert "word_id" in emphasis
     assert "kind" in emphasis

@@ -145,6 +145,20 @@ Video beats have a project hold floor separate from (and usually higher than) th
 
 Worked example: source 12s, `clip_set_duration` to 4.90s → `ok: false`. Source 4.00s held in full → warning only. A 1.50s still is exempt from this rule.
 
+## SPEC-EDIT-26: process preset agent defaults
+
+`project_create(preset="process")` / `project_set(preset="process")` applies one shot for detailing / wash / build-together cards:
+
+| Field | Value |
+| --- | --- |
+| `duration_cap_s` | 180 (EDIT-15 soft target follows the raised cap) |
+| `caption_contrast` | `lenient` |
+| `min_video_duration_s` | 5.0 (also relaxes ACK-02 density; `allow_dense=true` is optional) |
+| `allow_music` | `false` (owner may flip true later; preset cannot force true) |
+| `loudnorm` | `cinema` (ambient-friendly I=-16; prefer bay + whoosh audible over speech loudness) |
+
+Unset preset keeps short-form defaults (60s hard / 28s soft). Stills: ACK floor stays ≥ 2.2s; CRAFT-05 locked-still remains soft-warn only. Zoom: do not auto-punch every clip; prefer `motion_zoom_suggest` with max ~3 `zoom_pair`s per 60s (~7 per 140s).
+
 ## SPEC-EDIT-19: timeline_get is one call
 
 `timeline_get` returns the full JSON timeline in one response, plus `timeline_summary`.

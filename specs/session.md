@@ -79,9 +79,9 @@ Each MCP tool is bound to the real `Editor` method. The input schema lists named
 
 The package installs and the unit suite runs on Python 3.11 and 3.12.
 
-## SPEC-SES-12: optional series preset
+## SPEC-SES-12: optional series / process preset
 
-`project_create(preset="karachi")` and `project_set(preset="karachi")` attach the Karachi series file. `project_get` exposes `preset`. Default is `null`. A preset cannot set `allow_music` true or weaken SPEC-CRAFT rules. `template_apply("editorial"|"karachi")` expands into ordinary layers and look; it does not hide runtime behavior.
+`project_create(preset="karachi"|"process")` and `project_set(preset=…)` attach the matching file under `lc_editor/presets/`. `project_get` exposes `preset`. Default is `null` (short-form: 60s hard / 28s soft). A preset cannot set `allow_music` true or weaken SPEC-CRAFT rules. `preset="process"` also writes agent defaults (`duration_cap_s=180`, `caption_contrast=lenient`, `min_video_duration_s=5.0`, `loudnorm=cinema`, `allow_music=false`). `template_apply("editorial"|"karachi")` expands into ordinary layers and look; it does not hide runtime behavior.
 
 ## SPEC-SES-13: preview files are paths
 

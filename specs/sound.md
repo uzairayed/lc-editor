@@ -106,7 +106,7 @@ Every non-muted hero clip intermediate carries AAC 48 kHz stereo, duration padde
 
 ## SPEC-SND-17: hero loudnorm stays AAC LC 48 kHz
 
-Hero audio after loudnorm is `aac` LC, `48000`, stereo. `hero_encode_legal` fails if `-shortest` is present, sample rate is not 48000, or codec is not aac. `loudnorm="cinema"` (default, karachi) is I=-16. `loudnorm="speech"` is I=-14 / LRA=11.
+Hero audio after loudnorm is `aac` LC, `48000`, stereo. `hero_encode_legal` fails if `-shortest` is present, sample rate is not 48000, or codec is not aac. `loudnorm="cinema"` (default, karachi, **process**) is I=-16 / LRA=8 so bay ambient and whoosh stay audible under the bed. `loudnorm="speech"` is I=-14 / LRA=11 for spoken-word only.
 
 ## SPEC-SND-13: beat analysis
 
