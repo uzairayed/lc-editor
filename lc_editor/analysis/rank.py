@@ -263,27 +263,42 @@ def score_shot(
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
 ) -> float:
-    """Score a shot for a narrative or process role (Train C process heuristics)."""
+    """Score a shot for a narrative or process role (Train C/F process heuristics)."""
     metrics = shot.metrics
     role = (role or "").strip().lower()
     mapped = ROLE_SCORE_ALIAS.get(role, role)
 
     # Process / album roles: distinct heuristics so understand can label cleanly.
+    # Train F: reduce wash/skip_face/hero monopoly on silent detailing; surface
+    # before/after/interior/wheel when motion + luma/sharpness cues fit.
     if role == "before":
         # Dusty / dull: stable frame, usable sharpness, prefer lower luma (not polished).
         score = (
-            0.4 * metrics.sharpness
-            + 0.35 * (1.0 - metrics.motion)
-            + 0.25 * (1.0 - metrics.luma_mean)
+            0.35 * metrics.sharpness
+            + 0.3 * (1.0 - metrics.motion)
+            + 0.35 * (1.0 - metrics.luma_mean)
         )
+        if metrics.luma_mean <= 0.4:
+            score += 0.1
+        if metrics.motion >= 0.35:
+            score -= 0.15
     elif role == "wash":
-        # Water / foam action: motion + usable sharpness + wet-work audio.
+        # Wet-work foam/scrub: real motion + texture spread. Silent ambient OK.
+        # Do not steal sharp tool work (machine) or engine-audio bays.
         score = (
-            0.5 * metrics.motion
-            + 0.25 * metrics.sharpness
-            + 0.1 * metrics.luma_spread
-            + _audio_motion_bonus(metrics, engine_weight=0.2, ambient_weight=0.15)
+            0.45 * metrics.motion
+            + 0.15 * metrics.sharpness
+            + 0.2 * metrics.luma_spread
+            + _audio_motion_bonus(metrics, engine_weight=0.05, ambient_weight=0.18)
         )
+        if metrics.motion < 0.35:
+            score -= 0.2
+        if metrics.motion >= 0.55 and metrics.luma_spread >= 0.45:
+            score += 0.1
+        if metrics.sharpness >= 0.7 and metrics.motion < 0.6:
+            score -= 0.12
+        if metrics.audio_class == "engine":
+            score -= 0.15
     elif role == "after" or role == "polish":
         # Clean / shiny payoff: sharp, bright, calm.
         score = (
@@ -292,41 +307,82 @@ def score_shot(
             + 0.25 * (1.0 - metrics.motion)
         )
         if metrics.luma_mean >= 0.55:
+            score += 0.15
+        if metrics.luma_mean >= 0.7 and metrics.sharpness >= 0.7 and metrics.motion < 0.25:
             score += 0.12
+        if metrics.motion >= 0.35:
+            score -= 0.15
     elif role == "machine":
-        # Polisher / tool at work: motion + edge detail + engine-ish audio.
+        # Polisher / tool at work: motion + edge detail + ambient/engine audio.
         score = (
-            0.4 * metrics.motion
-            + 0.35 * metrics.sharpness
-            + 0.1 * (1.0 - metrics.blur)
-            + _audio_motion_bonus(metrics, engine_weight=0.25, ambient_weight=0.1)
+            0.35 * metrics.motion
+            + 0.4 * metrics.sharpness
+            + 0.15 * (1.0 - metrics.blur)
+            + _audio_motion_bonus(metrics, engine_weight=0.2, ambient_weight=0.12)
         )
+        if metrics.motion >= 0.35 and metrics.sharpness >= 0.55:
+            score += 0.12
+        if metrics.luma_spread >= 0.5 and metrics.sharpness < 0.55:
+            score -= 0.08  # foamy wet-work leans wash
     elif role == "wheel":
         score = (
             0.55 * metrics.sharpness
             + 0.25 * (1.0 - metrics.motion)
             + 0.2 * (1.0 - metrics.blur)
         )
+        if metrics.motion < 0.25 and metrics.sharpness >= 0.65:
+            score += 0.1
+        # Wheels usually have more local contrast than a flat cabin.
+        if 0.28 <= metrics.luma_spread <= 0.55 and metrics.sharpness >= 0.7:
+            score += 0.06
+        if metrics.luma_mean >= 0.7:
+            score -= 0.14  # bright shiny payoff leans after, not wheel
     elif role == "interior":
+        # Cabin still: sharp + flatter luma (low spread) + often dimmer.
         score = (
-            0.5 * metrics.sharpness
-            + 0.25 * (1.0 - metrics.motion)
+            0.45 * metrics.sharpness
+            + 0.2 * (1.0 - metrics.motion)
             + 0.15 * (1.0 - metrics.blur)
-            + 0.1 * (1.0 - metrics.luma_spread)
+            + 0.2 * (1.0 - metrics.luma_spread)
         )
+        if metrics.luma_spread <= 0.3 and metrics.sharpness >= 0.55:
+            score += 0.12
+        elif metrics.luma_spread > 0.4:
+            score -= 0.1
+        if metrics.luma_mean <= 0.45:
+            score += 0.05
+        if metrics.motion >= 0.3:
+            score -= 0.12
+        if metrics.luma_mean >= 0.7:
+            score -= 0.12
     elif role == "engine":
-        score = 0.65 * metrics.motion + _audio_motion_bonus(metrics, engine_weight=0.5, ambient_weight=0.05)
+        score = 0.55 * metrics.motion + _audio_motion_bonus(
+            metrics, engine_weight=0.55, ambient_weight=0.02
+        )
+        if metrics.audio_class == "engine":
+            score += 0.1
+        else:
+            score -= 0.12
     elif role == "hero":
         energy = 1.0 - abs(metrics.luma_mean - 0.5) * 2.0
-        score = 0.5 * metrics.sharpness + 0.3 * max(0.0, energy) + 0.2 * metrics.luma_spread
+        score = 0.45 * metrics.sharpness + 0.3 * max(0.0, energy) + 0.15 * metrics.luma_spread
+        # Hero is a still presentational beat, not scrubbing / tool motion.
+        if metrics.motion >= 0.3:
+            score -= 0.25
         if first_media_id and shot.media_id == first_media_id and metrics.motion > 0.5:
             score -= 0.4
     elif role == "skip_face":
+        # Calm wide only: high spread, low motion. Sharp detail stills are not skip.
         score = (
-            0.45 * (1.0 - metrics.motion)
-            + 0.35 * metrics.luma_spread
-            + 0.2 * (1.0 - metrics.blur)
+            0.35 * (1.0 - metrics.motion)
+            + 0.45 * metrics.luma_spread
+            + 0.1 * (1.0 - metrics.blur)
+            + 0.1 * (1.0 - metrics.sharpness)
         )
+        if metrics.luma_spread < 0.5:
+            score -= 0.18
+        if metrics.sharpness >= 0.65:
+            score -= 0.15
     elif role == "detail":
         score = 0.7 * metrics.sharpness + 0.3 * (1.0 - metrics.motion)
     elif mapped == "hook" or role == "hook":

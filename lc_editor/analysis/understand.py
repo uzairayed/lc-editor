@@ -12,6 +12,10 @@ builds Director story cards via ``build_understand_timeline``.
 
 Train D (LENS-lite) lives in ``lc_editor.analysis.spatial``: spatial densify
 and soft ``focus_x``/``focus_y`` hints for busy high-value spans.
+
+Train F retunes PROCESS_ROLES scoring / mapping so silent detailing albums
+surface before/after/interior/wheel (not wash/skip_face monopolies) and
+feeds denser role hints into highlights packing.
 """
 
 from __future__ import annotations
@@ -72,6 +76,15 @@ ROLE_REASON_HINTS = {
     "skip_face": "calm wide / skip face",
     "detail": "sharp still detail",
 }
+
+# Soft prior when media_tag(role=…) matches a process role (Train F).
+MEDIA_ROLE_PRIOR = 0.14
+# Prefer story labels over monopoly roles when scores are within this margin.
+ROLE_MARGIN_PREFER = 0.06
+MONOPOLY_ROLES = frozenset({"wash", "skip_face", "hero"})
+# Close-score story roles that should beat wash/skip_face/hero monopolies.
+# Exclude machine/engine: they compete on motion and must win on their own score.
+STORY_DETAIL_ROLES = frozenset({"before", "after", "interior", "wheel"})
 
 
 def clamp_budget(budget_frames: int | None, default: int = DEFAULT_BUDGET_FRAMES) -> int:
@@ -152,20 +165,45 @@ def role_scores_for_shot(
     }
 
 
+def _normalize_media_role(media_role: str | None) -> str | None:
+    if not media_role:
+        return None
+    text = str(media_role).strip().lower()
+    if text == "polish":
+        return "after"
+    return text or None
+
+
 def best_role_hint(
     shot: Shot,
     roles: list[str],
     *,
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
+    media_role: str | None = None,
 ) -> tuple[str, float]:
-    best_role = roles[0] if roles else "detail"
-    best_score = float("-inf")
+    """Pick the best process role for a span (Train F anti-monopoly mapping)."""
+    if not roles:
+        return "detail", 0.0
+    adjusted: dict[str, float] = {}
     for role in roles:
-        score = score_role_for_shot(shot, role, first_media_id=first_media_id, sizes=sizes)
-        if score > best_score or (score == best_score and role < best_role):
-            best_score = score
-            best_role = role
+        adjusted[role] = float(
+            score_role_for_shot(shot, role, first_media_id=first_media_id, sizes=sizes)
+        )
+    prior = _normalize_media_role(media_role)
+    if prior and prior in adjusted:
+        adjusted[prior] = adjusted[prior] + MEDIA_ROLE_PRIOR
+
+    ranked = sorted(adjusted.items(), key=lambda kv: (-kv[1], kv[0]))
+    best_role, best_score = ranked[0]
+    # When wash/skip_face/hero barely win, prefer a story role with close score.
+    if best_role in MONOPOLY_ROLES and len(ranked) > 1:
+        for role, score in ranked[1:]:
+            if role not in STORY_DETAIL_ROLES:
+                continue
+            if best_score - score <= ROLE_MARGIN_PREFER:
+                best_role, best_score = role, score
+            break
     return best_role, best_score
 
 
@@ -295,9 +333,16 @@ def card_from_shot(
     *,
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
+    media_role: str | None = None,
 ) -> dict:
     scores = role_scores_for_shot(shot, roles, first_media_id=first_media_id, sizes=sizes)
-    role, score = best_role_hint(shot, roles, first_media_id=first_media_id, sizes=sizes)
+    role, score = best_role_hint(
+        shot,
+        roles,
+        first_media_id=first_media_id,
+        sizes=sizes,
+        media_role=media_role,
+    )
     return {
         "media_id": shot.media_id,
         "in_s": round(float(shot.in_s), 4),
@@ -308,6 +353,7 @@ def card_from_shot(
         "reason": reason_for(shot, role, score, role_scores=scores),
         "role_scores": scores,
         "shot_id": shot.id,
+        "media_role": _normalize_media_role(media_role),
     }
 
 

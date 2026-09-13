@@ -1,9 +1,11 @@
-"""Train E: LC-native beat sheet suggestions from understand spans.
+"""Train E/F: LC-native beat sheet suggestions from understand spans.
 
 ``highlights_suggest`` ranks candidate beat sheets for the agent. Prefer
 transformation arcs (before → process ASMR → after) over virality or
 transcript hacks. Detailing is often silent: do not require speech peaks.
-Suggest only; never mutate the timeline or auto-export.
+Train F packs enough spans across media toward ``target_s`` (~60s process)
+so complete arcs land near 45–70s. Suggest only; never mutate the timeline
+or auto-export.
 """
 
 from __future__ import annotations
@@ -42,10 +44,15 @@ MAX_CANDIDATES = 3
 # Speech / transcript-style peaks are a soft penalty for process arcs
 # (detailing ASMR is often silent). Never a hard filter.
 SPEECH_PENALTY = 0.18
-ARC_COMPLETE_BONUS = 0.55
-ARC_PARTIAL_BONUS = 0.22
+ARC_COMPLETE_BONUS = 0.7
+ARC_PARTIAL_BONUS = 0.18
 DIVERSITY_BONUS = 0.08
+MEDIA_DIVERSITY_BONUS = 0.06
 SPATIAL_CONF_BOOST = 0.06
+# Train F: pack enough spans to approach target without thin incomplete sheets.
+DURATION_BAND_LO = 0.75
+DURATION_BAND_HI = 1.17
+TARGET_PACK_BONUS = 0.2
 
 
 def normalize_style(style: str | None) -> str:
@@ -235,44 +242,108 @@ def _bucket_cards(cards: list[dict], style: str) -> dict[str, list[dict]]:
     return buckets
 
 
+def _card_key(card: dict) -> tuple:
+    return (
+        str(card.get("media_id") or ""),
+        round(float(card.get("in_s") or 0.0), 2),
+        round(float(card.get("out_s") or 0.0), 2),
+    )
+
+
 def _pick_diverse(process_cards: list[dict], n: int, style: str) -> list[dict]:
-    """Greedy pick: prefer distinct roles, then score (speech-penalized)."""
+    """Greedy pick: prefer distinct roles and media, then score (speech-penalized)."""
     if n <= 0 or not process_cards:
         return []
     picked: list[dict] = []
     used_roles: set[str] = set()
+    used_media: set[str] = set()
     used_keys: set[tuple] = set()
 
-    def key_of(card: dict) -> tuple:
-        return (
-            str(card.get("media_id") or ""),
-            round(float(card.get("in_s") or 0.0), 2),
-            round(float(card.get("out_s") or 0.0), 2),
-        )
+    def take(card: dict) -> None:
+        picked.append(card)
+        used_roles.add(normalize_role(str(card.get("role_hint") or card.get("role") or "")))
+        mid = str(card.get("media_id") or "")
+        if mid:
+            used_media.add(mid)
+        used_keys.add(_card_key(card))
 
     # Pass 1: unique roles.
     for card in process_cards:
         role = normalize_role(str(card.get("role_hint") or card.get("role") or ""))
         if role in used_roles:
             continue
-        k = key_of(card)
-        if k in used_keys:
+        if _card_key(card) in used_keys:
             continue
-        picked.append(card)
-        used_roles.add(role)
-        used_keys.add(k)
+        take(card)
         if len(picked) >= n:
             return picked
-    # Pass 2: fill remaining by score.
+    # Pass 2: new media_ids (album packing across clips).
     for card in process_cards:
         if len(picked) >= n:
             break
-        k = key_of(card)
-        if k in used_keys:
+        mid = str(card.get("media_id") or "")
+        if mid and mid in used_media:
             continue
-        picked.append(card)
-        used_keys.add(k)
+        if _card_key(card) in used_keys:
+            continue
+        take(card)
+    # Pass 3: fill remaining by score (prefer longer usable spans).
+    ranked = sorted(
+        process_cards,
+        key=lambda c: (
+            -min(SHOT_MAX_S, _span_duration(c)),
+            _speech_penalty(c, style) - _card_score(c),
+            str(c.get("media_id") or ""),
+            float(c.get("in_s") or 0.0),
+        ),
+    )
+    for card in ranked:
+        if len(picked) >= n:
+            break
+        if _card_key(card) in used_keys:
+            continue
+        take(card)
     return picked
+
+
+def _mean_usable_span(cards: list[dict]) -> float:
+    if not cards:
+        return beat_ideal_s("process", "process")
+    lengths = [min(SHOT_MAX_S, max(0.5, _span_duration(c))) for c in cards]
+    return sum(lengths) / len(lengths)
+
+
+def process_count_for_target(
+    target_s: float,
+    *,
+    style: str,
+    process_cards: list[dict],
+    has_before: bool,
+    has_after: bool,
+    include_hero: bool,
+    has_hero: bool,
+    requested: int | None = None,
+) -> int:
+    """How many process spans to pack so duration can approach target_s."""
+    if not process_cards:
+        return 0
+    reserved = 0.0
+    if has_before:
+        reserved += beat_floor_s(style, "before")
+    if has_after:
+        reserved += beat_floor_s(style, "after")
+    if include_hero and has_hero:
+        reserved += beat_floor_s(style, "hero")
+    remain = max(0.0, float(target_s) - reserved)
+    mean_span = max(beat_floor_s(style, "process"), _mean_usable_span(process_cards))
+    needed = max(1, int(round(remain / mean_span))) if remain > 0 else 1
+    # Prefer a real ASMR middle when bookends exist.
+    if has_before and has_after:
+        needed = max(needed, 2)
+    cap = len(process_cards)
+    if requested is not None:
+        needed = max(needed, int(requested))
+    return max(1, min(cap, needed))
 
 
 def _allocate_durations(
@@ -374,6 +445,10 @@ def _score_candidate(
     speech_cost = SPEECH_PENALTY * (speech_hits / len(beats)) if style == "process" else 0.0
     roles = [str(b.get("role") or "") for b in beats if b.get("section") == "process"]
     diversity = DIVERSITY_BONUS * (len(set(roles)) / max(1, len(roles))) if roles else 0.0
+    media_ids = [str(b.get("media_id") or "") for b in beats if b.get("media_id")]
+    media_div = (
+        MEDIA_DIVERSITY_BONUS * (len(set(media_ids)) / max(1, len(media_ids))) if media_ids else 0.0
+    )
     spatial = 0.0
     for b in beats:
         hint = b.get("focus_hint") or {}
@@ -382,10 +457,18 @@ def _score_candidate(
     spatial /= max(1, len(beats))
 
     duration = sum(float(b.get("duration_s") or 0.0) for b in beats)
-    length_fit = max(0.0, 1.0 - abs(duration - target_s) / max(target_s, 1.0)) * 0.12
+    length_fit = max(0.0, 1.0 - abs(duration - target_s) / max(target_s, 1.0)) * 0.15
+    in_band = DURATION_BAND_LO * target_s <= duration <= DURATION_BAND_HI * target_s
+    pack_bonus = TARGET_PACK_BONUS if (complete and in_band) else 0.0
+    # Thin incomplete sheets (e.g. engine→wash at ~14s for a 60s target) rank down hard.
+    thin_penalty = 0.0
+    if style == "process" and target_s >= 40.0 and duration < target_s * 0.4:
+        thin_penalty = 0.35
+    if style == "process" and not complete:
+        thin_penalty += 0.2
 
     bonus = ARC_COMPLETE_BONUS if complete else (ARC_PARTIAL_BONUS if partial else 0.0)
-    score = mean + bonus + diversity + spatial + length_fit - speech_cost
+    score = mean + bonus + diversity + media_div + spatial + length_fit + pack_bonus - speech_cost - thin_penalty
 
     if complete:
         reason = "transformation arc: before → process ASMR → after"
@@ -399,7 +482,27 @@ def _score_candidate(
         reason = "ranked spans (incomplete transformation arc)"
     if style == "reel" and complete:
         reason = "reel target with transformation arc (not transcript/virality)"
+    if complete and in_band:
+        reason = f"{reason}; packed toward {target_s:.0f}s"
     return round(score, 4), reason, complete
+
+
+def _apply_media_role_bookends(cards: list[dict]) -> list[dict]:
+    """When media is tagged before/after, prefer that label over monopoly hints."""
+    out: list[dict] = []
+    monopoly = frozenset({"wash", "skip_face", "hero", "engine"})
+    for card in cards:
+        media_role = normalize_role(str(card.get("media_role") or ""))
+        role_hint = normalize_role(str(card.get("role_hint") or card.get("role") or ""))
+        if media_role in BEFORE_ROLES and role_hint in monopoly | PROCESS_ROLES:
+            out.append({**card, "role_hint": "before"})
+        elif media_role in AFTER_ROLES and role_hint in monopoly | PROCESS_ROLES | BEFORE_ROLES:
+            out.append({**card, "role_hint": "after"})
+        elif media_role == "polish" and role_hint in monopoly | PROCESS_ROLES | BEFORE_ROLES:
+            out.append({**card, "role_hint": "after"})
+        else:
+            out.append(card)
+    return out
 
 
 def build_candidate_sheet(
@@ -414,27 +517,24 @@ def build_candidate_sheet(
     """One ranked beat sheet packed toward target_s. None if no usable cards."""
     style = normalize_style(style)
     target = clamp_target_s(target_s, style)
+    cards = _apply_media_role_bookends(cards)
     buckets = _bucket_cards(cards, style)
     selected: list[dict] = []
 
     if buckets["before"]:
         selected.append(buckets["before"][0])
-    process_n = max(1, process_count) if buckets["process"] else 0
-    # Leave room for before/after/(hero).
-    reserved = 0.0
-    if buckets["before"]:
-        reserved += beat_floor_s(style, "before")
-    if buckets["after"]:
-        reserved += beat_floor_s(style, "after")
-    if include_hero and buckets["hero"]:
-        reserved += beat_floor_s(style, "hero")
-    remain = max(0.0, target - reserved)
-    if process_n and remain > 0:
-        ideal = beat_ideal_s(style, "process")
-        fit = max(1, min(process_n, int(remain // max(beat_floor_s(style, "process"), 1.0))))
-        # Prefer at least 2 process beats when the target allows a real ASMR middle.
-        if remain >= beat_floor_s(style, "process") * 2:
-            fit = max(fit, min(2, len(buckets["process"])))
+
+    fit = process_count_for_target(
+        target,
+        style=style,
+        process_cards=buckets["process"],
+        has_before=bool(buckets["before"]),
+        has_after=bool(buckets["after"]),
+        include_hero=include_hero,
+        has_hero=bool(buckets["hero"]),
+        requested=process_count,
+    )
+    if fit:
         selected.extend(_pick_diverse(buckets["process"], fit, style))
     if buckets["after"]:
         selected.append(buckets["after"][0])
@@ -455,6 +555,17 @@ def build_candidate_sheet(
         selected = ranked[: max(1, min(4, len(ranked)))]
     if not selected:
         return None
+
+    # Deduplicate identical spans (keep first: before → process → after order).
+    deduped: list[dict] = []
+    seen: set[tuple] = set()
+    for card in selected:
+        key = _card_key(card)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(card)
+    selected = deduped
 
     sections = [
         section_for_role(
@@ -494,20 +605,31 @@ def suggest_highlight_sheets(
     """Ranked candidate beat sheets. Highest score first. Suggest-only."""
     style = normalize_style(style)
     target = clamp_target_s(target_s, style)
+    buckets = _bucket_cards(_apply_media_role_bookends(cards), style)
+    auto_n = process_count_for_target(
+        target,
+        style=style,
+        process_cards=buckets["process"],
+        has_before=bool(buckets["before"]),
+        has_after=bool(buckets["after"]),
+        include_hero=False,
+        has_hero=bool(buckets["hero"]),
+        requested=None,
+    )
     variants: list[tuple[int, bool, str]] = []
     if style == "process":
         variants = [
-            (3, False, "primary"),
-            (4, False, "rich_process"),
-            (2, True, "compact_hero"),
-            (2, False, "compact"),
+            (max(3, auto_n), False, "primary_pack"),
+            (max(4, auto_n + 1), False, "rich_process"),
+            (max(2, auto_n - 1), True, "compact_hero"),
+            (max(5, auto_n), True, "long_hero"),
+            (max(2, min(3, auto_n)), False, "compact"),
             (1, False, "minimal"),
-            (5, True, "long_hero"),
         ]
     else:
         variants = [
-            (2, False, "primary"),
-            (3, False, "rich"),
+            (max(2, min(auto_n, 4)), False, "primary"),
+            (max(3, min(auto_n, 5)), False, "rich"),
             (1, True, "hook_hero"),
             (2, True, "reel_hero"),
             (1, False, "minimal"),
@@ -535,7 +657,14 @@ def suggest_highlight_sheets(
         seen_arcs.add(sig)
         sheets.append(sheet)
 
-    sheets.sort(key=lambda s: (-float(s["score"]), -int(s["arc_complete"]), s["duration_s"]))
+    # Prefer complete arcs packed near target, then score.
+    sheets.sort(
+        key=lambda s: (
+            -int(s["arc_complete"]),
+            -float(s["score"]),
+            abs(float(s["duration_s"]) - target),
+        )
+    )
     out: list[dict] = []
     for i, sheet in enumerate(sheets[: max(1, max_candidates)]):
         row = dict(sheet)
@@ -563,6 +692,7 @@ __all__ = [
     "materialize_beat",
     "normalize_role",
     "normalize_style",
+    "process_count_for_target",
     "section_for_role",
     "suggest_highlight_sheets",
 ]

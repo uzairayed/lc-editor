@@ -1095,7 +1095,13 @@ class Editor:
             embedder=optional_embedder(),
         )
         cards = [
-            card_from_shot(shot, roles, first_media_id=first_media_id, sizes=sizes)
+            card_from_shot(
+                shot,
+                roles,
+                first_media_id=first_media_id,
+                sizes=sizes,
+                media_role=item.role,
+            )
             for shot in candidates
         ]
         cards.sort(key=lambda c: (-float(c["score"]), c["in_s"], c["shot_id"]))
@@ -1287,7 +1293,9 @@ class Editor:
                 metrics=metrics,
                 tags=list(parent.tags or []),
             )
-            card = card_from_shot(pseudo, roles, first_media_id=first, sizes=sizes)
+            card = card_from_shot(
+                pseudo, roles, first_media_id=first, sizes=sizes, media_role=item.role
+            )
             if spatial:
                 card = annotate_span_spatial(card, keyframe)
             if reason:
@@ -1397,7 +1405,9 @@ class Editor:
                 if parent is None:
                     warnings.append(f"no shot for span on {item.id}")
                     continue
-                seed = card_from_shot(parent, roles, first_media_id=first, sizes=sizes)
+                seed = card_from_shot(
+                    parent, roles, first_media_id=first, sizes=sizes, media_role=item.role
+                )
                 seed["in_s"] = start
                 seed["out_s"] = end
                 work_spans = [annotate_span_spatial(seed)]
@@ -1444,7 +1454,9 @@ class Editor:
                         metrics=metrics,
                         tags=list(parent.tags or []),
                     )
-                    card = card_from_shot(pseudo, roles, first_media_id=first, sizes=sizes)
+                    card = card_from_shot(
+                        pseudo, roles, first_media_id=first, sizes=sizes, media_role=item.role
+                    )
                     card = annotate_span_spatial(card, keyframe)
                     if reason:
                         card["reason"] = f"{reason}; {card['reason']}"

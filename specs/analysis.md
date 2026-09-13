@@ -196,7 +196,7 @@ Default `media_understand` roles are process Director roles: `before`, `wash`, `
 - `role_hint`, `score`, `reason` (metrics + role hint + margin vs runner-up)
 - `role_scores`: per-role score map used to pick the hint
 
-Scoring is role-specific (not a single `site_detail` alias): dusty/low-luma for `before`, wet-work motion for `wash`, bright sharp payoff for `after`/`polish`, tool motion for `machine`, engine audio for `engine`, sharp stills for `wheel`/`interior`/`detail`, calm wides for `skip_face`, mid-luma hero energy for `hero`.
+Scoring is role-specific (not a single `site_detail` alias): dusty/low-luma for `before`, wet-work motion for `wash`, bright sharp payoff for `after`/`polish`, tool motion for `machine`, engine audio for `engine`, sharp stills for `wheel`/`interior`/`detail`, calm wides for `skip_face`, mid-luma hero energy for `hero`. Train F (SPEC-ANA-17) further reduces wash/skip_face monopoly on silent detailing and adds a soft media-role prior.
 
 ### Strong preference wiring
 
@@ -260,7 +260,7 @@ LC-native ranked candidate beat sheets from understand spans. Agent still locks 
 ### `highlights_suggest(target_s, style=process|reel, media_id?, refresh=false)`
 
 - Builds ranked `candidates[]` packed toward `target_s` (clamp ~8–180s; process default sense ~60s, reel ~28s when target omitted/invalid).
-- Prefers **transformation arcs**: `before` → process ASMR middle (`wash` / `engine` / `machine` / `wheel` / `interior` / `detail`) → `after` (optional `hero`). Rank complete arcs above thin or incomplete ones.
+- Prefers **transformation arcs**: `before` → process ASMR middle (`wash` / `engine` / `machine` / `wheel` / `interior` / `detail`) → `after` (optional `hero`). Rank complete arcs above thin or incomplete ones. Train F packs enough spans across media so a process `target_s≈60` candidate can land near 45–70s with `arc_complete`.
 - Prefer understand cache cards (Train A–C). Fall back to `understand:{role}` shot tags; if still empty, run `media_understand` once. `refresh=true` re-runs understand first.
 - Attach soft Train D `focus_hint` when spatial cache overlaps a suggested beat.
 - Detailing is often silent: speech / transcript peaks are a soft penalty for `style=process`, never a requirement. No virality / CapCut / transcript-first podcast clipping heuristics.
@@ -271,6 +271,24 @@ Each candidate includes `rank`, `score`, `duration_s`, `arc`, `arc_complete`, `r
 ### MCP surface
 
 `highlights_suggest` is registered in `TOOLS` with named fields `target_s`, `style`, `media_id`, `refresh`.
+
+## SPEC-ANA-17: role diversity + arc packing (Train F)
+
+Follow-up after Train A–E acceptance: detailing albums must not collapse to `wash` / `skip_face`, and `highlights_suggest` must pack complete transformation arcs toward `target_s` (~60s process).
+
+### Role labeling (PROCESS_ROLES)
+
+- Keep role-specific scorers. Tighten `wash` (needs real motion + texture; ambient OK; do not steal sharp tool work or engine-audio). Restrict `skip_face` to calm **wides** (high luma spread; sharp stills are not skip). `hero` loses to scrubbing / tool motion. Strengthen `before` (low luma calm), `after`/`polish` (bright sharp calm), `interior` (flat cabin luma), `wheel` (sharp still with local contrast).
+- Soft `media_tag(role=…)` prior (`MEDIA_ROLE_PRIOR`) biases ambiguous spans toward the tagged process role.
+- Close-score mapping prefers `before` / `after` / `interior` / `wheel` over bare `wash` / `skip_face` / `hero` monopolies when margins are tiny.
+- Silent detailing is first-class: no speech / VLM requirement. No required large weights.
+
+### Arc packing (`highlights_suggest`)
+
+- Prefer full `before` → process ASMR middle → `after` (+ optional `hero`). Rank `arc_complete=true` above thin incomplete sheets (e.g. `engine→wash` at ~14s).
+- Pack toward `target_s` by selecting enough spans across media (role + media diversity), not by stretching one short window. Process default sense remains ~60s.
+- Acceptance: `highlights_suggest(target_s=60, style=process)` returns ≥1 candidate with `arc_complete≈true` and `duration_s` within ~45–70s when the album has bookends + process spans.
+- Still suggest-only: no timeline mutate, no auto-export, no VLM weights in the pip path.
 
 ## SPEC-QLT-01: source quality floor
 
