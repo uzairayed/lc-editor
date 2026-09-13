@@ -1,0 +1,27 @@
+{
+  "id": "process",
+  "schema_version": 2,
+  "kind": "process",
+  "grade": "neutral",
+  "duration_cap_s": 180,
+  "caption_contrast": "lenient",
+  "min_video_duration_s": 5.0,
+  "allow_music": false,
+  "loudnorm": "cinema",
+  "density": "relaxed_via_min_video_duration_s",
+  "zoom": {
+    "auto_punch": false,
+    "max_pairs_per_60s": 3,
+    "prefer": "motion_zoom_suggest"
+  },
+  "stills": {
+    "ack_floor_s": 2.2,
+    "locked_still": "craft_05_soft_warn"
+  },
+  "notes": [
+    "Detailing / wash / build-together process cards.",
+    "loudnorm=cinema (I=-16 LRA=8) so bay ambient + whoosh stay audible; use speech only for spoken-word.",
+    "Density ACK-02 is skipped while min_video_duration_s >= 5.0; allow_dense=true is optional.",
+    "Do not auto-punch every clip; use motion_zoom_suggest (budget ~3 pairs / 60s)."
+  ]
+}

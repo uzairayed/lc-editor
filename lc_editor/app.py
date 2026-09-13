@@ -68,7 +68,7 @@ from lc_editor.lint.review import (
     video_floor_reject,
     zoom_suggestions,
 )
-from lc_editor.presets import load_preset
+from lc_editor.presets import load_preset, project_fields_from_preset
 from lc_editor.analysis.beats import analyze_beats
 from lc_editor.migrate import sync_caption_layers
 from lc_editor.models import (
@@ -290,7 +290,10 @@ class Editor:
         width: int | None = None,
         height: int | None = None,
         project_dir: str | None = None,
-        preset: str | None = None,
+        preset: Annotated[
+            Literal["karachi", "process"] | None,
+            Field(description="Optional project preset: karachi (series) or process (detailing/wash cards)."),
+        ] = None,
         op_id: str | None = None,
     ) -> dict:
         canvas = resolve_canvas(aspect, width, height)
@@ -305,7 +308,7 @@ class Editor:
         root.mkdir(parents=True, exist_ok=True)
         store = Store(root)
         applied = None
-        grade = "neutral"
+        fields: dict = {}
         if preset:
             try:
                 applied = load_preset(preset)
@@ -315,7 +318,7 @@ class Editor:
                     "timeline_summary": self._summary(),
                     "warnings": [f"unknown preset {preset}"],
                 }
-            grade = applied.get("grade") or "neutral"
+            fields = project_fields_from_preset(applied)
         project = Project(
             id=new_id("p"),
             name=name,
@@ -323,9 +326,13 @@ class Editor:
             width=canvas_w,
             height=canvas_h,
             root=str(root),
-            allow_music=False,
+            allow_music=fields.get("allow_music", False),
             preset=preset,
-            grade_preset=grade if grade in ("motovlog", "winter_trip", "neutral") else "neutral",
+            grade_preset=fields.get("grade_preset", "neutral"),
+            duration_cap_s=fields.get("duration_cap_s", DURATION_CAP_S),
+            caption_contrast=fields.get("caption_contrast", "lenient"),
+            min_video_duration_s=fields.get("min_video_duration_s", MIN_VIDEO_DURATION_S),
+            loudnorm=fields.get("loudnorm", "cinema"),
         )
         store.init_project(project)
         self.store = store
@@ -354,7 +361,10 @@ class Editor:
         *,
         allow_music: bool | None = None,
         name: str | None = None,
-        preset: str | None = None,
+        preset: Annotated[
+            Literal["karachi", "process", ""] | None,
+            Field(description="karachi | process agent defaults; empty string clears preset name."),
+        ] = None,
         loudnorm: str | None = None,
         min_video_duration_s: float | None = None,
         duration_cap_s: Annotated[
@@ -385,9 +395,7 @@ class Editor:
                 except KeyError:
                     return envelope(False, store.timeline, [f"unknown preset {preset}"])
                 update["preset"] = preset
-                grade = data.get("grade")
-                if grade in ("motovlog", "winter_trip", "neutral"):
-                    update["grade_preset"] = grade
+                update.update(project_fields_from_preset(data))
         if loudnorm is not None:
             if loudnorm not in ("cinema", "speech"):
                 return envelope(False, store.timeline, ["loudnorm must be cinema or speech"])
