@@ -104,6 +104,9 @@ def test_media_understand_returns_process_spans(editor: Editor, tmp_path: Path) 
     assert result["timeline_summary"]["version"] == version
     assert result["budget_frames"] == 32
     assert result["frames_scored"] <= 32
+    assert result["selection"] == "adaptive"
+    assert "metrics" in result
+    assert result["metrics"]["frames_scored"] == result["frames_scored"]
     assert result["spans"]
     card = result["spans"][0]
     for key in ("media_id", "in_s", "out_s", "role_hint", "score", "keyframe_path", "reason"):

@@ -99,13 +99,13 @@ ffmpeg failure on one file: that file gets `ok: false` treatment (warning, no ma
 
 ## SPEC-ANA-09: MCP surface
 
-`media_analyze`, `media_understand`, `media_understand_refine`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day`. `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`.
+`media_analyze`, `media_understand`, `media_understand_refine`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day`. `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`.
 
 ## SPEC-ANA-10: performance budget
 
 One ffmpeg decode pass per video for metrics, plus one keyframe grab per shot. Batch analysis may run files concurrently (thread pool; ffmpeg is a subprocess). Murree stills (images) analyze without a decode pass. Target: analyze + rank of the 117-still Murree folder stays inside the SPEC-SES-14 wall-time envelope when that marker runs. ~50-file albums stay inside the same cheap index (no full-video VLM).
 
-`media_understand` scores at most `budget_frames` candidate keyframes per media (default 48, clamped 8–64). It does not re-decode the whole video. `media_understand_refine` extracts at most `budget_frames` extra keyframes inside one span (default 16).
+`media_understand` scores at most `budget_frames` candidate keyframes per media by default (default 48, clamped 8–64). With `shared_budget=true` on an album batch, one pool (default 64, clamped 8–256) is split across imported video by duration. It does not re-decode the whole video. `media_understand_refine` extracts at most `budget_frames` extra keyframes inside one span (default 16). Adaptive selection targets `frames_scored / duration_s` far below a uniform 1fps baseline; responses expose that cost under `metrics`.
 
 ## SPEC-ANA-11: index on import
 
@@ -120,16 +120,16 @@ Media rows include `size_bytes` (source file size) and capture fields. `shoot_da
 
 ## SPEC-ANA-12: hierarchical understand (Train A)
 
-Cheap timeline cards on top of the import index. No full-video VLM. No required large weights (CLIP/BLIP stay optional extras later).
+Cheap timeline cards on top of the import index. No full-video VLM. No required large weights (CLIP/BLIP stay optional extras).
 
-Pipeline: indexed shots → candidate spans (coverage grid + high motion + audio peaks + cut ends) → heuristic role scorer on candidates only → structured spans + keyframes → optional dense refine inside one span.
+Pipeline: indexed shots → candidate spans → heuristic role scorer on candidates only → structured spans + keyframes → optional dense refine inside one span.
 
-### `media_understand(media_id?, query?, budget_frames?, roles?)`
+### `media_understand(media_id?, query?, budget_frames?, roles?, shared_budget?, selection?)`
 
 - Default `query` is process/album understanding (`before`, `wash`, `detail`, `wheel`, `interior`, `machine`, `after`, `polish`).
 - `roles` overrides the query-derived role list when provided.
 - Returns `spans`: list of `{media_id, in_s, out_s, role_hint, score, keyframe_path, reason}` sorted by score desc.
-- Also returns `budget_frames`, `frames_scored`, `roles`, `query`.
+- Also returns `budget_frames`, `frames_scored`, `roles`, `query`, plus Train B fields `selection`, `shared_budget`, `metrics`, `embedder`.
 - Stamps matching shot `tags` with `understand:{role_hint}` and writes `cache/analysis/{proxy_hash}.understand.json`.
 - Missing analysis triggers the same cheap index path as `media_analyze` for that file.
 - Does not mutate the timeline.
@@ -139,14 +139,45 @@ Pipeline: indexed shots → candidate spans (coverage grid + high motion + audio
 - Dense local re-sample only inside `[in_s, out_s]` when the agent is uncertain.
 - Splits the span into ≤ `budget_frames` windows, extracts a midpoint keyframe per window, re-scores with parent-shot metrics + new sharpness.
 - Updates understand tags on the overlapping parent shot from the best window.
-- Returns the same span card shape under `spans`.
+- Returns the same span card shape under `spans`, plus `metrics` / `embedder`.
 
 ### Preference wiring
 
 - `shots_rank` adds a small score boost when a shot carries `understand:{role}` (polish ↔ after).
 - `shots_search(role=…)` matches media `role` tags **or** `understand:{role}` on the shot.
 
-Out of scope for Train A: FOCUS bandit, AKS training, LENS spatial, `highlights_suggest`, album-batch shared budget metrics.
+## SPEC-ANA-13: adaptive selection (Train B)
+
+Training-free FOCUS/AKS-inspired picker on top of SPEC-ANA-12. Still no required large weights.
+
+### Selection modes (`selection`)
+
+- `adaptive` (default): FOCUS-style explore/exploit over temporal chunks (coarse pulls → fine exploit of high UCB chunks). When `query` is a concrete non-default string (not blank / `process` / `album` / `detailing` / `default`), switch to AKS-style greedy **relevance + temporal coverage**.
+- `legacy`: Train A coverage grid + motion/audio peaks (`select_candidate_shots`).
+- `uniform`: evenly spaced index samples (benchmark baseline).
+
+### Album shared budget
+
+- `shared_budget=true` with `media_id` omitted: one `budget_frames` pool (clamp 8–256) split across imported video proportional to indexed duration (small per-file floor).
+- Default remains per-media budgets (Train A compatible) when `shared_budget` is false / omitted.
+
+### Cost metrics
+
+Every `media_understand` response includes `metrics`:
+
+- `frames_scored`, `duration_s`, `frames_per_s`
+- `uniform_1fps_frames` (ceil duration × 1fps)
+- `cost_ratio_vs_uniform` (`frames_scored / uniform_1fps_frames`, target ≪ 1)
+- `selection`, `shared_budget`
+
+### Optional CLIP / BLIP
+
+- Soft import only. Never required in the package.
+- Opt-in with env `LC_EDITOR_VISION=1` (or `clip` / `blip`). Uses open_clip or transformers **only if already installable** and weights resolve with `local_files_only` (offline OK; no forced Hub download).
+- When active, blends into AKS relevance; otherwise heuristics alone.
+- Response `embedder`: `{enabled, clip, blip, active}`.
+
+Out of scope for Train B: LENS spatial densify, `highlights_suggest`, PROCESS_ROLES Director feed expansion beyond Train A wiring.
 
 ## SPEC-QLT-01: source quality floor
 
@@ -163,4 +194,4 @@ Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor 
 
 ## Future work
 
-A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: FOCUS bandit, AKS, LENS, highlights_suggest.
+A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: LENS, highlights_suggest, Director deepen.

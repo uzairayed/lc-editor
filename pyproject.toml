@@ -19,6 +19,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.3"]
 analysis = ["opencv-python-headless>=4.10"]
+# Optional Train B vision relevance. Not required; install yourself and set
+# LC_EDITOR_VISION=1. Weights must already be available offline (no Hub pull).
+vision = ["torch", "transformers>=4.40"]
 web = ["uvicorn>=0.30", "starlette>=0.38"]
 
 [project.scripts]

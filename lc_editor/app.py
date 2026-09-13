@@ -44,6 +44,16 @@ from lc_editor.analysis.shots import (
     parse_signalstats,
     segment_shots,
 )
+from lc_editor.analysis.adaptive import (
+    DEFAULT_SELECTION,
+    allocate_shared_budget,
+    clamp_shared_budget,
+    media_duration_s,
+    normalize_selection,
+    select_adaptive_shots,
+    understand_cost_metrics,
+)
+from lc_editor.analysis.embedder import embedder_status, optional_embedder
 from lc_editor.analysis.understand import (
     DEFAULT_REFINE_BUDGET,
     apply_understand_tags,
@@ -53,7 +63,6 @@ from lc_editor.analysis.understand import (
     parent_shot_for_span,
     refine_windows,
     resolve_understand_roles,
-    select_candidate_shots,
     shot_has_understand_role,
     understand_path,
     write_understand_cache,
@@ -1031,20 +1040,25 @@ class Editor:
         budget: int,
         first_media_id: str | None,
         sizes: dict[str, tuple[int, int]],
-    ) -> tuple[list[dict], list[str]]:
+        query: str | None = None,
+        selection: str = DEFAULT_SELECTION,
+    ) -> tuple[list[dict], list[str], float]:
         warnings: list[str] = []
         path = self._manifest_for(item)
         if not path.exists():
             count, _cached, fresh, warning = self._analyze_one(item)
             if warning:
-                return [], [warning]
+                return [], [warning], 0.0
             if count == 0:
-                return [], [f"not analyzed: {fresh.id}"]
+                return [], [f"not analyzed: {fresh.id}"], 0.0
             item = fresh
             path = self._manifest_for(item)
         shots = load_manifest(path)
         if not shots:
-            return [], [f"not analyzed: {item.id}"]
+            return [], [f"not analyzed: {item.id}"], 0.0
+        duration = media_duration_s(shots)
+        if duration <= 0 and item.duration_s:
+            duration = float(item.duration_s)
         # Score without prior understand tags so re-runs stay stable.
         clean = [
             s.model_copy(
@@ -1052,7 +1066,16 @@ class Editor:
             )
             for s in shots
         ]
-        candidates = select_candidate_shots(clean, budget)
+        candidates = select_adaptive_shots(
+            clean,
+            budget,
+            query=query,
+            roles=roles,
+            selection=selection,
+            first_media_id=first_media_id,
+            sizes=sizes,
+            embedder=optional_embedder(),
+        )
         cards = [
             card_from_shot(shot, roles, first_media_id=first_media_id, sizes=sizes)
             for shot in candidates
@@ -1065,12 +1088,14 @@ class Editor:
             "query_roles": roles,
             "budget_frames": budget,
             "frames_scored": len(cards),
+            "selection": normalize_selection(selection),
+            "duration_s": duration,
             "cards": [{k: v for k, v in card.items() if k != "shot_id"} for card in cards],
             "cards_internal": cards,
         }
         write_understand_cache(self._understand_for(item), payload)
         public = [{k: v for k, v in card.items() if k != "shot_id"} for card in cards]
-        return public, warnings
+        return public, warnings, duration
 
     def media_understand(
         self,
@@ -1078,47 +1103,104 @@ class Editor:
         query: str | None = None,
         budget_frames: int | None = None,
         roles: list[str] | None = None,
+        shared_budget: bool = False,
+        selection: str | None = None,
     ) -> dict:
         """Cheap hierarchical understanding from the import shot index.
 
-        Scores only candidate keyframes (motion / audio peaks / coverage grid).
-        Default query is process/album roles. No full-video VLM.
+        Train B default selection is adaptive (FOCUS coarse→fine; AKS relevance
+        + coverage when ``query`` is concrete). Pass ``selection="legacy"`` for
+        Train A coverage+peaks, or ``"uniform"`` for the even grid baseline.
+        ``shared_budget=True`` splits one frame pool across all imported video.
+        No full-video VLM. Optional CLIP/BLIP only when LC_EDITOR_VISION is set
+        and weights are already installable offline.
         """
         store = self._need()
-        budget = clamp_budget(budget_frames)
+        mode = normalize_selection(selection)
         role_list = resolve_understand_roles(query=query, roles=roles)
         targets = [self._media(media_id)] if media_id else list(self.media)
+        visual = [item for item in targets if item.kind != "audio"]
+        use_shared = bool(shared_budget) and media_id is None and len(visual) > 1
+        if use_shared:
+            budget = clamp_shared_budget(budget_frames)
+        else:
+            budget = clamp_budget(budget_frames)
         if not targets:
             result = envelope(True, store.timeline, [])
             result["spans"] = []
             result["budget_frames"] = budget
+            result["frames_scored"] = 0
             result["roles"] = role_list
+            result["query"] = query or "process"
+            result["selection"] = mode
+            result["shared_budget"] = False
+            result["metrics"] = understand_cost_metrics(0, 0.0, selection=mode, shared_budget=False)
+            result["embedder"] = embedder_status()
             return result
         first = self.media[0].id if self.media else None
         sizes = {item.id: (item.width, item.height) for item in self.media}
+
+        # Preload manifests so shared budget can weight by duration.
+        per_budget: dict[str, int] = {}
+        if use_shared:
+            durations: list[float] = []
+            ids: list[str] = []
+            for item in visual:
+                path = self._manifest_for(item)
+                if not path.exists():
+                    count, _cached, fresh, warning = self._analyze_one(item)
+                    if warning or count == 0:
+                        durations.append(max(0.01, float(item.duration_s or 1.0)))
+                        ids.append(item.id)
+                        continue
+                    item = fresh
+                shots = load_manifest(self._manifest_for(item))
+                dur = media_duration_s(shots) or float(item.duration_s or 1.0)
+                durations.append(max(0.01, dur))
+                ids.append(item.id)
+            shares = allocate_shared_budget(durations, budget)
+            per_budget = dict(zip(ids, shares, strict=True))
+
         spans: list[dict] = []
         warnings: list[str] = []
         frames_scored = 0
+        total_duration = 0.0
         for item in targets:
             if item.kind == "audio":
                 continue
-            cards, local_warn = self._understand_one(
+            local_budget = per_budget.get(item.id, budget) if use_shared else budget
+            if local_budget <= 0:
+                continue
+            cards, local_warn, duration = self._understand_one(
                 item,
                 roles=role_list,
-                budget=budget,
+                budget=local_budget,
                 first_media_id=first,
                 sizes=sizes,
+                query=query,
+                selection=mode,
             )
             warnings.extend(local_warn)
             spans.extend(cards)
             frames_scored += len(cards)
+            total_duration += duration
         spans.sort(key=lambda c: (-float(c["score"]), c["media_id"], c["in_s"]))
+        metrics = understand_cost_metrics(
+            frames_scored,
+            total_duration,
+            selection=mode,
+            shared_budget=use_shared,
+        )
         result = envelope(True, store.timeline, warnings)
         result["spans"] = spans
         result["budget_frames"] = budget
         result["frames_scored"] = frames_scored
         result["roles"] = role_list
         result["query"] = query or "process"
+        result["selection"] = mode
+        result["shared_budget"] = use_shared
+        result["metrics"] = metrics
+        result["embedder"] = embedder_status()
         return result
 
     def media_understand_refine(
@@ -1218,6 +1300,14 @@ class Editor:
         result["frames_scored"] = len(public)
         result["in_s"] = start
         result["out_s"] = end
+        result["selection"] = "refine"
+        result["metrics"] = understand_cost_metrics(
+            len(public),
+            max(0.0, end - start),
+            selection="adaptive",
+            shared_budget=False,
+        )
+        result["embedder"] = embedder_status()
         return result
 
     def _load_shots(self, media_id: str | None = None) -> tuple[list[Shot], list[str]]:
