@@ -8,6 +8,7 @@ from lc_editor.analysis.manifest import Shot, load_manifest, manifest_path, shot
 from lc_editor.analysis.media import (
     captured_at_sort_key,
     kind_for,
+    media_index_summary,
     normalize_role,
     normalize_shoot_day,
     parse_probe,
@@ -22,7 +23,14 @@ from lc_editor.analysis.media import (
     select_import_paths,
     shoot_days_equal,
 )
-from lc_editor.analysis.rank import ROLES, contradictory_filters, filter_shots, rank_shots, sort_shots
+from lc_editor.analysis.rank import (
+    ROLES,
+    contradictory_filters,
+    filter_shots,
+    rank_shots,
+    score_shot,
+    sort_shots,
+)
 from lc_editor.analysis.shots import (
     analysis_pass_args,
     metrics_for_span,
@@ -478,6 +486,12 @@ class Editor:
             parsed["duration_s"] = parsed["duration_s"] or DEFAULT_STILL_S
         return self._attach_capture(parsed, path)
 
+    def _file_size(self, path: Path) -> int:
+        try:
+            return int(path.stat().st_size)
+        except OSError:
+            return 0
+
     def _import_path(self, path: Path, burst_id: str = "") -> MediaItem:
         store = self._need()
         dest = store.media_dir / f"{new_id('f')}_{path.name}"
@@ -500,10 +514,64 @@ class Editor:
             burst_id=burst_id,
             captured_at=info.get("captured_at"),
             captured_at_source=info.get("captured_at_source"),
+            size_bytes=self._file_size(path) or self._file_size(dest),
         )
         item, _cached = ensure_source_proxy(self.runner, store, item)
         self.media.append(item)
         return item
+
+    def _index_summary_for(self, item: MediaItem) -> dict:
+        path = self._manifest_for(item)
+        if not path.exists():
+            return media_index_summary([])
+        try:
+            return media_index_summary(load_manifest(path))
+        except Exception:
+            return media_index_summary([])
+
+    def _public_media(self, item: MediaItem) -> dict:
+        return public_media(item, index=self._index_summary_for(item))
+
+    def _write_index_sheet(self, items: list[MediaItem]) -> str | None:
+        store = self._need()
+        thumbs: list[Path] = []
+        for item in items:
+            summary = self._index_summary_for(item)
+            key = summary.get("keyframe")
+            if key and Path(key).exists():
+                thumbs.append(Path(key))
+        if not thumbs:
+            return None
+        dest = (store.output_dir / "index_sheet.jpg").resolve()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        contact_sheet(self.runner, thumbs, dest)
+        return str(dest)
+
+    def _index_imported(self, items: list[MediaItem]) -> tuple[int, list[bool], list[str], str | None]:
+        """Cheap shot index for newly imported media. Import stays ok even if analyze warns."""
+        if not items:
+            return 0, [], [], None
+        by_id = {item.id: item for item in items}
+        targets = [item for item in self.media if item.id in by_id]
+        if isinstance(self.runner, FakeRunner) or len(targets) <= 1:
+            rows = [self._analyze_one(item) for item in targets]
+        else:
+            with ThreadPoolExecutor(max_workers=min(4, len(targets))) as pool:
+                rows = list(pool.map(self._analyze_one, targets))
+        warnings: list[str] = []
+        cached: list[bool] = []
+        total = 0
+        updated: dict[str, MediaItem] = {}
+        for count, was_cached, fresh, warning in rows:
+            updated[fresh.id] = fresh
+            cached.append(was_cached)
+            total += count
+            if warning:
+                warnings.append(warning)
+        self.media = [updated.get(item.id, item) for item in self.media]
+        self._save_media()
+        sheet = self._write_index_sheet([updated.get(item.id, item) for item in targets])
+        return total, cached, warnings, sheet
 
     def import_file(self, path: str, op_id: str | None = None) -> dict:
         store = self._need()
@@ -513,8 +581,15 @@ class Editor:
         item = self._import_path(Path(path))
         self._save_media()
         warns = [w for w in (quality_import_warning(item),) if w]
+        shots, cached, index_warns, sheet = self._index_imported([item])
+        warns.extend(index_warns)
         result = envelope(True, store.timeline, warns)
-        result["media"] = public_media(item)
+        result["media"] = self._public_media(self._media(item.id))
+        result["shots"] = shots
+        result["cached"] = cached
+        result["indexed"] = True
+        if sheet:
+            result["sheet"] = sheet
         if op_id:
             store.ledger[op_id] = result
             store.persist()
@@ -553,11 +628,18 @@ class Editor:
             warning = quality_import_warning(item)
             if warning:
                 warns.append(warning)
+        shots, cached, index_warns, sheet = self._index_imported(imported)
+        warns.extend(index_warns)
         result = envelope(True, store.timeline, warns)
-        result["media"] = [public_media(m) for m in imported]
+        result["media"] = [self._public_media(self._media(m.id)) for m in imported]
         result["imported"] = [str(p) for p in keep]
         result["skipped"] = [str(p) for p in skipped]
         result["deduped"] = burst_ids
+        result["shots"] = shots
+        result["cached"] = cached
+        result["indexed"] = True
+        if sheet:
+            result["sheet"] = sheet
         if op_id:
             store.ledger[op_id] = result
             store.persist()
@@ -567,6 +649,7 @@ class Editor:
         self,
         shoot_day: int | str | None = None,
         role: str | None = None,
+        min_motion: float | None = None,
         sort: str | None = None,
     ) -> dict:
         store = self._need()
@@ -575,6 +658,16 @@ class Editor:
             items = [item for item in items if shoot_days_equal(item.shoot_day, shoot_day)]
         if role is not None:
             items = [item for item in items if roles_equal(item.role, role)]
+        summaries = {item.id: self._index_summary_for(item) for item in items}
+        if min_motion is not None:
+            filtered = []
+            for item in items:
+                motion = summaries[item.id].get("motion")
+                if motion is None:
+                    continue
+                if float(motion) + 1e-9 >= float(min_motion):
+                    filtered.append(item)
+            items = filtered
         if sort in (None, "", "captured_at"):
             items = [
                 item
@@ -584,7 +677,7 @@ class Editor:
                 )
             ]
         result = envelope(True, store.timeline, quality_soft_warnings(items))
-        result["media"] = [public_media(m) for m in items]
+        result["media"] = [public_media(m, index=summaries.get(m.id)) for m in items]
         return result
 
     def media_tag(
@@ -610,7 +703,7 @@ class Editor:
         self.media = [fresh if m.id == media_id else m for m in self.media]
         self._save_media()
         result = envelope(True, store.timeline, [])
-        result["media"] = public_media(fresh)
+        result["media"] = self._public_media(fresh)
         if op_id:
             store.ledger[op_id] = result
             store.persist()
@@ -946,6 +1039,7 @@ class Editor:
         top_k: int = 5,
         media_id: str | None = None,
         sheet: bool = False,
+        shoot_day: int | str | None = None,
     ) -> dict:
         store = self._need()
         if role not in ROLES:
@@ -953,6 +1047,11 @@ class Editor:
             result["shots"] = []
             return result
         shots, warnings = self._load_shots(media_id)
+        if shoot_day is not None:
+            allowed = {
+                item.id for item in self.media if shoot_days_equal(item.shoot_day, shoot_day)
+            }
+            shots = [shot for shot in shots if shot.media_id in allowed]
         kinds = {item.id: item.kind for item in self.media}
         floor_ok = [
             shot
@@ -979,7 +1078,17 @@ class Editor:
             shoot_days=shoot_days,
         )
         result = envelope(True, store.timeline, warnings)
-        result["shots"] = [shot.model_dump() for shot in ranked]
+        result["shots"] = [
+            {
+                **shot.model_dump(),
+                "score": round(
+                    score_shot(shot, role, first_media_id=first, sizes=sizes),
+                    4,
+                ),
+                "thumb": shot.keyframe,
+            }
+            for shot in ranked
+        ]
         if sheet:
             dest = (store.output_dir / f"rank_{role}.jpg").resolve()
             dest.parent.mkdir(parents=True, exist_ok=True)

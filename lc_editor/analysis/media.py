@@ -51,13 +51,40 @@ def resolution_boost(width: int, height: int) -> float:
     return 0.0
 
 
-def public_media(item) -> dict:
+def public_media(item, *, index: dict | None = None) -> dict:
     data = item.model_dump() if hasattr(item, "model_dump") else dict(item)
     width = int(data.get("width") or 0)
     height = int(data.get("height") or 0)
     data["resolution"] = resolution_label(width, height)
     data["sub_720"] = is_sub_720(width, height)
+    if index:
+        data.update(index)
     return data
+
+
+def media_index_summary(shots: list) -> dict:
+    """Cheap per-media rollup from a shot manifest for media_list filters."""
+    if not shots:
+        return {
+            "motion": None,
+            "blur": None,
+            "audio_class": None,
+            "keyframe": None,
+            "shot_count": 0,
+        }
+    motions = [float(s.metrics.motion) for s in shots]
+    blurs = [float(s.metrics.blur) for s in shots]
+    classes = [s.metrics.audio_class for s in shots]
+    # Prefer the sharpest (least blurry) keyframe as the cover thumb.
+    cover = min(shots, key=lambda s: (s.metrics.blur, s.id))
+    dominant = max(set(classes), key=classes.count)
+    return {
+        "motion": round(max(motions), 4),
+        "blur": round(min(blurs), 4),
+        "audio_class": dominant,
+        "keyframe": cover.keyframe,
+        "shot_count": len(shots),
+    }
 
 
 def quality_import_warning(item) -> str | None:

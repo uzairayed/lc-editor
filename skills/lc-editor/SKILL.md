@@ -23,9 +23,9 @@ Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green. This is th
 
 ## Workflow
 
-1. **Inventory first.** Use `import_folder` or `import_file`. Import persists `captured_at` from ffprobe `creation_time`, EXIF `DateTimeOriginal`, or file mtime. Call `media_list` (sorted by capture date) before you cut.
+1. **Inventory / index on import.** Use `import_folder` or `import_file`. Import probes duration / size / capture date, builds the source proxy, and runs the cheap shot index (keyframes, shot bounds, motion / blur / audio-class) cached by content hash. Response includes `shots`, `sheet` (`output/index_sheet.jpg`), and per-file `cached`. Call `media_list` (sorted by capture date; filter `shoot_day` / `role` / `min_motion`) before you cut. Re-run `media_analyze` only to refresh; unchanged bytes are a no-op.
 
-2. **Tag days and roles, then lock the story.** For multi-day albums (detailing, travel), `media_tag(media_id, shoot_day=1, role="before")` so Day 1 dusty → wash → machine → after stays inside LC. Then `media_analyze` and `shots_list` / `shots_rank` to pick shots. Look at keyframes with `thumbnail` or `contact_sheet`. `clip_add` in tagged day/role order.
+2. **Rank, then lock the story.** For multi-day albums (detailing, travel), `media_tag(media_id, shoot_day=1, role="before")` so Day 1 dusty → wash → machine → after stays inside LC. Then `shots_rank(role=…)` / `shots_search` to pick shots without opening every file. Narrative roles: `hook`, `journey`, `site_wide`, `site_detail`, `closer`. Process roles: `before`, `wash`, `detail`, `after`, `hero`, `skip_face`, `engine`, `wheel`, `interior`, `machine`. Ranked rows include `media_id`, `in_s` / `out_s`, `score`, `thumb`. Look at keyframes with `thumbnail` or `contact_sheet`. `clip_add` in tagged day/role order.
 
 3. **Ask about sound before touching the timeline.** Sound is the owner's call, not yours. Ask: "Do you want music or natural audio only?" Do not assume either way.
    - If music: call `project_set(allow_music=true)`, import the track, `music_add`, `beat_analyze`, show `beat_sync_preview`, then `beat_sync_apply` only after the user confirms.

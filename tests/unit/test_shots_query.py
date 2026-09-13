@@ -106,3 +106,33 @@ def test_shots_search_filters_tagged_media(editor: Editor, tmp_path: Path) -> No
     assert [s["media_id"] for s in before["shots"]] == [editor.media[0].id]
     day = editor.shots_search(shoot_day=1)
     assert len(day["shots"]) == 2
+
+
+def test_media_list_filters_min_motion_and_exposes_index(editor: Editor, tmp_path: Path) -> None:
+    a = touch_media(tmp_path / "src", "calm")
+    b = touch_media(tmp_path / "src", "busy")
+    editor.import_file(str(a))
+    editor.import_file(str(b))
+    editor.media_tag(editor.media[0].id, shoot_day=1, role="before")
+    editor.media_tag(editor.media[1].id, shoot_day=1, role="wash")
+    _plant(
+        editor,
+        editor.media[0],
+        [_shot(editor.media[0].id, 0, metrics=ShotMetrics(motion=0.1, sharpness=0.8, blur=0.2))],
+    )
+    _plant(
+        editor,
+        editor.media[1],
+        [_shot(editor.media[1].id, 1, metrics=ShotMetrics(motion=0.7, sharpness=0.4, blur=0.6))],
+    )
+    listed = editor.media_list(shoot_day=1, min_motion=0.5)
+    assert listed["ok"] is True
+    assert [m["id"] for m in listed["media"]] == [editor.media[1].id]
+    row = listed["media"][0]
+    assert row["motion"] == 0.7
+    assert row["blur"] == 0.6
+    assert row["shot_count"] == 1
+    assert row["size_bytes"] > 0
+    assert row["role"] == "wash"
+    calm_only = editor.media_list(role="before")
+    assert [m["id"] for m in calm_only["media"]] == [editor.media[0].id]

@@ -432,6 +432,7 @@ class MediaItem(BaseModel):
     captured_at_source: CapturedAtSource | None = None
     shoot_day: int | str | None = None
     role: str | None = None
+    size_bytes: int = 0
 
 
 class Project(BaseModel):
