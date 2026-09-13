@@ -24,6 +24,7 @@ TOOLS = [
     "media_analyze",
     "media_understand",
     "media_understand_refine",
+    "media_understand_spatial",
     "understand_timeline",
     "shots_list",
     "shots_search",
