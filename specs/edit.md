@@ -65,7 +65,7 @@ Worked example: one 6.00s clip (in 0, out 6). Split at 2.00. First: in 0 out 2 d
 
 ## SPEC-EDIT-10: refocus
 
-`clip_refocus(clip_id, x, y)` sets the 9:16 crop center as fractions of source width/height, each in `[0, 1]`. Default crop is centered. Out-of-range is `ok: false`.
+`clip_refocus(clip_id, x, y)` sets the 9:16 crop center as fractions of source width/height, each in `[0, 1]`. Default crop is centered. Out-of-range is `ok: false`. When a Train D spatial hint exists for the clip, the response may include `focus_hint` and a `SPEC-ANA-15` soft warning if cover focus drifts from the hint; the refocus still applies and export is never blocked.
 
 ## SPEC-EDIT-11: gain and mute
 

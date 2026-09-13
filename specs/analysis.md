@@ -104,7 +104,7 @@ ffmpeg failure on one file: that file gets `ok: false` treatment (warning, no ma
 
 ## SPEC-ANA-09: MCP surface
 
-`media_analyze`, `media_understand`, `media_understand_refine`, `understand_timeline`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags; default sort prefers understand-tagged). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day` (understand-tagged pool preferred). `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`. `understand_timeline` exposes `media_id`, `top_per_role`, `roles`, `refresh`.
+`media_analyze`, `media_understand`, `media_understand_refine`, `media_understand_spatial`, `understand_timeline`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags; default sort prefers understand-tagged). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day` (understand-tagged pool preferred). `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`, `spatial`. `media_understand_spatial` exposes `media_id`, `in_s`, `out_s`, `budget_frames`, `reason`. `understand_timeline` exposes `media_id`, `top_per_role`, `roles`, `refresh`.
 
 ## SPEC-ANA-10: performance budget
 
@@ -217,6 +217,41 @@ Director story cards from the album/project:
 
 Out of scope for Train C: LENS spatial densify (D), `highlights_suggest` auto-edit (E).
 
+## SPEC-ANA-15: spatial densify / LENS-lite (Train D)
+
+When a span is high-value but spatially ambiguous (busy frame, low subject dominance), densify keyframes inside that span and soft-suggest cover `focus_x` / `focus_y`. Keeps Train A–C APIs intact. No required VLM weights (PIL edge-energy tiles only; offline OK).
+
+### Ambiguity + high-value
+
+- Tile the keyframe into a 3×3 edge-energy grid.
+- **Dominance** = peak tile share of total energy. **Entropy** = normalized Shannon entropy of tile energies.
+- Spatially ambiguous when dominance is low and entropy is high (busy / multi-subject).
+- High-value spans: understand `score` ≥ floor, or top fraction of peers.
+
+### `media_understand_spatial(media_id?, in_s?, out_s?, budget_frames?, reason?)`
+
+- Without `in_s`/`out_s`: pick high-value ambiguous spans from understand cache (runs `media_understand` if cache empty), then densify each.
+- With a span: densify only that window.
+- Dense sample ≤ `budget_frames` (default 12, clamp 4–32) midpoint keyframes inside the span (same windowing as refine).
+- Each densified card includes `focus_hint: {focus_x, focus_y, confidence, dominance, entropy, ambiguous, reason}`, plus `spatial_ambiguous` / `spatial_densified`.
+- Writes `spatial` onto `cache/analysis/{proxy_hash}.understand.json`.
+- Does not mutate the timeline. Soft suggestions only.
+
+### Refine spatial path
+
+`media_understand_refine(..., spatial=true)` keeps temporal densify and also annotates windows with `focus_hint`, storing the same `spatial` cache block. Default `spatial=false` preserves Train A refine behavior.
+
+### Soft wiring (never block export)
+
+- `clip_refocus`: when a spatial hint exists for the clip's media span, response may include `focus_hint` and a `SPEC-ANA-15` warning if cover focus drifts from the hint. Mutation still succeeds.
+- `review_report`: warns when a cover clip keeps a focus that drifts from a confident spatial hint. Warnings only; export stays allowed (same soft posture as SPEC-QLT-01).
+
+### MCP surface
+
+`media_understand_spatial` is registered in `TOOLS` with named fields `media_id`, `in_s`, `out_s`, `budget_frames`, `reason`. `media_understand_refine` adds optional `spatial`.
+
+Out of scope for Train D: `highlights_suggest` auto-edit (E).
+
 ## SPEC-QLT-01: source quality floor
 
 Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor is **min short side 720**. A 512×288 Day-1 phone clip fails; 1280×720 and 1080×1920 pass.
@@ -232,4 +267,4 @@ Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor 
 
 ## Future work
 
-A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: LENS, highlights_suggest.
+A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: `highlights_suggest`.

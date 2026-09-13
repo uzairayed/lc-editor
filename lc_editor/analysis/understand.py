@@ -9,6 +9,9 @@ shapes and refine APIs stable.
 
 Train C maps spans onto PROCESS_ROLES with clear per-role scores/reasons and
 builds Director story cards via ``build_understand_timeline``.
+
+Train D (LENS-lite) lives in ``lc_editor.analysis.spatial``: spatial densify
+and soft ``focus_x``/``focus_y`` hints for busy high-value spans.
 """
 
 from __future__ import annotations

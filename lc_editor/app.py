@@ -57,6 +57,15 @@ from lc_editor.analysis.adaptive import (
     understand_cost_metrics,
 )
 from lc_editor.analysis.embedder import embedder_status, optional_embedder
+from lc_editor.analysis.spatial import (
+    annotate_span_spatial,
+    clamp_spatial_budget,
+    pick_hint_for_span,
+    select_spatial_targets,
+    spatial_cover_warnings,
+    spatial_refocus_warning,
+    spatial_windows,
+)
 from lc_editor.analysis.understand import (
     DEFAULT_REFINE_BUDGET,
     apply_understand_tags,
@@ -1214,8 +1223,13 @@ class Editor:
         out_s: float,
         reason: str | None = None,
         budget_frames: int | None = None,
+        spatial: bool = False,
     ) -> dict:
-        """Dense local re-sample inside one span when the agent is uncertain."""
+        """Dense local re-sample inside one span when the agent is uncertain.
+
+        Pass ``spatial=True`` to also run LENS-lite focus hints on densified
+        windows (Train D). Temporal refine alone remains the default.
+        """
         store = self._need()
         item = self._media(media_id)
         budget = clamp_budget(budget_frames, default=DEFAULT_REFINE_BUDGET)
@@ -1269,6 +1283,8 @@ class Editor:
                 tags=list(parent.tags or []),
             )
             card = card_from_shot(pseudo, roles, first_media_id=first, sizes=sizes)
+            if spatial:
+                card = annotate_span_spatial(card, keyframe)
             if reason:
                 card["reason"] = f"{reason}; {card['reason']}"
             cards.append(card)
@@ -1294,9 +1310,17 @@ class Editor:
                 "out_s": end,
                 "reason": reason,
                 "budget_frames": budget,
+                "spatial": bool(spatial),
                 "spans": public,
             },
         }
+        if spatial and public:
+            payload["spatial"] = {
+                "budget_frames": budget,
+                "reason": reason or "refine+spatial",
+                "spans": public,
+                "from_refine": True,
+            }
         write_understand_cache(self._understand_for(item), payload)
         result = envelope(True, store.timeline, [])
         result["spans"] = public
@@ -1304,7 +1328,8 @@ class Editor:
         result["frames_scored"] = len(public)
         result["in_s"] = start
         result["out_s"] = end
-        result["selection"] = "refine"
+        result["selection"] = "refine_spatial" if spatial else "refine"
+        result["spatial"] = bool(spatial)
         result["metrics"] = understand_cost_metrics(
             len(public),
             max(0.0, end - start),
@@ -1313,6 +1338,184 @@ class Editor:
         )
         result["embedder"] = embedder_status()
         return result
+
+    def media_understand_spatial(
+        self,
+        media_id: str | None = None,
+        in_s: float | None = None,
+        out_s: float | None = None,
+        budget_frames: int | None = None,
+        reason: str | None = None,
+    ) -> dict:
+        """LENS-lite spatial densify for high-value ambiguous spans.
+
+        Detects busy / low-dominance keyframes, densely samples inside the
+        span, and soft-suggests ``focus_x`` / ``focus_y`` for cover crop.
+        Never blocks export. No VLM weights.
+        """
+        store = self._need()
+        budget = clamp_spatial_budget(budget_frames)
+        targets = [self._media(media_id)] if media_id else list(self.media)
+        visual = [item for item in targets if item.kind != "audio"]
+        warnings: list[str] = []
+        spans: list[dict] = []
+        frames_scored = 0
+        first = self.media[0].id if self.media else None
+        sizes = {item.id: (item.width, item.height) for item in self.media}
+
+        for item in visual:
+            path = self._manifest_for(item)
+            if not path.exists():
+                count, _cached, fresh, warning = self._analyze_one(item)
+                if warning:
+                    warnings.append(warning)
+                    continue
+                if count == 0:
+                    warnings.append(f"not analyzed: {fresh.id}")
+                    continue
+                item = fresh
+                path = self._manifest_for(item)
+            shots = load_manifest(path)
+            cached = load_understand_cache(self._understand_for(item)) or {}
+            roles = resolve_understand_roles(query="process")
+            if cached.get("query_roles"):
+                roles = list(cached["query_roles"])
+
+            work_spans: list[dict] = []
+            if in_s is not None and out_s is not None:
+                start = round(float(in_s), 4)
+                end = round(float(out_s), 4)
+                if end <= start:
+                    warnings.append("out_s must be greater than in_s")
+                    continue
+                parent = parent_shot_for_span(shots, start, end)
+                if parent is None:
+                    warnings.append(f"no shot for span on {item.id}")
+                    continue
+                seed = card_from_shot(parent, roles, first_media_id=first, sizes=sizes)
+                seed["in_s"] = start
+                seed["out_s"] = end
+                work_spans = [annotate_span_spatial(seed)]
+            else:
+                cards = list(cached.get("cards") or [])
+                if not cards:
+                    understood = self.media_understand(media_id=item.id, budget_frames=budget)
+                    cards = list(understood.get("spans") or [])
+                    warnings.extend(understood.get("warnings") or [])
+                work_spans = select_spatial_targets(cards)
+                if not work_spans:
+                    # Still annotate top cards so agents see focus hints.
+                    ranked = sorted(cards, key=lambda c: (-float(c.get("score") or 0.0), c.get("in_s", 0)))
+                    work_spans = [annotate_span_spatial(c) for c in ranked[:3]]
+
+            local_spans: list[dict] = []
+            for seed in work_spans:
+                start = round(float(seed.get("in_s", 0.0)), 4)
+                end = round(float(seed.get("out_s", start + 1.0)), 4)
+                windows = spatial_windows(start, end, budget)
+                window_cards: list[dict] = []
+                for index, (win_in, win_out) in enumerate(windows):
+                    parent = parent_shot_for_span(shots, win_in, win_out)
+                    if parent is None:
+                        continue
+                    sid = f"{self._proxy_key(item)}_s{index}_{int(win_in * 1000)}"
+                    keyframe = store.keyframes_dir / f"{sid}.jpg"
+                    mid = (win_in + win_out) / 2.0
+                    self._extract_keyframe(item, keyframe, mid)
+                    sharp = round(keyframe_sharpness(keyframe), 4)
+                    metrics = parent.metrics.model_copy(
+                        update={
+                            "sharpness": sharp,
+                            "blur": round(max(0.0, min(1.0, 1.0 - sharp)), 4),
+                        }
+                    )
+                    pseudo = Shot(
+                        id=sid,
+                        media_id=item.id,
+                        in_s=win_in,
+                        out_s=win_out,
+                        duration_s=round(win_out - win_in, 4),
+                        keyframe=str(keyframe.resolve()),
+                        metrics=metrics,
+                        tags=list(parent.tags or []),
+                    )
+                    card = card_from_shot(pseudo, roles, first_media_id=first, sizes=sizes)
+                    card = annotate_span_spatial(card, keyframe)
+                    if reason:
+                        card["reason"] = f"{reason}; {card['reason']}"
+                    card["spatial_densified"] = True
+                    window_cards.append(card)
+                if not window_cards:
+                    annotated = annotate_span_spatial(seed)
+                    annotated["spatial_densified"] = False
+                    local_spans.append(annotated)
+                    continue
+                window_cards.sort(
+                    key=lambda c: (
+                        -float((c.get("focus_hint") or {}).get("confidence") or 0.0),
+                        -float(c.get("score") or 0.0),
+                        c.get("in_s", 0.0),
+                    )
+                )
+                best = dict(window_cards[0])
+                best["in_s"] = start
+                best["out_s"] = end
+                best["spatial_windows"] = [
+                    {k: v for k, v in w.items() if k != "shot_id"} for w in window_cards
+                ]
+                best["spatial_densified"] = True
+                if seed.get("spatial_ambiguous"):
+                    best["spatial_ambiguous"] = True
+                local_spans.append({k: v for k, v in best.items() if k != "shot_id"})
+                frames_scored += len(window_cards)
+
+            spans.extend(local_spans)
+            payload = {
+                **(cached or {}),
+                "media_id": item.id,
+                "spatial": {
+                    "budget_frames": budget,
+                    "reason": reason,
+                    "spans": local_spans,
+                },
+            }
+            write_understand_cache(self._understand_for(item), payload)
+
+        spans.sort(
+            key=lambda c: (
+                -float(c.get("score") or 0.0),
+                str(c.get("media_id") or ""),
+                float(c.get("in_s") or 0.0),
+            )
+        )
+        result = envelope(True, store.timeline, warnings)
+        result["spans"] = spans
+        result["budget_frames"] = budget
+        result["frames_scored"] = frames_scored
+        result["selection"] = "spatial"
+        result["metrics"] = understand_cost_metrics(
+            frames_scored,
+            sum(max(0.0, float(s.get("out_s", 0)) - float(s.get("in_s", 0))) for s in spans) or 0.0,
+            selection="adaptive",
+            shared_budget=False,
+        )
+        result["embedder"] = embedder_status()
+        return result
+
+    def _spatial_hint_for_clip(self, clip) -> dict | None:
+        """Lookup soft focus hint from understand spatial cache for a clip."""
+        try:
+            item = self._media(clip.media_id)
+        except Reject:
+            return None
+        cached = load_understand_cache(self._understand_for(item)) or {}
+        spatial = cached.get("spatial") or {}
+        return pick_hint_for_span(
+            spatial,
+            media_id=item.id,
+            in_s=float(getattr(clip, "in_s", 0.0) or 0.0),
+            out_s=float(getattr(clip, "out_s", getattr(clip, "in_s", 0.0)) or 0.0),
+        )
 
     def understand_timeline(
         self,
@@ -1651,7 +1854,28 @@ class Editor:
         return self._mutate(op_id, lambda tl: set_clip_fit(tl, clip_id, mode, pad_color))
 
     def clip_refocus(self, clip_id: str, x: float, y: float, op_id: str | None = None) -> dict:
-        return self._mutate(op_id, lambda tl: refocus_clip(tl, clip_id, x, y))
+        result = self._mutate(op_id, lambda tl: refocus_clip(tl, clip_id, x, y))
+        if not result.get("ok"):
+            return result
+        try:
+            clip = self._clip(clip_id)
+        except Reject:
+            return result
+        hint = self._spatial_hint_for_clip(clip)
+        if hint:
+            result["focus_hint"] = hint
+            warn = spatial_refocus_warning(
+                clip_id,
+                float(x),
+                float(y),
+                hint,
+                fit=getattr(clip, "fit", None),
+            )
+            if warn:
+                warnings = list(result.get("warnings") or [])
+                warnings.append(warn)
+                result["warnings"] = warnings
+        return result
 
     def clip_gain(self, clip_id: str, db: float, op_id: str | None = None) -> dict:
         return self._mutate(op_id, lambda tl: gain_clip(tl, clip_id, db))
@@ -2600,6 +2824,13 @@ class Editor:
             lint_media=self._lint_media(),
         )
         warns = review_warnings(store.timeline, store.project, media=self.media, user_sfx_dir=store.user_sfx_dir)
+        # Train D soft cover-focus suggestions from spatial densify cache.
+        hints: dict[str, dict] = {}
+        for clip in store.timeline.clips:
+            hint = self._spatial_hint_for_clip(clip)
+            if hint:
+                hints[clip.id] = hint
+        warns.extend(spatial_cover_warnings(store.timeline.clips, hints))
         dur = timeline_duration(store.timeline)
         density_relaxed, density_reason = resolve_density_allow(store.project, allow_dense)
         ok = len(errors) == 0

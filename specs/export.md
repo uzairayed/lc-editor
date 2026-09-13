@@ -39,7 +39,7 @@ The timeline preview encode is half the project canvas (540x960 on 9:16, 960x540
 - a video clip is shorter than the project `min_video_duration_s` floor (SPEC-EDIT-25), unless it holds its entire source
 - sand underlay contrast (SPEC-CAP-06) when `caption_contrast="strict"` only
 
-Warnings (do **not** block export): locked still over 1.40s (SPEC-CRAFT-05), CAP-06 under default `caption_contrast="lenient"`, SPEC-QLT-01 soft sources (cover-upscales into 1080, or sub-720 with fit / fit_blur / fit_pad / letterbox / non-1080 canvas), and SPEC-SND-12 short-source auto-hold.
+Warnings (do **not** block export): locked still over 1.40s (SPEC-CRAFT-05), CAP-06 under default `caption_contrast="lenient"`, SPEC-QLT-01 soft sources (cover-upscales into 1080, or sub-720 with fit / fit_blur / fit_pad / letterbox / non-1080 canvas), SPEC-ANA-15 spatial cover-focus hints, and SPEC-SND-12 short-source auto-hold.
 
 Decorated transitions (`fade` / `whip` / …) render on `export` presets `reel`, `share`, and `phone`. Cap remains 3 decorated (`SPEC-EDIT-13`); excess fails review before export.
 
