@@ -26,6 +26,7 @@ from lc_editor.models import (
 from lc_editor.render.audio import denoise_chain, limiter_filter, loudnorm_hero, loudnorm_profile, resolve_denoise_profile
 from lc_editor.render.captions import combined_pop_ass, drawtext_filter, fontfile_for
 from lc_editor.fonts import title_font
+from lc_editor.render.blurs import soft_mask_blur_chain
 from lc_editor.render.effects import compile_effects
 from lc_editor.render.motion import canvas_fit_filters, motion_chain
 from lc_editor.render.textfx import layer_drawtext
@@ -53,6 +54,7 @@ def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
                 "speed": c.speed,
                 "wrap": c.wrap,
                 "effects": [e.model_dump() for e in c.effects],
+                "blurs": [b.model_dump() for b in c.blurs],
                 "protect": c.protect,
                 "grade_intensity": c.grade_intensity,
                 "layout": c.layout,
@@ -77,6 +79,9 @@ def _clip_base_filters(clip: Clip, media: MediaItem, captions, project: Project,
     dest_w, dest_h = canvas_wh(project)
     frames = max(1, int(round(clip.duration_s * FPS)))
     parts = [canvas_fit_filters(clip, dest_w, dest_h)]
+    blur = soft_mask_blur_chain(clip.blurs, dest_w, dest_h)
+    if blur:
+        parts.append(blur)
     if clip.motion != "none":
         parts.append(motion_chain(clip, frames, dest_w, dest_h))
     else:

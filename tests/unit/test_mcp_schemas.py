@@ -120,6 +120,18 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "clip_id" in fit
     assert "mode" in fit
     assert "kwargs" not in fit
+    blur_add = schemas["clip_blur_add"].get("properties") or {}
+    assert "clip_id" in blur_add
+    assert "kind" in blur_add
+    assert "x" in blur_add and "w" in blur_add
+    kind_blob = str(blur_add.get("kind")).lower()
+    assert "face" in kind_blob and "plate" in kind_blob and "region" in kind_blob
+    assert "kwargs" not in blur_add
+    blur_update = schemas["clip_blur_update"].get("properties") or {}
+    assert "blur_id" in blur_update
+    assert "strength" in blur_update
+    assert "feather" in blur_update
+    assert "kwargs" not in blur_update
 
 
 def test_spec_ses_11_python_311_ok() -> None:

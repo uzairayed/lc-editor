@@ -102,6 +102,34 @@ The wheel ships `Anton-Regular.ttf` and static `SpaceGrotesk-Bold.ttf` (OFL). Cl
 - `motion_speed(clip_id, rate)` is video only. Rate must be in **0.85–1.15**. Reject on stills. Never used to fit a caption.
 - `fx_grain(amount)` and `fx_vignette(amount)` are 0–1 project-wide and write the adjustment layer. Implemented as light ffmpeg `noise` / `vignette` after concat, not a plugin pack.
 
+## SPEC-FX-11: soft-mask face / plate blur
+
+Privacy blur is a per-clip timeline effect. Soft gaussian (or similar) mask blur hides faces or license plates without leaving LC. Not a cartoon sticker and not a CapCut tracking export.
+
+### Tools
+
+- `clip_blur_add(clip_id, kind, x?, y?, w?, h?, strength?, feather?)` → `blur_id`
+- `clip_blur_update(blur_id, x?, y?, w?, h?, strength?, feather?)`
+- `clip_blur_remove(blur_id)`
+- `clip_blur_list(clip_id?)`
+
+`kind` is `face` | `plate` | `region`. Named MCP fields only (SPEC-SES-10).
+
+### Box convention
+
+`x,y,w,h` is **top-left origin**, normalized **0-1 of the post-fit canvas frame** (after `cover` / `fit` / `fit_pad` / `fit_blur`). Agents must not invent boxes: if unsure, ask or skip.
+
+- `kind=region`: box is required.
+- `kind=face|plate`: box optional. When omitted, a cheap local detector runs on the source proxy / keyframe (OpenCV Haar when the `analysis` extra is installed). No cloud VLM. If nothing is found: `ok: true` with a warning and **no blur applied**.
+
+### Render
+
+Soft-mask blur runs **after fit** and **before motion** so cover / fit_blur framing is correct and Ken Burns carries the blurred pixels. Default strength is about **15px** at 1080 tall (tunable 2-64); default feather about **12px** (0-64). Both scale with canvas height. The effect is clip-local, survives `export` reel / share / phone, and does not change music or auto-blur on import.
+
+### Out of scope (v1)
+
+Full tracked mocap / multi-frame optical flow, auto plate OCR, CC0 SFX, SND-12 auto-tpad.
+
 ## SPEC-ADJ: adjustment layer
 
 Look is a filter on the already-cut timeline: one encode for grade / grain / vignette / LUT / layer wrap. This is not a source proxy (SPEC-SES-05) and not per-clip grade baking.
@@ -117,6 +145,7 @@ Look is a filter on the already-cut timeline: one encode for grade / grain / vig
 
 - In/out, motion, punch, whip, flash, match
 - Captions (timing is per shot)
+- Soft-mask face / plate / region blur (SPEC-FX-11)
 - Wind denoise / highpass / gate (needs the source before concat)
 - Per-clip registry effects (`blur`, `sharpen`, `glow`)
 

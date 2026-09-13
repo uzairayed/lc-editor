@@ -77,6 +77,15 @@ PROXY_H = 960
 PROXY_BANNED_SIZES = frozenset({"540x960", "360x640", "960x540"})
 FitMode = Literal["cover", "fit", "fit_pad", "fit_blur"]
 LEGAL_FIT_MODES = ("cover", "fit", "fit_pad", "fit_blur")
+BlurKind = Literal["face", "plate", "region"]
+LEGAL_BLUR_KINDS = ("face", "plate", "region")
+BLUR_STRENGTH_DEFAULT = 15.0
+BLUR_FEATHER_DEFAULT = 12.0
+BLUR_STRENGTH_MIN = 2.0
+BLUR_STRENGTH_MAX = 64.0
+BLUR_FEATHER_MIN = 0.0
+BLUR_FEATHER_MAX = 64.0
+BLUR_REF_H = 1080.0
 SOURCE_PROXY_W = 360
 SOURCE_PROXY_H = 640
 PUNCH_FRAMES = 4
@@ -288,6 +297,24 @@ class CamPip(BaseModel):
     pad: int = CAM_PIP_PAD
 
 
+class ClipBlur(BaseModel):
+    """Soft-mask privacy blur on a clip.
+
+    Box ``x,y,w,h`` is top-left origin, normalized 0-1 of the **post-fit**
+    canvas frame (after cover / fit / fit_blur). Strength and feather are
+    pixels at 1080 tall and scale with canvas height.
+    """
+
+    id: str
+    kind: BlurKind
+    x: float
+    y: float
+    w: float
+    h: float
+    strength: float = BLUR_STRENGTH_DEFAULT
+    feather: float = BLUR_FEATHER_DEFAULT
+
+
 class Clip(BaseModel):
     id: str
     media_id: str
@@ -315,6 +342,7 @@ class Clip(BaseModel):
     zoom_frames_out: int = ZOOM_HIT_FRAMES
     zoom_at_s: float | None = None
     effects: list[EffectInstance] = Field(default_factory=list)
+    blurs: list[ClipBlur] = Field(default_factory=list)
     layout: LayoutKind | None = None
     panes: list[LayoutPane] = Field(default_factory=list)
     cam_pip: CamPip | None = None
