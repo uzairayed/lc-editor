@@ -178,7 +178,7 @@ def test_spec_snd_18_import_cc0_and_place(editor: Editor, media_file: Path, tmp_
     assert not any("SPEC-SND-02" in w and "whoosh" in w.lower() for w in review["warnings"])
 
 
-def test_spec_snd_18_rejects_capcut_and_non_cc0(editor: Editor, tmp_path: Path) -> None:
+def test_spec_snd_18_rejects_capcut_and_unknown_license(editor: Editor, tmp_path: Path) -> None:
     bad = _tiny_wav(tmp_path / "capcut-swipe-222764.wav")
     rejected = editor.sfx_import(str(bad), kind="swipe", source_name="Mixkit Swipe", license="CC0")
     assert rejected["ok"] is False
@@ -195,9 +195,32 @@ def test_spec_snd_18_rejects_capcut_and_non_cc0(editor: Editor, tmp_path: Path) 
         license="royalty-free",
     )
     assert entry is None
-    assert any("CC0" in e for e in errors)
+    assert any("CC0" in e and "Mixkit" in e and "Pixabay" in e for e in errors)
     missing_name = editor.sfx_import(str(ok_src), kind="click", source_name="", license="CC0")
     assert missing_name["ok"] is False
+
+
+def test_spec_snd_18_accepts_mixkit_and_pixabay_licenses(editor: Editor, tmp_path: Path) -> None:
+    mixkit_src = _tiny_wav(tmp_path / "mixkit-swipe.wav")
+    mixkit = editor.sfx_import(
+        str(mixkit_src),
+        kind="swipe",
+        source_name="Mixkit Soft Swipe",
+        license="mixkit",
+        source_url="https://mixkit.co/free-sound-effects/",
+    )
+    assert mixkit["ok"] is True, mixkit
+    assert mixkit["sfx"]["license"] == "Mixkit"
+
+    pixabay_src = _tiny_wav(tmp_path / "pixabay-pop.wav")
+    pixabay = editor.sfx_import(
+        str(pixabay_src),
+        kind="pop",
+        source_name="Pixabay Pop",
+        license="PIXABAY",
+    )
+    assert pixabay["ok"] is True, pixabay
+    assert pixabay["sfx"]["license"] == "Pixabay"
 
 
 def test_spec_snd_18_pack_add_folder(editor: Editor, tmp_path: Path) -> None:

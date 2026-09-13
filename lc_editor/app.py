@@ -1798,7 +1798,10 @@ class Editor:
             Field(description="CC0 kind tag: whoosh, pop, click, swipe, sparkle, cash, success, paper, bubble, button, correct."),
         ],
         source_name: str = "",
-        license: Annotated[Literal["CC0"], Field(description="Must be CC0 (Mixkit / Pixabay / Freesound).")] = "CC0",
+        license: Annotated[
+            Literal["CC0", "Mixkit", "Pixabay"],
+            Field(description="Allowed: CC0, Mixkit, or Pixabay (case-insensitive at import)."),
+        ] = "CC0",
         source_url: str = "",
     ) -> dict:
         store = self._need()
@@ -1827,7 +1830,10 @@ class Editor:
             ),
         ] = "",
         source_name: str = "",
-        license: Annotated[Literal["CC0"], Field(description="Must be CC0 (Mixkit / Pixabay / Freesound).")] = "CC0",
+        license: Annotated[
+            Literal["CC0", "Mixkit", "Pixabay"],
+            Field(description="Allowed: CC0, Mixkit, or Pixabay (case-insensitive at import)."),
+        ] = "CC0",
         source_url: str = "",
     ) -> dict:
         store = self._need()

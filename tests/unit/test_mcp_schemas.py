@@ -144,6 +144,8 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
         assert tag in kind_blob
     license_blob = str(sfx_import.get("license")).lower()
     assert "cc0" in license_blob
+    assert "mixkit" in license_blob
+    assert "pixabay" in license_blob
     sfx_pack = schemas["sfx_pack_add"].get("properties") or {}
     assert "path" in sfx_pack
     assert "kind" in sfx_pack

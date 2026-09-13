@@ -36,16 +36,18 @@ Each bundled item has `duration_s`, `file`, `kind`, and a one-line `license` (`o
 
 `steps_snow` and `steps_gravel` are different waveforms (different SHA-256). Snow is a soft crunch. Gravel is a sharper multi-grain impact.
 
-## SPEC-SND-18: owner CC0 SFX import
+## SPEC-SND-18: owner free SFX import
 
-Owners may import short CC0 wav/mp3 files into the project `user-sfx/` folder so reel kinds use real stock instead of CapCut rips or Python-synth generators. Third-party audio is **never** shipped inside the pip package.
+Owners may import short free-to-use wav/mp3 files into the project `user-sfx/` folder so reel kinds use real stock instead of CapCut rips or Python-synth generators. Third-party audio is **never** shipped inside the pip package.
 
-Preferred sources: **Mixkit**, **Pixabay**, or **Freesound** (CC0 only). CapCut library filenames / ids are rejected.
+Preferred sources: **Mixkit** (Mixkit License), **Pixabay**, or **Freesound** (CC0). CapCut library filenames / ids are rejected.
 
 ### Tools
 
 - `sfx_import(path, kind, source_name, license="CC0", source_url?)` copies one `.wav` / `.mp3` / `.aiff` to `user-sfx/{kind}{ext}` and upserts `user-sfx/ATTRIBUTION.json`.
 - `sfx_pack_add(path, kind?, source_name?, license="CC0", source_url?)` imports a single file (kind required) or a folder of `{kind}.wav|mp3` files. If the pack folder has its own `ATTRIBUTION.json`, per-kind `source_name` / `source_url` / `license` are reused.
+
+`license` must be one of `CC0`, `Mixkit`, or `Pixabay` (case-insensitive). Unknown labels and CapCut-looking names are rejected.
 
 Legal `kind` tags: `whoosh`, `pop`, `click`, `swipe`, `sparkle`, `cash`, `success`, `paper`, `bubble`, `button`, `correct`.
 

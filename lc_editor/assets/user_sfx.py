@@ -8,6 +8,9 @@ from lc_editor.models import CC0_SFX_KINDS, USER_SFX_EXTS
 
 ATTRIBUTION_NAME = "ATTRIBUTION.json"
 CC0_LICENSE = "CC0"
+# Free-to-use labels only. Mixkit / Pixabay are not CC0 but are allowed for owner imports.
+ALLOWED_LICENSES = ("CC0", "Mixkit", "Pixabay")
+_ALLOWED_LICENSE_BY_KEY = {name.casefold(): name for name in ALLOWED_LICENSES}
 # CapCut labels / ids from the reel-SFX reference issue. Never import those rips.
 _BANNED_NAME_RE = re.compile(
     r"(capcut|222764|1184192|money[\s_-]?chakin|computer[\s_-]?mouse[\s_-]?click|pirone)",
@@ -49,7 +52,8 @@ def save_attribution(user_sfx_dir: Path, data: dict) -> Path:
 
 def _attribution_note() -> str:
     return (
-        "Owner-imported CC0 SFX only (Mixkit / Pixabay / Freesound). "
+        "Owner-imported free SFX only (Mixkit / Pixabay / Freesound). "
+        "License must be CC0, Mixkit, or Pixabay. "
         "Do not ship CapCut rips or Python-synth generators. "
         "Third-party audio is never vendored inside the pip package."
     )
@@ -87,15 +91,15 @@ def attribution_by_kind(user_sfx_dir: Path) -> dict[str, dict]:
 def reject_banned_source(path: Path) -> str | None:
     blob = f"{path.name} {path.as_posix()}"
     if _BANNED_NAME_RE.search(blob):
-        return "SPEC-SND-18: CapCut rips are rejected; use Mixkit / Pixabay / Freesound CC0"
+        return "SPEC-SND-18: CapCut rips are rejected; use Mixkit / Pixabay / Freesound"
     return None
 
 
-def normalize_cc0_license(license: str) -> str | None:
+def normalize_import_license(license: str) -> str | None:
     text = (license or "").strip()
-    if text.upper() == CC0_LICENSE:
-        return CC0_LICENSE
-    return None
+    if not text:
+        return None
+    return _ALLOWED_LICENSE_BY_KEY.get(text.casefold())
 
 
 def clear_kind_files(user_sfx_dir: Path, kind: str, keep: Path | None = None) -> None:
@@ -164,13 +168,13 @@ def import_user_sfx_file(
     if banned:
         errors.append(banned)
         return None, errors
-    license_norm = normalize_cc0_license(license)
+    license_norm = normalize_import_license(license)
     if license_norm is None:
-        errors.append("SPEC-SND-18: license must be CC0 (Mixkit / Pixabay / Freesound)")
+        errors.append("SPEC-SND-18: license must be CC0, Mixkit, or Pixabay")
         return None, errors
     name = (source_name or "").strip()
     if not name:
-        errors.append("SPEC-SND-18: source_name required (Mixkit / Pixabay / Freesound CC0)")
+        errors.append("SPEC-SND-18: source_name required (Mixkit / Pixabay / Freesound)")
         return None, errors
     user_sfx_dir.mkdir(parents=True, exist_ok=True)
     dest = user_sfx_dir / f"{kind}{suffix}"

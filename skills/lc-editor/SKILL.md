@@ -30,7 +30,7 @@ Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green. This is th
 3. **Ask about sound before touching the timeline.** Sound is the owner's call, not yours. Ask: "Do you want music or natural audio only?" Do not assume either way.
    - If music: call `project_set(allow_music=true)`, import the track, `music_add`, `beat_analyze`, show `beat_sync_preview`, then `beat_sync_apply` only after the user confirms.
    - If natural audio: proceed without music tools.
-   - For reel UI SFX: prefer owner CC0 files via `sfx_import` / `sfx_pack_add` (Mixkit / Pixabay / Freesound only). Never CapCut rips. Imported keys show in `sfx_list` and win over built-ins in `sfx_place`.
+   - For reel UI SFX: prefer owner free files via `sfx_import` / `sfx_pack_add` (license `CC0` / `Mixkit` / `Pixabay`; Mixkit / Pixabay / Freesound sources only). Never CapCut rips. Imported keys show in `sfx_list` and win over built-ins in `sfx_place`.
 
 4. **Match subjects to scene cards.** When you look at keyframes or set clip durations/roles, consult `context/INDEX.md` and read only the matching scene cards. The process is in `context/HOW.md`.
 
@@ -74,7 +74,7 @@ Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail o
 
 **Music:** `music_add`, `beat_analyze`, `beat_edit`, `beat_sync_preview`, `beat_sync_apply`
 
-**SFX:** `sfx_list`, `sfx_import` / `sfx_pack_add` (CC0 wav/mp3 into project `user-sfx/` + `ATTRIBUTION.json`), `sfx_place`, `sfx_caption_auto`, `sfx_transition_auto`, `sfx_zoom_auto`
+**SFX:** `sfx_list`, `sfx_import` / `sfx_pack_add` (CC0 / Mixkit / Pixabay wav/mp3 into project `user-sfx/` + `ATTRIBUTION.json`), `sfx_place`, `sfx_caption_auto`, `sfx_transition_auto`, `sfx_zoom_auto`
 
 **Templates:** `template_list`, `template_apply`, `template_save`
 
