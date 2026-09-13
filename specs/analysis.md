@@ -2,12 +2,13 @@
 
 Source: index once at import, query at edit time. Analysis runs on the 360x640 source proxy and writes a shot manifest the agent can list, search, and rank without watching footage. No full-video VLM. Face / plate **hints in the shot index** remain out of scope for analysis v1; privacy blur on the timeline is SPEC-FX-11 (`clip_blur_*`).
 
-Agent workflow: **index → rank → story lock → timeline**.
+Agent workflow: **index → understand (optional) → rank → story lock → timeline**.
 
 1. `import_folder` / `import_file` (indexes automatically; re-run `media_analyze` is a cache no-op)
-2. Optional `media_tag(shoot_day=…, role=before|wash|after|…)`
-3. `shots_rank` / `shots_search` / `media_list` to pick candidates from thumbs + scores
-4. Story lock: choose day/role order, then `clip_add(media_id, in_s, out_s)`
+2. Optional `media_understand` for process/album span cards (then `media_understand_refine` on uncertain spans)
+3. Optional `media_tag(shoot_day=…, role=before|wash|after|…)`
+4. `shots_rank` / `shots_search` / `media_list` to pick candidates from thumbs + scores (prefer understand-tagged spans)
+5. Story lock: choose day/role order, then `clip_add(media_id, in_s, out_s)`
 
 ## SPEC-ANA-01: shot manifest
 
@@ -98,11 +99,13 @@ ffmpeg failure on one file: that file gets `ok: false` treatment (warning, no ma
 
 ## SPEC-ANA-09: MCP surface
 
-`media_analyze`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters. `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day`.
+`media_analyze`, `media_understand`, `media_understand_refine`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day`. `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`.
 
 ## SPEC-ANA-10: performance budget
 
 One ffmpeg decode pass per video for metrics, plus one keyframe grab per shot. Batch analysis may run files concurrently (thread pool; ffmpeg is a subprocess). Murree stills (images) analyze without a decode pass. Target: analyze + rank of the 117-still Murree folder stays inside the SPEC-SES-14 wall-time envelope when that marker runs. ~50-file albums stay inside the same cheap index (no full-video VLM).
+
+`media_understand` scores at most `budget_frames` candidate keyframes per media (default 48, clamped 8–64). It does not re-decode the whole video. `media_understand_refine` extracts at most `budget_frames` extra keyframes inside one span (default 16).
 
 ## SPEC-ANA-11: index on import
 
@@ -114,6 +117,36 @@ One ffmpeg decode pass per video for metrics, plus one keyframe grab per shot. B
 - `sheet`: path to `output/index_sheet.jpg` (one cover keyframe per indexed item) when any keyframes exist
 
 Media rows include `size_bytes` (source file size) and capture fields. `shoot_day` / `role` remain agent tags via `media_tag` (not inferred).
+
+## SPEC-ANA-12: hierarchical understand (Train A)
+
+Cheap timeline cards on top of the import index. No full-video VLM. No required large weights (CLIP/BLIP stay optional extras later).
+
+Pipeline: indexed shots → candidate spans (coverage grid + high motion + audio peaks + cut ends) → heuristic role scorer on candidates only → structured spans + keyframes → optional dense refine inside one span.
+
+### `media_understand(media_id?, query?, budget_frames?, roles?)`
+
+- Default `query` is process/album understanding (`before`, `wash`, `detail`, `wheel`, `interior`, `machine`, `after`, `polish`).
+- `roles` overrides the query-derived role list when provided.
+- Returns `spans`: list of `{media_id, in_s, out_s, role_hint, score, keyframe_path, reason}` sorted by score desc.
+- Also returns `budget_frames`, `frames_scored`, `roles`, `query`.
+- Stamps matching shot `tags` with `understand:{role_hint}` and writes `cache/analysis/{proxy_hash}.understand.json`.
+- Missing analysis triggers the same cheap index path as `media_analyze` for that file.
+- Does not mutate the timeline.
+
+### `media_understand_refine(media_id, in_s, out_s, reason?, budget_frames?)`
+
+- Dense local re-sample only inside `[in_s, out_s]` when the agent is uncertain.
+- Splits the span into ≤ `budget_frames` windows, extracts a midpoint keyframe per window, re-scores with parent-shot metrics + new sharpness.
+- Updates understand tags on the overlapping parent shot from the best window.
+- Returns the same span card shape under `spans`.
+
+### Preference wiring
+
+- `shots_rank` adds a small score boost when a shot carries `understand:{role}` (polish ↔ after).
+- `shots_search(role=…)` matches media `role` tags **or** `understand:{role}` on the shot.
+
+Out of scope for Train A: FOCUS bandit, AKS training, LENS spatial, `highlights_suggest`, album-batch shared budget metrics.
 
 ## SPEC-QLT-01: source quality floor
 
@@ -130,4 +163,4 @@ Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor 
 
 ## Future work
 
-A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields.
+A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: FOCUS bandit, AKS, LENS, highlights_suggest.

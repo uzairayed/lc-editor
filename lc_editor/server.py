@@ -22,6 +22,8 @@ TOOLS = [
     "proxy_build",
     "media_proxy",
     "media_analyze",
+    "media_understand",
+    "media_understand_refine",
     "shots_list",
     "shots_search",
     "shots_rank",

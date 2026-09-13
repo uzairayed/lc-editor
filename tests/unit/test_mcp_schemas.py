@@ -62,6 +62,19 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "media_id" in analyze
     assert "op_id" in analyze
     assert "kwargs" not in analyze
+    understand = schemas["media_understand"].get("properties") or {}
+    assert "media_id" in understand
+    assert "query" in understand
+    assert "budget_frames" in understand
+    assert "roles" in understand
+    assert "kwargs" not in understand
+    refine = schemas["media_understand_refine"].get("properties") or {}
+    assert "media_id" in refine
+    assert "in_s" in refine
+    assert "out_s" in refine
+    assert "reason" in refine
+    assert "budget_frames" in refine
+    assert "kwargs" not in refine
     search = schemas["shots_search"].get("properties") or {}
     assert "media_id" in search
     assert "shoot_day" in search
