@@ -66,6 +66,11 @@ from lc_editor.analysis.spatial import (
     spatial_refocus_warning,
     spatial_windows,
 )
+from lc_editor.analysis.highlights import (
+    clamp_target_s,
+    normalize_style,
+    suggest_highlight_sheets,
+)
 from lc_editor.analysis.understand import (
     DEFAULT_REFINE_BUDGET,
     apply_understand_tags,
@@ -1575,6 +1580,96 @@ class Editor:
         result["frames_scored"] = from_cache or len(cards)
         result["roles"] = role_list
         result["from_cache"] = from_cache > 0
+        return result
+
+    def highlights_suggest(
+        self,
+        target_s: float,
+        style: Annotated[
+            Literal["process", "reel"],
+            Field(description="process: detailing ASMR arc; reel: short-form target with same arc preference"),
+        ] = "process",
+        media_id: str | None = None,
+        refresh: bool = False,
+    ) -> dict:
+        """Ranked candidate beat sheets from understand spans (Train E).
+
+        Prefers transformation arcs (before → process ASMR → after) over
+        virality / transcript hacks. Detailing is often silent: speech peaks
+        are not required. Uses Train A–D understand cache, roles, and spatial
+        hints when present. Suggest only: does not mutate the timeline and
+        does not auto-export. Agent still locks the story.
+        """
+        store = self._need()
+        style_norm = normalize_style(style)
+        target = clamp_target_s(target_s, style_norm)
+        warnings: list[str] = []
+        if refresh:
+            refreshed = self.media_understand(media_id=media_id)
+            if not refreshed.get("ok", True):
+                warnings.extend(refreshed.get("warnings") or [])
+        targets = [self._media(media_id)] if media_id else list(self.media)
+        visual = [item for item in targets if item.kind != "audio"]
+        media_meta = {
+            item.id: {"shoot_day": item.shoot_day, "role": item.role}
+            for item in self.media
+        }
+        cards: list[dict] = []
+        spatial_by_media: dict[str, dict] = {}
+        from_cache = 0
+        for item in visual:
+            cached = load_understand_cache(self._understand_for(item))
+            if cached and cached.get("cards"):
+                for card in cached["cards"]:
+                    info = media_meta.get(item.id) or {}
+                    cards.append(
+                        {
+                            **card,
+                            "source": card.get("source") or "understand",
+                            "shoot_day": card.get("shoot_day", info.get("shoot_day")),
+                            "media_role": card.get("media_role", info.get("role")),
+                        }
+                    )
+                from_cache += len(cached["cards"])
+                if cached.get("spatial"):
+                    spatial_by_media[item.id] = cached["spatial"]
+                continue
+            path = self._manifest_for(item)
+            if path.exists():
+                tagged = cards_from_tagged_shots(load_manifest(path), media_meta=media_meta)
+                cards.extend(tagged)
+            else:
+                warnings.append(f"not analyzed: {item.id}")
+        if not cards and visual:
+            # Auto-understand once so suggest stays useful without a prior call.
+            understood = self.media_understand(media_id=media_id)
+            warnings.extend(understood.get("warnings") or [])
+            cards = list(understood.get("spans") or [])
+            from_cache = 0
+            for item in visual:
+                cached = load_understand_cache(self._understand_for(item)) or {}
+                if cached.get("spatial"):
+                    spatial_by_media[item.id] = cached["spatial"]
+        if not cards:
+            warnings.append("no understand spans; call media_understand first")
+        candidates = suggest_highlight_sheets(
+            cards,
+            target_s=target,
+            style=style_norm,
+            spatial_by_media=spatial_by_media or None,
+        )
+        result = envelope(True, store.timeline, warnings)
+        result["candidates"] = candidates
+        result["style"] = style_norm
+        result["target_s"] = target
+        result["spans"] = cards
+        result["from_cache"] = from_cache > 0
+        result["suggest_only"] = True
+        result["auto_export"] = False
+        result["reason"] = (
+            "LC-native beat sheets from understand spans; agent locks story; "
+            "does not auto-export"
+        )
         return result
 
     def _load_shots(self, media_id: str | None = None) -> tuple[list[Shot], list[str]]:

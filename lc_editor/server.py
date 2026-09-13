@@ -26,6 +26,7 @@ TOOLS = [
     "media_understand_refine",
     "media_understand_spatial",
     "understand_timeline",
+    "highlights_suggest",
     "shots_list",
     "shots_search",
     "shots_rank",

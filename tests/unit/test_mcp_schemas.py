@@ -91,6 +91,14 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "roles" in timeline
     assert "refresh" in timeline
     assert "kwargs" not in timeline
+    highlights = schemas["highlights_suggest"].get("properties") or {}
+    assert "target_s" in highlights
+    assert "style" in highlights
+    assert "media_id" in highlights
+    assert "refresh" in highlights
+    assert "kwargs" not in highlights
+    style_blob = str(highlights.get("style")).lower()
+    assert "process" in style_blob and "reel" in style_blob
     search = schemas["shots_search"].get("properties") or {}
     assert "media_id" in search
     assert "shoot_day" in search
