@@ -2,11 +2,11 @@
 
 Source: index once at import, query at edit time. Analysis runs on the 360x640 source proxy and writes a shot manifest the agent can list, search, and rank without watching footage. No full-video VLM. Face / plate **hints in the shot index** remain out of scope for analysis v1; privacy blur on the timeline is SPEC-FX-11 (`clip_blur_*`).
 
-Agent workflow: **index → understand (optional) → rank → story lock → timeline**.
+Agent workflow: **index → understand (optional) → understand_timeline → rank → story lock → timeline**.
 
 1. `import_folder` / `import_file` (indexes automatically; re-run `media_analyze` is a cache no-op)
 2. Optional `media_understand` for process/album span cards (then `media_understand_refine` on uncertain spans)
-3. Optional `media_tag(shoot_day=…, role=before|wash|after|…)`
+3. Optional `understand_timeline` for Director role-labeled beats; optional `media_tag(shoot_day=…, role=before|wash|after|…)`
 4. `shots_rank` / `shots_search` / `media_list` to pick candidates from thumbs + scores (prefer understand-tagged spans)
 5. Story lock: choose day/role order, then `clip_add(media_id, in_s, out_s)`
 
@@ -82,10 +82,15 @@ Scoring (higher wins):
 - `hook` / `hero`: sharpness + mid-range luma energy. High-motion shots on the first imported file are penalized (highway openers).
 - `journey` / `engine`: motion, plus a bonus when `audio_class` is `engine` (stronger for `engine`).
 - `site_wide` / `skip_face`: low motion + high luma spread (`skip_face` also prefers low blur; no face VLM).
-- `site_detail` / `detail` / `before` / `wash` / `after` / `machine` / `wheel` / `interior`: high sharpness + low motion (wheel/interior also prefer low blur).
+- `site_detail` / `detail`: high sharpness + low motion.
+- `before`: sharp-enough still + low motion + lower luma (dusty / dull).
+- `wash`: motion + usable sharpness + wet-work audio.
+- `after` / polish: high sharpness + high luma + low motion (clean payoff).
+- `machine`: motion + sharpness + engine-ish audio.
+- `wheel` / `interior`: high sharpness + low motion + low blur (`interior` also prefers tighter luma spread).
 - `closer`: low motion + longer duration.
 
-Tag-filter roles (`before`, `wash`, `after`, `machine`, `detail`, `wheel`, `interior`): when any media is tagged with that role, rank only those; otherwise fall back to the full pool with the same scorer.
+Tag-filter roles (`before`, `wash`, `after`, `machine`, `detail`, `wheel`, `interior`, `engine`, `hero`, `skip_face`): understand-tagged spans for that role win the pool first; else when any media is tagged with that role, rank only those; otherwise fall back to the full pool with the same scorer.
 
 Unknown role: `ok: false`. `top_k` larger than the pool returns the whole pool, still `ok`. Equal-content HD ranks above SD (source short-side boost; SPEC-QLT-01). A sub-720 candidate whose media is role-tagged (`before` / `wash` / `machine` / `after`) yields to an HD take with the same media `role` (and the same `shoot_day` if both are tagged), even when the soft clip would win on other scores. Remaining ties break by `id` ascending.
 
@@ -99,7 +104,7 @@ ffmpeg failure on one file: that file gets `ok: false` treatment (warning, no ma
 
 ## SPEC-ANA-09: MCP surface
 
-`media_analyze`, `media_understand`, `media_understand_refine`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day`. `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`.
+`media_analyze`, `media_understand`, `media_understand_refine`, `understand_timeline`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags; default sort prefers understand-tagged). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day` (understand-tagged pool preferred). `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`. `understand_timeline` exposes `media_id`, `top_per_role`, `roles`, `refresh`.
 
 ## SPEC-ANA-10: performance budget
 
@@ -126,9 +131,9 @@ Pipeline: indexed shots → candidate spans → heuristic role scorer on candida
 
 ### `media_understand(media_id?, query?, budget_frames?, roles?, shared_budget?, selection?)`
 
-- Default `query` is process/album understanding (`before`, `wash`, `detail`, `wheel`, `interior`, `machine`, `after`, `polish`).
+- Default `query` is process/album understanding (`before`, `wash`, `wheel`, `interior`, `engine`, `machine`, `after`, `hero`, `skip_face`).
 - `roles` overrides the query-derived role list when provided.
-- Returns `spans`: list of `{media_id, in_s, out_s, role_hint, score, keyframe_path, reason}` sorted by score desc.
+- Returns `spans`: list of `{media_id, in_s, out_s, role_hint, score, keyframe_path, reason, role_scores}` sorted by score desc.
 - Also returns `budget_frames`, `frames_scored`, `roles`, `query`, plus Train B fields `selection`, `shared_budget`, `metrics`, `embedder`.
 - Stamps matching shot `tags` with `understand:{role_hint}` and writes `cache/analysis/{proxy_hash}.understand.json`.
 - Missing analysis triggers the same cheap index path as `media_analyze` for that file.
@@ -143,7 +148,7 @@ Pipeline: indexed shots → candidate spans → heuristic role scorer on candida
 
 ### Preference wiring
 
-- `shots_rank` adds a small score boost when a shot carries `understand:{role}` (polish ↔ after).
+- `shots_rank` adds a strong score boost when a shot carries `understand:{role}` (polish ↔ after); Train C also restricts the pool to those spans when any exist.
 - `shots_search(role=…)` matches media `role` tags **or** `understand:{role}` on the shot.
 
 ## SPEC-ANA-13: adaptive selection (Train B)
@@ -179,6 +184,39 @@ Every `media_understand` response includes `metrics`:
 
 Out of scope for Train B: LENS spatial densify, `highlights_suggest`, PROCESS_ROLES Director feed expansion beyond Train A wiring.
 
+## SPEC-ANA-14: process role labeling + Director feed (Train C)
+
+Map understand spans onto PROCESS_ROLES and feed Director/agents a structured beat list. Keeps Train A/B APIs (`media_understand`, `media_understand_refine`, adaptive `selection` / `shared_budget`) intact.
+
+### Role mapping
+
+Default `media_understand` roles are process Director roles: `before`, `wash`, `wheel`, `interior`, `engine`, `machine`, `after`, `hero`, `skip_face`. `detail` and `polish` remain valid (`polish` ↔ `after`). Each span card includes:
+
+- `role_hint`, `score`, `reason` (metrics + role hint + margin vs runner-up)
+- `role_scores`: per-role score map used to pick the hint
+
+Scoring is role-specific (not a single `site_detail` alias): dusty/low-luma for `before`, wet-work motion for `wash`, bright sharp payoff for `after`/`polish`, tool motion for `machine`, engine audio for `engine`, sharp stills for `wheel`/`interior`/`detail`, calm wides for `skip_face`, mid-luma hero energy for `hero`.
+
+### Strong preference wiring
+
+- `shots_rank`: when any shot carries `understand:{role}` (or `polish`↔`after`), the pool is those spans only; same-role understand boost is `0.45` (any-understand soft boost `0.08`).
+- `shots_search(role=…)` still matches media `role` **or** `understand:{role}`. With default sort, understand-tagged matches list first.
+
+### `understand_timeline(media_id?, top_per_role=2, roles?, refresh=false)`
+
+Director story cards from the album/project:
+
+- Prefers `cache/analysis/{proxy_hash}.understand.json` cards; falls back to `understand:{role}` shot tags.
+- Returns `beats` (role-labeled list in process story order), `by_role`, `roles_present`, `order`, plus `spans` / `from_cache`.
+- Process story order: `before` → `wash` → `engine` → `machine` → `wheel` → `interior` → `detail` → `after` → `hero` → `skip_face`.
+- `refresh=true` runs `media_understand` first. Does not mutate the timeline. No separate frame-watching bot.
+
+### MCP surface
+
+`understand_timeline` is registered in `TOOLS` with named fields `media_id`, `top_per_role`, `roles`, `refresh`.
+
+Out of scope for Train C: LENS spatial densify (D), `highlights_suggest` auto-edit (E).
+
 ## SPEC-QLT-01: source quality floor
 
 Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor is **min short side 720**. A 512×288 Day-1 phone clip fails; 1280×720 and 1080×1920 pass.
@@ -194,4 +232,4 @@ Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor 
 
 ## Future work
 
-A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: LENS, highlights_suggest, Director deepen.
+A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: LENS, highlights_suggest.

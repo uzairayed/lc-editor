@@ -42,12 +42,13 @@ def test_clamp_budget_and_default_roles() -> None:
     assert resolve_understand_roles() == [
         "before",
         "wash",
-        "detail",
         "wheel",
         "interior",
+        "engine",
         "machine",
         "after",
-        "polish",
+        "hero",
+        "skip_face",
     ]
     assert resolve_understand_roles(query="wash") == ["wash"]
     assert resolve_understand_roles(roles=["wheel", "interior"]) == ["wheel", "interior"]
@@ -109,9 +110,11 @@ def test_media_understand_returns_process_spans(editor: Editor, tmp_path: Path) 
     assert result["metrics"]["frames_scored"] == result["frames_scored"]
     assert result["spans"]
     card = result["spans"][0]
-    for key in ("media_id", "in_s", "out_s", "role_hint", "score", "keyframe_path", "reason"):
+    for key in ("media_id", "in_s", "out_s", "role_hint", "score", "keyframe_path", "reason", "role_scores"):
         assert key in card
     assert card["role_hint"] in result["roles"]
+    assert isinstance(card["role_scores"], dict)
+    assert card["role_hint"] in card["role_scores"]
     assert Path(card["keyframe_path"]).exists()
 
     # Tags stamped into the index cache.

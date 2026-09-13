@@ -28,11 +28,14 @@ from lc_editor.analysis.media import (
     shoot_days_equal,
 )
 from lc_editor.analysis.rank import (
+    PROCESS_STORY_ORDER,
     ROLES,
     contradictory_filters,
     filter_shots,
     rank_shots,
     score_shot,
+    shot_has_any_understand_tag,
+    shot_has_understand_role,
     sort_shots,
 )
 from lc_editor.analysis.shots import (
@@ -57,13 +60,14 @@ from lc_editor.analysis.embedder import embedder_status, optional_embedder
 from lc_editor.analysis.understand import (
     DEFAULT_REFINE_BUDGET,
     apply_understand_tags,
+    build_understand_timeline,
     card_from_shot,
+    cards_from_tagged_shots,
     clamp_budget,
     load_understand_cache,
     parent_shot_for_span,
     refine_windows,
     resolve_understand_roles,
-    shot_has_understand_role,
     understand_path,
     write_understand_cache,
 )
@@ -1310,6 +1314,66 @@ class Editor:
         result["embedder"] = embedder_status()
         return result
 
+    def understand_timeline(
+        self,
+        media_id: str | None = None,
+        top_per_role: int = 2,
+        roles: list[str] | None = None,
+        refresh: bool = False,
+    ) -> dict:
+        """Director feed: role-labeled story beats from understand spans.
+
+        Prefers ``*.understand.json`` cards; falls back to ``understand:{role}``
+        shot tags. Does not watch frames and does not mutate the timeline.
+        """
+        store = self._need()
+        role_list = resolve_understand_roles(roles=roles) if roles else list(PROCESS_STORY_ORDER)
+        try:
+            per_role = max(1, int(top_per_role))
+        except (TypeError, ValueError):
+            per_role = 2
+        targets = [self._media(media_id)] if media_id else list(self.media)
+        visual = [item for item in targets if item.kind != "audio"]
+        warnings: list[str] = []
+        if refresh:
+            refreshed = self.media_understand(media_id=media_id, roles=role_list)
+            if not refreshed.get("ok", True):
+                warnings.extend(refreshed.get("warnings") or [])
+        media_meta = {
+            item.id: {"shoot_day": item.shoot_day, "role": item.role}
+            for item in self.media
+        }
+        cards: list[dict] = []
+        from_cache = 0
+        for item in visual:
+            cached = load_understand_cache(self._understand_for(item))
+            if cached and cached.get("cards"):
+                for card in cached["cards"]:
+                    cards.append({**card, "source": "understand"})
+                from_cache += len(cached["cards"])
+                continue
+            path = self._manifest_for(item)
+            if path.exists():
+                tagged = cards_from_tagged_shots(load_manifest(path), media_meta=media_meta)
+                cards.extend(tagged)
+            else:
+                warnings.append(f"not analyzed: {item.id}")
+        if not cards and visual:
+            warnings.append("no understand spans; call media_understand first")
+        timeline = build_understand_timeline(
+            cards,
+            media_meta=media_meta,
+            top_per_role=per_role,
+            roles=role_list,
+        )
+        result = envelope(True, store.timeline, warnings)
+        result.update(timeline)
+        result["spans"] = cards
+        result["frames_scored"] = from_cache or len(cards)
+        result["roles"] = role_list
+        result["from_cache"] = from_cache > 0
+        return result
+
     def _load_shots(self, media_id: str | None = None) -> tuple[list[Shot], list[str]]:
         items = [self._media(media_id)] if media_id else list(self.media)
         shots: list[Shot] = []
@@ -1381,6 +1445,20 @@ class Editor:
 
             filtered = [shot for shot in filtered if _matches(shot)]
         ordered = sort_shots(filtered, sort, [item.id for item in self.media])
+        # Train C: with default capture order, surface understand-tagged spans first.
+        if sort is None:
+            media_order = {item.id: i for i, item in enumerate(self.media)}
+            role_key = str(role).strip().lower() if role is not None else ""
+
+            def _prefer_key(shot: Shot) -> tuple:
+                tagged = (
+                    shot_has_understand_role(shot, role_key)
+                    if role_key
+                    else shot_has_any_understand_tag(shot)
+                )
+                return (0 if tagged else 1, media_order.get(shot.media_id, 10_000), shot.in_s, shot.id)
+
+            ordered = sorted(ordered, key=_prefer_key)
         if limit is not None:
             ordered = ordered[: max(0, int(limit))]
         result = envelope(True, store.timeline, warnings)
