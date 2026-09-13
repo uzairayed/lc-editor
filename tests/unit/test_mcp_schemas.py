@@ -95,6 +95,9 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "caption_font" in project_set
     assert "duration_cap_s" in project_set
     assert "caption_contrast" in project_set
+    contrast = project_set["caption_contrast"]
+    contrast_blob = str(contrast).lower()
+    assert "strict" in contrast_blob and "lenient" in contrast_blob
     emphasis = schemas["caption_emphasis"].get("properties") or {}
     assert "word_id" in emphasis
     assert "kind" in emphasis
@@ -105,6 +108,8 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     export = schemas["export"].get("properties") or {}
     assert "wait" in export
     assert "preset" in export
+    preset_blob = str(export["preset"]).lower()
+    assert "share" in preset_blob and "phone" in preset_blob and "reel" in preset_blob
     fit = schemas["clip_set_fit"].get("properties") or {}
     assert "clip_id" in fit
     assert "mode" in fit

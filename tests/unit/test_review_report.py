@@ -106,7 +106,9 @@ def test_review_allows_process_length_with_raised_cap(editor: Editor, media_file
     assert result["report"]["duration_cap_s"] == 180.0
     assert result["report"]["errors"] == []
     assert not any("SPEC-EDIT-14" in w for w in result["warnings"])
-    assert any("SPEC-EDIT-15" in w for w in result["warnings"])
+    assert any("SPEC-EDIT-15" in w and "60.00s default" in w for w in result["warnings"])
+    assert not any("over 28.00s target" in w for w in result["warnings"])
+    assert result["report"]["in_target_length"] is True
     exported = editor.export()
     assert exported["ok"] is True
 

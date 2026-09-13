@@ -105,7 +105,7 @@ Worked example: default project at 60.00s, `clip_add` of a 2.00s shot is rejecte
 
 After a successful mutation:
 
-- duration `> 28.00`: warning (keep, do not reject)
+- duration above the soft target: warning (keep, do not reject). Soft target is **28.00s** by default. When `duration_cap_s` is raised above the default **60.00s** hard cap (process / ambient), that configured cap is the soft target, so a legal process length does not keep warning “over 28.00s”
 - duration `> 60.00` while the configured cap is above 60.00: warning (keep; hard fail is SPEC-EDIT-14 only above the configured cap)
 - duration `< 15.00` and at least one clip: warning (keep)
 
