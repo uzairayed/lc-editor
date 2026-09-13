@@ -67,9 +67,9 @@ A real session, in order:
 11. `overlay_preview` IG
 12. `preview_stills`, `preview_proxy`, recut (`clip_trim` or remove), `review_report`, `export`
 
-## SPEC-SES-09: web is read-only
+## SPEC-SES-09: web is a localhost labeling desk
 
-Optional localhost page reads timeline JSON and stills. It has no POST that mutates the store.
+Optional `lc-editor serve --web` opens a localhost labeling desk. Timeline edits stay MCP-only. HTTP POST is allowed only for the label tools already on `Editor` (`media_card_confirm`, `shot_card_confirm`, `labels_bulk_confirm`, `labels_clear`, `labels_undo`). The HTTP layer is a thin adapter: no labeling, queue, or readiness logic of its own. Bind `127.0.0.1`. Reject cross-origin mutations. Serve only project-relative media.
 
 ## SPEC-SES-10: typed MCP schemas
 

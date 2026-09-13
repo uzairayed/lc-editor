@@ -232,27 +232,42 @@ def pool_for_role(
     *,
     media_roles: dict[str, str | None] | None = None,
     confirmed_roles: dict[str, str | None] | None = None,
+    confirmed_shot_roles: dict[str, str | None] | None = None,
 ) -> list[Shot]:
-    """Confirmed card > understand-tagged spans > media role tags > full pool."""
+    """Confirmed shot > confirmed card > understand-tagged spans > media role tags > full pool."""
+
+    def _overridden(shot: Shot) -> bool:
+        if not confirmed_shot_roles:
+            return False
+        tagged = confirmed_shot_roles.get(shot.id)
+        return tagged is not None and not roles_equal(tagged, role)
+
+    usable = [shot for shot in shots if not _overridden(shot)]
+    if confirmed_shot_roles:
+        confirmed_shots = [
+            shot for shot in shots if roles_equal(confirmed_shot_roles.get(shot.id), role)
+        ]
+        if confirmed_shots:
+            return confirmed_shots
     if confirmed_roles:
         confirmed = [
             shot
-            for shot in shots
+            for shot in usable
             if roles_equal(confirmed_roles.get(shot.media_id), role)
         ]
         if confirmed:
             return confirmed
-    understand_pool = [shot for shot in shots if shot_has_understand_role(shot, role)]
+    understand_pool = [shot for shot in usable if shot_has_understand_role(shot, role)]
     if understand_pool:
         return understand_pool
     if role not in TAG_FILTER_ROLES or not media_roles:
-        return list(shots)
+        return list(usable)
     tagged = [
         shot
-        for shot in shots
+        for shot in usable
         if roles_equal(media_roles.get(shot.media_id), role)
     ]
-    return tagged if tagged else list(shots)
+    return tagged if tagged else list(usable)
 
 
 def _audio_motion_bonus(metrics, *, engine_weight: float = 0.35, ambient_weight: float = 0.1) -> float:
@@ -425,9 +440,14 @@ def rank_shots(
     media_roles: dict[str, str | None] | None = None,
     shoot_days: dict[str, int | str | None] | None = None,
     confirmed_roles: dict[str, str | None] | None = None,
+    confirmed_shot_roles: dict[str, str | None] | None = None,
 ) -> list[Shot]:
     pool = pool_for_role(
-        shots, role, media_roles=media_roles, confirmed_roles=confirmed_roles
+        shots,
+        role,
+        media_roles=media_roles,
+        confirmed_roles=confirmed_roles,
+        confirmed_shot_roles=confirmed_shot_roles,
     )
 
     def key(shot: Shot) -> tuple:

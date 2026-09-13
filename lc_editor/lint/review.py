@@ -302,6 +302,8 @@ def review_warnings(
     media: list[MediaItem] | None = None,
     user_sfx_dir: Path | None = None,
     understand_spans: dict[str, list] | None = None,
+    shot_cards=None,
+    shots_by_media=None,
 ) -> list[str]:
     warns = [w for w in invariant_warnings(timeline, project) if "locked still" not in w]
     warns.extend(locked_still_issues(timeline))
@@ -338,5 +340,13 @@ def review_warnings(
         warns.append(f"SPEC-SND-13: beat grid confidence {timeline.beat_grid.confidence:.2f} is low")
     if media and any(not item.captured_at for item in media):
         warns.append("media missing captured_at")
-    warns.extend(provenance_warnings(timeline, media, understand_spans=understand_spans))
+    warns.extend(
+        provenance_warnings(
+            timeline,
+            media,
+            understand_spans=understand_spans,
+            shot_cards=shot_cards,
+            shots_by_media=shots_by_media,
+        )
+    )
     return warns

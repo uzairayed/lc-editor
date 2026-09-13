@@ -489,6 +489,24 @@ class MediaCard(BaseModel):
     note: str = ""
 
 
+LabelSource = Literal["shot_card", "media_card", "analysis", "folder"]
+QUEUE_FILTERS = ("all", "unlabeled", "needs_confirmation", "conflicts")
+
+
+class ShotCard(BaseModel):
+    """Durable human shot label. Lives in shot_cards.json, not the analysis cache."""
+
+    shot_id: str
+    media_id: str
+    role: str | None = None
+    shoot_day: int | str | None = None
+    subjects: list[str] = Field(default_factory=list)
+    confidence: float = 1.0
+    source: CardSource = "owner"
+    confirmed: bool = True
+    note: str = ""
+
+
 class MediaItem(BaseModel):
     id: str
     path: str

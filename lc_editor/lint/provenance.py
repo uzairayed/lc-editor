@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from lc_editor.analysis.provenance import (
     arc_order_issues,
+    normalize_process_role,
     resolve_slot_role,
     uncarded_slot_issues,
     understand_role_from_tags,
 )
-from lc_editor.models import Clip, MediaItem, Timeline, clip_media_ids
+from lc_editor.models import Clip, MediaItem, ShotCard, Timeline, clip_media_ids
 
 
 def _overlap(in_s: float, out_s: float, clip: Clip) -> bool:
@@ -54,10 +55,32 @@ def _understand_role_for_clip(clip: Clip, media_id: str, understand_spans: dict[
     return None
 
 
+def _shot_role_for_clip(
+    clip: Clip,
+    media_id: str,
+    shot_cards: dict[str, ShotCard] | None,
+    shots_by_media: dict[str, list] | None,
+) -> str | None:
+    if not shot_cards:
+        return None
+    for shot in (shots_by_media or {}).get(media_id) or []:
+        in_s = float(getattr(shot, "in_s", 0.0) or 0.0)
+        out_s = float(getattr(shot, "out_s", 0.0) or 0.0)
+        if not _overlap(in_s, out_s, clip):
+            continue
+        card = shot_cards.get(getattr(shot, "id", ""))
+        if card is None or not card.confirmed or not card.role:
+            continue
+        return normalize_process_role(card.role)
+    return None
+
+
 def clip_slots(
     timeline: Timeline,
     media: list[MediaItem] | None,
     understand_spans: dict[str, list] | None = None,
+    shot_cards: dict[str, ShotCard] | None = None,
+    shots_by_media: dict[str, list] | None = None,
 ) -> list[dict]:
     by_id = {item.id: item for item in (media or [])}
     slots: list[dict] = []
@@ -67,11 +90,13 @@ def clip_slots(
             card_role = None
             if item is not None and item.card is not None:
                 card_role = item.card.role
-            role = resolve_slot_role(
-                media_role=item.role if item is not None else None,
-                card_role=card_role,
-                understand_role=_understand_role_for_clip(clip, mid, understand_spans),
-            )
+            role = _shot_role_for_clip(clip, mid, shot_cards, shots_by_media)
+            if role is None:
+                role = resolve_slot_role(
+                    media_role=item.role if item is not None else None,
+                    card_role=card_role,
+                    understand_role=_understand_role_for_clip(clip, mid, understand_spans),
+                )
             slots.append(
                 {
                     "clip_id": clip.id,
@@ -87,11 +112,19 @@ def provenance_warnings(
     timeline: Timeline,
     media: list[MediaItem] | None = None,
     understand_spans: dict[str, list] | None = None,
+    shot_cards: dict[str, ShotCard] | None = None,
+    shots_by_media: dict[str, list] | None = None,
 ) -> list[str]:
     if not timeline.clips or not media:
         return []
     by_id = {item.id: item for item in media}
-    slots = clip_slots(timeline, media, understand_spans)
+    slots = clip_slots(
+        timeline,
+        media,
+        understand_spans,
+        shot_cards=shot_cards,
+        shots_by_media=shots_by_media,
+    )
     warns = arc_order_issues(slots)
     warns.extend(uncarded_slot_issues(slots, by_id))
     return warns

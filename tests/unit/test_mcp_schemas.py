@@ -67,8 +67,39 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "shoot_day" in confirm
     assert "subjects" in confirm
     assert "note" in confirm
+    assert "source" in confirm
     assert "op_id" in confirm
     assert "kwargs" not in confirm
+    for name in (
+        "label_queue",
+        "label_get",
+        "shot_card_confirm",
+        "labels_bulk_confirm",
+        "labels_clear",
+        "labels_undo",
+        "label_conflicts",
+        "label_readiness",
+    ):
+        assert name in schemas
+        assert "kwargs" not in (schemas[name].get("properties") or {})
+    queue = schemas["label_queue"].get("properties") or {}
+    assert "filter" in queue
+    assert "shoot_day" in queue
+    assert "role" in queue
+    got = schemas["label_get"].get("properties") or {}
+    assert "media_id" in got
+    assert "shot_id" in got
+    shot_confirm = schemas["shot_card_confirm"].get("properties") or {}
+    assert "shot_id" in shot_confirm
+    assert "role" in shot_confirm
+    assert "subjects" in shot_confirm
+    assert "op_id" in shot_confirm
+    bulk = schemas["labels_bulk_confirm"].get("properties") or {}
+    assert "items" in bulk
+    assert "op_id" in bulk
+    clear = schemas["labels_clear"].get("properties") or {}
+    assert "media_id" in clear
+    assert "shot_id" in clear
     listed = schemas["media_list"].get("properties") or {}
     assert "shoot_day" in listed
     assert "role" in listed

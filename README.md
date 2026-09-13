@@ -1,6 +1,6 @@
 # lc-editor
 
-A local video editor for a computer use agent, made for grokbot. You drive it from an MCP client; there is no timeline UI to click. You send tool calls; ffmpeg renders the file.
+A local video editor for a computer use agent, made for grokbot. You drive the cut from an MCP client; there is no timeline UI to click. `lc-editor serve --web` opens a localhost desk for previewing and labeling clips. You send tool calls; ffmpeg renders the file.
 
 Built for short 9:16 reels (1080x1920, 30fps). Captions are stroke-and-shadow text, never a box. Sound is the owner's call, not the editor's: ask before assuming music or natural audio. This version composites multiple layers, applies a small effect pack, expands templates into ordinary timeline items, and can mix owner-imported music with beat sync. Engine rules live in `specs/craft.md`. Karachi episode structure is an optional preset, not the default.
 
@@ -31,7 +31,7 @@ pipx install git+https://github.com/uzairayed/lc-editor.git
 lc-editor serve --project ./my-reel
 ```
 
-`--project` defaults to `./reel` if omitted. `--web` starts a page on 127.0.0.1:8765 that can show stills. It only reads.
+`--project` defaults to `./reel` if omitted. `--web` starts the labeling desk on 127.0.0.1:8765. Label writes go through the same MCP tools; the page does not edit the timeline.
 
 ```
 lc-editor version
@@ -152,7 +152,7 @@ The primary track is still the gapless `clips` list (`clip_add`, trim, split, re
 - Music: default is off. `project_set(allow_music=true)` is the owner opt-in. Then `import_file` a local `.mp3`/`.wav`/`.m4a` and `music_add`. `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply`. There is no stock catalog; licensing stays with the owner.
 - Layouts: `layout_add("stack_v"|"stack_h"|"stack_v3"|"grid_2x2", panes=[...])` composites two to four sources into one clip. `layout_pane` refocuses a cell. `layout_clear` flattens back to pane 0. A vista or reveal stays full-frame.
 - Captions: `caption_add` still works and syncs to a bound text layer. No box, banner, or scrim. Process / product reels use `style="card"` (Clash Display via `font="clash"`). `pop` / `karaoke` are spoken-word only.
-- Album cards: `media_card_propose` / `media_card_confirm` lock day, role, and what's in frame before story lock. `shoot_day_suggest` clusters capture times. Folder names (`before/`, `day1`) tag untagged imports. `review_report` warns on inverted before/after capture order and uncarded bookend slots.
+- Album cards: `media_card_propose` / `media_card_confirm` lock day, role, and what's in frame before story lock. Shot overrides use `shot_card_confirm`. `label_queue` / `label_get` / `label_readiness` are the same contract the localhost labeling desk (`lc-editor serve --web`) uses. `shoot_day_suggest` clusters capture times. Folder names (`before/`, `day1`) tag untagged imports. `review_report` warns on inverted before/after capture order and uncarded bookend slots.
 
 Optional: `project_create(..., preset="karachi")` loads series branding. Other reels do not need it.
 

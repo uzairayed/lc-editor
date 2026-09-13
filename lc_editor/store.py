@@ -34,6 +34,8 @@ class Store:
         self.templates_dir = root / "templates"
         self.project_path = root / "project.json"
         self.state_path = root / "state.json"
+        self.shot_cards_path = root / "shot_cards.json"
+        self.label_history_path = root / "label_history.json"
         self.pointer = 0
         self.max_pointer = 0
         self.ledger: dict[str, dict] = {}

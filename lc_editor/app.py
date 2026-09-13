@@ -71,6 +71,14 @@ from lc_editor.analysis.highlights import (
     normalize_style,
     suggest_highlight_sheets,
 )
+from lc_editor.analysis.labels import (
+    LABEL_UNDO_MAX,
+    build_label_queue,
+    collect_conflicts,
+    confirmed_shot_roles_map,
+    readiness_payload,
+    resolve_labels,
+)
 from lc_editor.analysis.provenance import (
     FOLDER_HINT_CONFIDENCE,
     card_coverage,
@@ -158,8 +166,11 @@ from lc_editor.models import (
     Keyframe,
     LayerItem,
     LayoutPane,
+    CardSource,
     MediaCard,
     MediaItem,
+    QUEUE_FILTERS,
+    ShotCard,
     MusicTrack,
     Project,
     TextStyle,
@@ -290,6 +301,8 @@ class Editor:
         self.runner: Runner = runner or FfmpegRunner()
         self.store: Store | None = None
         self.media: list[MediaItem] = []
+        self.shot_cards: dict[str, ShotCard] = {}
+        self.label_history: list[dict] = []
         ensure_assets()
 
     def call(self, tool: str, **kwargs) -> dict:
@@ -412,7 +425,11 @@ class Editor:
         store.init_project(project)
         self.store = store
         self.media = []
+        self.shot_cards = {}
+        self.label_history = []
         self._save_media()
+        self._save_shot_cards()
+        self._save_label_history()
         result = envelope(True, store.timeline, [])
         if applied:
             result["preset"] = applied
@@ -423,6 +440,8 @@ class Editor:
         store.load()
         self.store = store
         self._load_media()
+        self._load_shot_cards()
+        self._load_label_history()
         return envelope(True, store.timeline, [])
 
     def project_get(self) -> dict:
@@ -539,6 +558,94 @@ class Editor:
             json.dumps([m.model_dump() for m in self.media], indent=2),
             encoding="utf-8",
         )
+
+    def _shot_cards_path(self) -> Path:
+        return self._need().shot_cards_path
+
+    def _label_history_path(self) -> Path:
+        return self._need().label_history_path
+
+    def _save_shot_cards(self) -> None:
+        if self.store is None:
+            return
+        payload = [card.model_dump() for card in self.shot_cards.values()]
+        self._shot_cards_path().write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _load_shot_cards(self) -> None:
+        path = self._shot_cards_path()
+        if not path.exists():
+            self.shot_cards = {}
+            return
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        cards = rows.get("cards") if isinstance(rows, dict) else rows
+        self.shot_cards = {}
+        for row in cards or []:
+            card = ShotCard.model_validate(row)
+            self.shot_cards[card.shot_id] = card
+
+    def _save_label_history(self) -> None:
+        if self.store is None:
+            return
+        self._label_history_path().write_text(
+            json.dumps(self.label_history[-LABEL_UNDO_MAX:], indent=2),
+            encoding="utf-8",
+        )
+
+    def _load_label_history(self) -> None:
+        path = self._label_history_path()
+        if not path.exists():
+            self.label_history = []
+            return
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.label_history = list(data) if isinstance(data, list) else list(data.get("stack") or [])
+
+    def _label_snapshot(self) -> dict:
+        return {
+            "media": [item.model_dump() for item in self.media],
+            "shot_cards": [card.model_dump() for card in self.shot_cards.values()],
+        }
+
+    def _restore_label_snapshot(self, snap: dict) -> None:
+        self.media = [MediaItem.model_validate(row) for row in snap.get("media") or []]
+        self.shot_cards = {}
+        for row in snap.get("shot_cards") or []:
+            card = ShotCard.model_validate(row)
+            self.shot_cards[card.shot_id] = card
+        self._save_media()
+        self._save_shot_cards()
+
+    def _push_label_undo(self) -> None:
+        self.label_history.append(self._label_snapshot())
+        if len(self.label_history) > LABEL_UNDO_MAX:
+            self.label_history = self.label_history[-LABEL_UNDO_MAX:]
+        self._save_label_history()
+
+    def _shots_by_media(self) -> dict[str, list[Shot]]:
+        out: dict[str, list[Shot]] = {}
+        for item in self.media:
+            path = self._manifest_for(item)
+            if path.exists():
+                out[item.id] = load_manifest(path)
+            else:
+                out[item.id] = []
+        return out
+
+    def _understand_by_media(self) -> dict[str, list]:
+        out: dict[str, list] = {}
+        for item in self.media:
+            cached = load_understand_cache(self._understand_for(item)) or {}
+            out[item.id] = list(cached.get("cards") or [])
+        return out
+
+    def _find_shot(self, shot_id: str) -> tuple[MediaItem, Shot]:
+        for item in self.media:
+            path = self._manifest_for(item)
+            if not path.exists():
+                continue
+            for shot in load_manifest(path):
+                if shot.id == shot_id:
+                    return item, shot
+        raise Reject(f"unknown shot {shot_id}")
 
     def _load_media(self) -> None:
         path = self._media_index_path()
@@ -963,6 +1070,7 @@ class Editor:
         shoot_day: int | str | None = None,
         subjects: list[str] | None = None,
         note: str | None = None,
+        source: CardSource | None = None,
         op_id: str | None = None,
     ) -> dict:
         store = self._need()
@@ -989,12 +1097,13 @@ class Editor:
                 store.timeline,
                 ["media_card_confirm requires role, shoot_day, or subjects"],
             )
+        self._push_label_undo()
         card = MediaCard(
             role=final_role,
             shoot_day=final_day,
             subjects=final_subjects,
             confidence=1.0,
-            source="agent",
+            source=source or "agent",
             confirmed=True,
             note=final_note,
         )
@@ -1013,6 +1122,320 @@ class Editor:
         if op_id:
             store.ledger[op_id] = result
             store.persist()
+        return result
+
+    def label_queue(
+        self,
+        filter: str = "all",
+        shoot_day: int | str | None = None,
+        role: str | None = None,
+    ) -> dict:
+        store = self._need()
+        filt = (filter or "all").strip().lower()
+        if filt not in QUEUE_FILTERS:
+            result = envelope(False, store.timeline, [f"unknown filter {filter}"])
+            result["groups"] = []
+            result["items"] = []
+            result["counts"] = {name: 0 for name in QUEUE_FILTERS}
+            return result
+        queued = build_label_queue(
+            self.media,
+            shots_by_media=self._shots_by_media(),
+            shot_cards=self.shot_cards,
+            understand_by_media=self._understand_by_media(),
+            filt=filt,
+            shoot_day=shoot_day,
+            role=role,
+        )
+        result = envelope(True, store.timeline, [])
+        result.update(queued)
+        return result
+
+    def label_get(self, media_id: str | None = None, shot_id: str | None = None) -> dict:
+        store = self._need()
+        if shot_id:
+            item, shot = self._find_shot(shot_id)
+            understand = self._understand_by_media().get(item.id) or []
+            resolved = resolve_labels(
+                item,
+                shot,
+                shot_card=self.shot_cards.get(shot_id),
+                understand_cards=understand,
+                peers=self.media,
+            )
+            result = envelope(True, store.timeline, [])
+            result["label"] = resolved
+            result["media"] = self._public_media(item)
+            result["shot"] = shot.model_dump()
+            result["card"] = self.shot_cards.get(shot_id).model_dump() if shot_id in self.shot_cards else None
+            return result
+        if not media_id:
+            return envelope(False, store.timeline, ["label_get requires media_id or shot_id"])
+        item = self._media(media_id)
+        understand = self._understand_by_media().get(item.id) or []
+        resolved = resolve_labels(item, None, understand_cards=understand, peers=self.media)
+        shots = []
+        for shot in self._shots_by_media().get(item.id) or []:
+            shots.append(
+                resolve_labels(
+                    item,
+                    shot,
+                    shot_card=self.shot_cards.get(shot.id),
+                    understand_cards=understand,
+                    peers=self.media,
+                )
+            )
+        result = envelope(True, store.timeline, [])
+        result["label"] = resolved
+        result["media"] = self._public_media(item)
+        result["shot"] = None
+        result["shots"] = shots
+        result["card"] = item.card.model_dump() if item.card else None
+        return result
+
+    def shot_card_confirm(
+        self,
+        shot_id: str,
+        role: str | None = None,
+        shoot_day: int | str | None = None,
+        subjects: list[str] | None = None,
+        note: str | None = None,
+        source: CardSource | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        replay = store.replay(op_id)
+        if replay is not None:
+            return replay
+        item, shot = self._find_shot(shot_id)
+        existing = self.shot_cards.get(shot_id)
+        final_role = normalize_role(role) if role is not None else (existing.role if existing else None)
+        final_day = (
+            normalize_shoot_day(shoot_day)
+            if shoot_day is not None
+            else (existing.shoot_day if existing else None)
+        )
+        final_subjects = list(subjects) if subjects is not None else (list(existing.subjects) if existing else [])
+        final_note = note if note is not None else (existing.note if existing else "")
+        if final_role is None and final_day is None and not final_subjects:
+            return envelope(
+                False,
+                store.timeline,
+                ["shot_card_confirm requires role, shoot_day, or subjects"],
+            )
+        self._push_label_undo()
+        card = ShotCard(
+            shot_id=shot.id,
+            media_id=item.id,
+            role=final_role,
+            shoot_day=final_day,
+            subjects=final_subjects,
+            confidence=1.0,
+            source=source or "owner",
+            confirmed=True,
+            note=final_note,
+        )
+        self.shot_cards[shot.id] = card
+        self._save_shot_cards()
+        understand = self._understand_by_media().get(item.id) or []
+        result = envelope(True, store.timeline, [])
+        result["card"] = card.model_dump()
+        result["label"] = resolve_labels(
+            item, shot, shot_card=card, understand_cards=understand, peers=self.media
+        )
+        result["shot"] = shot.model_dump()
+        if op_id:
+            store.ledger[op_id] = result
+            store.persist()
+        return result
+
+    def labels_bulk_confirm(self, items: list[dict] | None = None, op_id: str | None = None) -> dict:
+        store = self._need()
+        replay = store.replay(op_id)
+        if replay is not None:
+            return replay
+        rows = list(items or [])
+        if not rows:
+            return envelope(False, store.timeline, ["labels_bulk_confirm requires items"])
+        self._push_label_undo()
+        confirmed: list[dict] = []
+        warnings: list[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                warnings.append("skip non-object item")
+                continue
+            shot_id = row.get("shot_id")
+            media_id = row.get("media_id")
+            kwargs = {
+                "role": row.get("role"),
+                "shoot_day": row.get("shoot_day"),
+                "subjects": row.get("subjects"),
+                "note": row.get("note"),
+                "source": row.get("source") or "owner",
+            }
+            if shot_id:
+                existing = self.shot_cards.get(str(shot_id))
+                try:
+                    item, shot = self._find_shot(str(shot_id))
+                except Reject as exc:
+                    warnings.append(str(exc))
+                    continue
+                card = ShotCard(
+                    shot_id=shot.id,
+                    media_id=item.id,
+                    role=normalize_role(kwargs["role"]) if kwargs["role"] is not None else (existing.role if existing else None),
+                    shoot_day=(
+                        normalize_shoot_day(kwargs["shoot_day"])
+                        if kwargs["shoot_day"] is not None
+                        else (existing.shoot_day if existing else None)
+                    ),
+                    subjects=(
+                        list(kwargs["subjects"])
+                        if kwargs["subjects"] is not None
+                        else (list(existing.subjects) if existing else [])
+                    ),
+                    note=kwargs["note"] if kwargs["note"] is not None else (existing.note if existing else ""),
+                    confidence=1.0,
+                    source=kwargs["source"],
+                    confirmed=True,
+                )
+                if card.role is None and card.shoot_day is None and not card.subjects:
+                    warnings.append(f"shot {shot.id} needs role, shoot_day, or subjects")
+                    continue
+                self.shot_cards[shot.id] = card
+                confirmed.append({"scope": "shot", "shot_id": shot.id, "media_id": item.id})
+                continue
+            if media_id:
+                try:
+                    item = self._media(str(media_id))
+                except Reject as exc:
+                    warnings.append(str(exc))
+                    continue
+                card = MediaCard(
+                    role=normalize_role(kwargs["role"]) if kwargs["role"] is not None else item.role,
+                    shoot_day=(
+                        normalize_shoot_day(kwargs["shoot_day"])
+                        if kwargs["shoot_day"] is not None
+                        else item.shoot_day
+                    ),
+                    subjects=list(kwargs["subjects"] or (item.card.subjects if item.card else [])),
+                    note=kwargs["note"] if kwargs["note"] is not None else (item.card.note if item.card else ""),
+                    confidence=1.0,
+                    source=kwargs["source"],
+                    confirmed=True,
+                )
+                if item.card is not None:
+                    if kwargs["role"] is None:
+                        card = card.model_copy(update={"role": card.role or item.card.role})
+                    if kwargs["shoot_day"] is None:
+                        card = card.model_copy(update={"shoot_day": card.shoot_day if card.shoot_day is not None else item.card.shoot_day})
+                    if kwargs["subjects"] is None:
+                        card = card.model_copy(update={"subjects": list(item.card.subjects)})
+                    if kwargs["note"] is None:
+                        card = card.model_copy(update={"note": item.card.note})
+                if card.role is None and card.shoot_day is None and not card.subjects:
+                    warnings.append(f"media {item.id} needs role, shoot_day, or subjects")
+                    continue
+                update: dict = {"card": card}
+                if card.role is not None:
+                    update["role"] = card.role
+                if card.shoot_day is not None:
+                    update["shoot_day"] = card.shoot_day
+                fresh = item.model_copy(update=update)
+                self.media = [fresh if m.id == item.id else m for m in self.media]
+                confirmed.append({"scope": "media", "media_id": item.id})
+                continue
+            warnings.append("item requires media_id or shot_id")
+        self._save_media()
+        self._save_shot_cards()
+        result = envelope(True, store.timeline, warnings)
+        result["confirmed"] = confirmed
+        result["card_coverage"] = card_coverage(self.media)
+        if op_id:
+            store.ledger[op_id] = result
+            store.persist()
+        return result
+
+    def labels_clear(
+        self,
+        media_id: str | None = None,
+        shot_id: str | None = None,
+        op_id: str | None = None,
+    ) -> dict:
+        store = self._need()
+        replay = store.replay(op_id)
+        if replay is not None:
+            return replay
+        if media_id is None and shot_id is None:
+            return envelope(False, store.timeline, ["labels_clear requires media_id or shot_id"])
+        self._push_label_undo()
+        cleared: list[str] = []
+        if shot_id:
+            if shot_id in self.shot_cards:
+                del self.shot_cards[shot_id]
+                cleared.append(shot_id)
+            else:
+                return envelope(False, store.timeline, [f"unknown shot card {shot_id}"])
+        if media_id:
+            item = self._media(media_id)
+            fresh = item.model_copy(update={"card": None})
+            self.media = [fresh if m.id == media_id else m for m in self.media]
+            cleared.append(media_id)
+            if shot_id is None:
+                for sid, card in list(self.shot_cards.items()):
+                    if card.media_id == media_id:
+                        del self.shot_cards[sid]
+                        cleared.append(sid)
+        self._save_media()
+        self._save_shot_cards()
+        result = envelope(True, store.timeline, [])
+        result["cleared"] = cleared
+        result["card_coverage"] = card_coverage(self.media)
+        if op_id:
+            store.ledger[op_id] = result
+            store.persist()
+        return result
+
+    def labels_undo(self, op_id: str | None = None) -> dict:
+        store = self._need()
+        replay = store.replay(op_id)
+        if replay is not None:
+            return replay
+        if not self.label_history:
+            return envelope(False, store.timeline, ["nothing to undo"])
+        snap = self.label_history.pop()
+        self._restore_label_snapshot(snap)
+        self._save_label_history()
+        result = envelope(True, store.timeline, [])
+        result["card_coverage"] = card_coverage(self.media)
+        result["shot_overrides"] = len(self.shot_cards)
+        if op_id:
+            store.ledger[op_id] = result
+            store.persist()
+        return result
+
+    def label_conflicts(self) -> dict:
+        store = self._need()
+        rows = collect_conflicts(
+            self.media,
+            shots_by_media=self._shots_by_media(),
+            shot_cards=self.shot_cards,
+            understand_by_media=self._understand_by_media(),
+        )
+        result = envelope(True, store.timeline, [])
+        result["conflicts"] = rows
+        return result
+
+    def label_readiness(self) -> dict:
+        store = self._need()
+        payload = readiness_payload(
+            self.media,
+            shots_by_media=self._shots_by_media(),
+            shot_cards=self.shot_cards,
+            understand_by_media=self._understand_by_media(),
+        )
+        result = envelope(True, store.timeline, [])
+        result.update(payload)
         return result
 
     def media_remove(self, media_id: str, op_id: str | None = None) -> dict:
@@ -1972,16 +2395,27 @@ class Editor:
         )
         if shoot_day is not None or role is not None:
             media_by_id = {item.id: item for item in self.media}
+            understand = self._understand_by_media()
 
             def _matches(shot: Shot) -> bool:
                 item = media_by_id.get(shot.media_id)
+                resolved = resolve_labels(
+                    item,
+                    shot,
+                    shot_card=self.shot_cards.get(shot.id),
+                    understand_cards=understand.get(shot.media_id) if item else None,
+                    peers=self.media,
+                )
                 if shoot_day is not None:
-                    if item is None or not shoot_days_equal(item.shoot_day, shoot_day):
+                    day = resolved["shoot_day"]["value"]
+                    media_day = item.shoot_day if item is not None else None
+                    if not shoot_days_equal(day, shoot_day) and not shoot_days_equal(media_day, shoot_day):
                         return False
                 if role is not None:
+                    resolved_ok = roles_equal(resolved["role"]["value"], role)
                     media_ok = item is not None and roles_equal(item.role, role)
                     tag_ok = shot_has_understand_role(shot, str(role).strip().lower())
-                    if not media_ok and not tag_ok:
+                    if not resolved_ok and not media_ok and not tag_ok:
                         return False
                 return True
 
@@ -2043,6 +2477,7 @@ class Editor:
         media_roles = {item.id: item.role for item in self.media}
         shoot_days = {item.id: item.shoot_day for item in self.media}
         confirmed_roles = confirmed_roles_map(self.media)
+        confirmed_shot_roles = confirmed_shot_roles_map(self.shot_cards)
         ranked = rank_shots(
             pool,
             role,
@@ -2052,6 +2487,7 @@ class Editor:
             media_roles=media_roles,
             shoot_days=shoot_days,
             confirmed_roles=confirmed_roles,
+            confirmed_shot_roles=confirmed_shot_roles,
         )
         result = envelope(True, store.timeline, warnings)
         result["shots"] = [
@@ -3170,6 +3606,8 @@ class Editor:
             media=self.media,
             user_sfx_dir=store.user_sfx_dir,
             understand_spans=self._understand_spans_for_lint(),
+            shot_cards=self.shot_cards,
+            shots_by_media=self._shots_by_media(),
         )
         # Train D soft cover-focus suggestions from spatial densify cache.
         hints: dict[str, dict] = {}
