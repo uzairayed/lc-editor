@@ -77,6 +77,12 @@ def test_spec_ses_10_mcp_tools_have_named_fields(tmp_path: Path) -> None:
     assert "reason" in refine
     assert "budget_frames" in refine
     assert "kwargs" not in refine
+    timeline = schemas["understand_timeline"].get("properties") or {}
+    assert "media_id" in timeline
+    assert "top_per_role" in timeline
+    assert "roles" in timeline
+    assert "refresh" in timeline
+    assert "kwargs" not in timeline
     search = schemas["shots_search"].get("properties") or {}
     assert "media_id" in search
     assert "shoot_day" in search

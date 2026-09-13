@@ -13,17 +13,9 @@ from lc_editor.analysis.media import (
 from lc_editor.models import SHOT_MAX_S
 
 UNDERSTAND_TAG_PREFIX = "understand:"
-UNDERSTAND_BOOST = 0.15
-
-
-def understand_boost(shot: Shot, role: str) -> float:
-    """Prefer spans stamped by media_understand for the same role."""
-    tags = shot.tags or []
-    if f"{UNDERSTAND_TAG_PREFIX}{role}" in tags:
-        return UNDERSTAND_BOOST
-    if role == "after" and f"{UNDERSTAND_TAG_PREFIX}polish" in tags:
-        return UNDERSTAND_BOOST
-    return 0.0
+# Train C: strong preference so Director picks understand spans over bare index.
+UNDERSTAND_BOOST = 0.45
+UNDERSTAND_ANY_BOOST = 0.08
 
 # Narrative roles (travel / reel sections) plus process / album roles for story lock.
 NARRATIVE_ROLES = ("hook", "journey", "site_wide", "site_detail", "closer")
@@ -42,10 +34,26 @@ PROCESS_ROLES = (
 ROLES = NARRATIVE_ROLES + PROCESS_ROLES
 SORTS = ("in_s", "motion", "duration_s")
 
-# Roles that prefer media tagged with the same name when any are tagged.
-TAG_FILTER_ROLES = frozenset({"before", "wash", "after", "machine", "detail", "wheel", "interior", "engine", "hero", "skip_face"})
+# Process story order for Director / understand_timeline beat lists.
+PROCESS_STORY_ORDER = (
+    "before",
+    "wash",
+    "engine",
+    "machine",
+    "wheel",
+    "interior",
+    "detail",
+    "after",
+    "hero",
+    "skip_face",
+)
 
-# Map album / process roles onto narrative scorers (or a named alias).
+# Roles that prefer media tagged with the same name when any are tagged.
+TAG_FILTER_ROLES = frozenset(
+    {"before", "wash", "after", "machine", "detail", "wheel", "interior", "engine", "hero", "skip_face"}
+)
+
+# Legacy aliases kept for callers that still resolve onto narrative names.
 ROLE_SCORE_ALIAS = {
     "detail": "site_detail",
     "hero": "hook",
@@ -57,7 +65,38 @@ ROLE_SCORE_ALIAS = {
     "interior": "site_detail",
     "engine": "journey",
     "skip_face": "site_wide",
+    "polish": "after",
 }
+
+
+def understand_tags_for_role(role: str) -> list[str]:
+    role = (role or "").strip().lower()
+    if not role:
+        return []
+    tags = [f"{UNDERSTAND_TAG_PREFIX}{role}"]
+    if role == "after":
+        tags.append(f"{UNDERSTAND_TAG_PREFIX}polish")
+    elif role == "polish":
+        tags.append(f"{UNDERSTAND_TAG_PREFIX}after")
+    return tags
+
+
+def shot_has_understand_role(shot: Shot, role: str) -> bool:
+    wanted = set(understand_tags_for_role(role))
+    return bool(wanted.intersection(shot.tags or []))
+
+
+def shot_has_any_understand_tag(shot: Shot) -> bool:
+    return any(str(t).startswith(UNDERSTAND_TAG_PREFIX) for t in (shot.tags or []))
+
+
+def understand_boost(shot: Shot, role: str) -> float:
+    """Prefer spans stamped by media_understand (same role ≫ any understand tag)."""
+    if shot_has_understand_role(shot, role):
+        return UNDERSTAND_BOOST
+    if shot_has_any_understand_tag(shot):
+        return UNDERSTAND_ANY_BOOST
+    return 0.0
 
 
 def contradictory_filters(
@@ -193,7 +232,10 @@ def pool_for_role(
     *,
     media_roles: dict[str, str | None] | None = None,
 ) -> list[Shot]:
-    """When ranking a tag role, prefer media tagged with that role if any exist."""
+    """Prefer understand-tagged spans, then media role tags, else the full pool."""
+    understand_pool = [shot for shot in shots if shot_has_understand_role(shot, role)]
+    if understand_pool:
+        return understand_pool
     if role not in TAG_FILTER_ROLES or not media_roles:
         return list(shots)
     tagged = [
@@ -204,6 +246,16 @@ def pool_for_role(
     return tagged if tagged else list(shots)
 
 
+def _audio_motion_bonus(metrics, *, engine_weight: float = 0.35, ambient_weight: float = 0.1) -> float:
+    if metrics.audio_class == "engine":
+        return engine_weight
+    if metrics.audio_class == "ambient":
+        return ambient_weight
+    if metrics.audio_class == "speech":
+        return 0.05
+    return 0.0
+
+
 def score_shot(
     shot: Shot,
     role: str,
@@ -211,32 +263,85 @@ def score_shot(
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
 ) -> float:
+    """Score a shot for a narrative or process role (Train C process heuristics)."""
     metrics = shot.metrics
-    score_role = resolve_score_role(role)
-    if score_role == "hook":
+    role = (role or "").strip().lower()
+    mapped = ROLE_SCORE_ALIAS.get(role, role)
+
+    # Process / album roles: distinct heuristics so understand can label cleanly.
+    if role == "before":
+        # Dusty / dull: stable frame, usable sharpness, prefer lower luma (not polished).
+        score = (
+            0.4 * metrics.sharpness
+            + 0.35 * (1.0 - metrics.motion)
+            + 0.25 * (1.0 - metrics.luma_mean)
+        )
+    elif role == "wash":
+        # Water / foam action: motion + usable sharpness + wet-work audio.
+        score = (
+            0.5 * metrics.motion
+            + 0.25 * metrics.sharpness
+            + 0.1 * metrics.luma_spread
+            + _audio_motion_bonus(metrics, engine_weight=0.2, ambient_weight=0.15)
+        )
+    elif role == "after" or role == "polish":
+        # Clean / shiny payoff: sharp, bright, calm.
+        score = (
+            0.4 * metrics.sharpness
+            + 0.35 * metrics.luma_mean
+            + 0.25 * (1.0 - metrics.motion)
+        )
+        if metrics.luma_mean >= 0.55:
+            score += 0.12
+    elif role == "machine":
+        # Polisher / tool at work: motion + edge detail + engine-ish audio.
+        score = (
+            0.4 * metrics.motion
+            + 0.35 * metrics.sharpness
+            + 0.1 * (1.0 - metrics.blur)
+            + _audio_motion_bonus(metrics, engine_weight=0.25, ambient_weight=0.1)
+        )
+    elif role == "wheel":
+        score = (
+            0.55 * metrics.sharpness
+            + 0.25 * (1.0 - metrics.motion)
+            + 0.2 * (1.0 - metrics.blur)
+        )
+    elif role == "interior":
+        score = (
+            0.5 * metrics.sharpness
+            + 0.25 * (1.0 - metrics.motion)
+            + 0.15 * (1.0 - metrics.blur)
+            + 0.1 * (1.0 - metrics.luma_spread)
+        )
+    elif role == "engine":
+        score = 0.65 * metrics.motion + _audio_motion_bonus(metrics, engine_weight=0.5, ambient_weight=0.05)
+    elif role == "hero":
         energy = 1.0 - abs(metrics.luma_mean - 0.5) * 2.0
         score = 0.5 * metrics.sharpness + 0.3 * max(0.0, energy) + 0.2 * metrics.luma_spread
         if first_media_id and shot.media_id == first_media_id and metrics.motion > 0.5:
             score -= 0.4
-    elif score_role == "journey":
-        bonus = 0.3 if metrics.audio_class == "engine" else 0.0
-        if role == "engine":
-            bonus = 0.5 if metrics.audio_class == "engine" else 0.0
-        score = 0.7 * metrics.motion + bonus
-    elif score_role == "site_wide":
-        score = 0.6 * (1.0 - metrics.motion) + 0.4 * metrics.luma_spread
-        if role == "skip_face":
-            # Prefer calmer wides (no face VLM in v1): low motion, high spread, low blur.
-            score = (
-                0.45 * (1.0 - metrics.motion)
-                + 0.35 * metrics.luma_spread
-                + 0.2 * (1.0 - metrics.blur)
-            )
-    elif score_role == "site_detail":
+    elif role == "skip_face":
+        score = (
+            0.45 * (1.0 - metrics.motion)
+            + 0.35 * metrics.luma_spread
+            + 0.2 * (1.0 - metrics.blur)
+        )
+    elif role == "detail":
         score = 0.7 * metrics.sharpness + 0.3 * (1.0 - metrics.motion)
-        if role in ("wheel", "interior"):
-            score = 0.6 * metrics.sharpness + 0.25 * (1.0 - metrics.motion) + 0.15 * (1.0 - metrics.blur)
-    elif score_role == "closer":
+    elif mapped == "hook" or role == "hook":
+        energy = 1.0 - abs(metrics.luma_mean - 0.5) * 2.0
+        score = 0.5 * metrics.sharpness + 0.3 * max(0.0, energy) + 0.2 * metrics.luma_spread
+        if first_media_id and shot.media_id == first_media_id and metrics.motion > 0.5:
+            score -= 0.4
+    elif mapped == "journey" or role == "journey":
+        bonus = 0.3 if metrics.audio_class == "engine" else 0.0
+        score = 0.7 * metrics.motion + bonus
+    elif mapped == "site_wide" or role == "site_wide":
+        score = 0.6 * (1.0 - metrics.motion) + 0.4 * metrics.luma_spread
+    elif mapped == "site_detail" or role == "site_detail":
+        score = 0.7 * metrics.sharpness + 0.3 * (1.0 - metrics.motion)
+    elif mapped == "closer" or role == "closer":
         duration_norm = min(1.0, shot.duration_s / SHOT_MAX_S)
         score = 0.5 * (1.0 - metrics.motion) + 0.5 * duration_norm
     else:

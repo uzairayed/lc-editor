@@ -1,4 +1,4 @@
-"""Hierarchical cheap media understanding (Train A + Train B selection).
+"""Hierarchical cheap media understanding (Train A + B selection + Train C roles).
 
 Reuses the import shot index. Scores only candidate spans (keyframes already
 on disk). No full-video VLM. No large weights required.
@@ -6,6 +6,9 @@ on disk). No full-video VLM. No large weights required.
 Train B swaps the default candidate picker for FOCUS/AKS-inspired adaptive
 selection (see ``lc_editor.analysis.adaptive``) while keeping Train A card
 shapes and refine APIs stable.
+
+Train C maps spans onto PROCESS_ROLES with clear per-role scores/reasons and
+builds Director story cards via ``build_understand_timeline``.
 """
 
 from __future__ import annotations
@@ -15,7 +18,16 @@ import os
 from pathlib import Path
 
 from lc_editor.analysis.manifest import Shot
-from lc_editor.analysis.rank import PROCESS_ROLES, UNDERSTAND_TAG_PREFIX, score_shot, understand_boost
+from lc_editor.analysis.rank import (
+    PROCESS_ROLES,
+    PROCESS_STORY_ORDER,
+    UNDERSTAND_TAG_PREFIX,
+    score_shot,
+    shot_has_any_understand_tag,
+    shot_has_understand_role,
+    understand_boost,
+    understand_tags_for_role,
+)
 from lc_editor.models import SHOT_MAX_S
 
 DEFAULT_BUDGET_FRAMES = 48
@@ -23,24 +35,40 @@ MIN_BUDGET_FRAMES = 8
 MAX_BUDGET_FRAMES = 64
 DEFAULT_REFINE_BUDGET = 16
 
-# Default process / album roles for detailing-style understanding.
+# Default process / album roles for Director feed (Train C PROCESS_ROLES set).
 DEFAULT_PROCESS_ROLES = (
     "before",
     "wash",
-    "detail",
     "wheel",
     "interior",
+    "engine",
     "machine",
     "after",
-    "polish",
+    "hero",
+    "skip_face",
 )
 
-# Understand-only aliases that map onto narrative scorers.
+# Understand-only aliases that map onto process scorers.
 UNDERSTAND_SCORE_ALIAS = {
     "polish": "after",
+    "detail": "detail",
 }
 
 QUERY_PROCESS = frozenset({"", "process", "album", "detailing", "default"})
+
+ROLE_REASON_HINTS = {
+    "before": "dusty/dull still",
+    "wash": "wet-work motion",
+    "wheel": "sharp wheel detail",
+    "interior": "cabin still detail",
+    "engine": "engine motion/audio",
+    "machine": "tool/polisher work",
+    "after": "clean/shiny payoff",
+    "polish": "clean/shiny payoff",
+    "hero": "hero still",
+    "skip_face": "calm wide / skip face",
+    "detail": "sharp still detail",
+}
 
 
 def clamp_budget(budget_frames: int | None, default: int = DEFAULT_BUDGET_FRAMES) -> int:
@@ -59,21 +87,7 @@ def understand_tag(role: str) -> str:
 
 def tags_for_role(role: str) -> list[str]:
     """Tags that mean this role for preference / search."""
-    role = (role or "").strip().lower()
-    if not role:
-        return []
-    tags = [understand_tag(role)]
-    alias = UNDERSTAND_SCORE_ALIAS.get(role)
-    if alias:
-        tags.append(understand_tag(alias))
-    if role == "after":
-        tags.append(understand_tag("polish"))
-    return tags
-
-
-def shot_has_understand_role(shot: Shot, role: str) -> bool:
-    wanted = set(tags_for_role(role))
-    return bool(wanted.intersection(shot.tags or []))
+    return understand_tags_for_role(role)
 
 
 def resolve_understand_roles(
@@ -119,6 +133,22 @@ def score_role_for_shot(
         return score_shot(shot, "site_detail", first_media_id=first_media_id, sizes=sizes)
 
 
+def role_scores_for_shot(
+    shot: Shot,
+    roles: list[str],
+    *,
+    first_media_id: str | None = None,
+    sizes: dict[str, tuple[int, int]] | None = None,
+) -> dict[str, float]:
+    return {
+        role: round(
+            float(score_role_for_shot(shot, role, first_media_id=first_media_id, sizes=sizes)),
+            4,
+        )
+        for role in roles
+    }
+
+
 def best_role_hint(
     shot: Shot,
     roles: list[str],
@@ -136,22 +166,42 @@ def best_role_hint(
     return best_role, best_score
 
 
-def reason_for(shot: Shot, role: str, score: float) -> str:
+def reason_for(
+    shot: Shot,
+    role: str,
+    score: float,
+    *,
+    role_scores: dict[str, float] | None = None,
+) -> str:
     m = shot.metrics
     bits = [
         f"role={role}",
         f"motion={m.motion:.2f}",
         f"sharp={m.sharpness:.2f}",
         f"blur={m.blur:.2f}",
+        f"luma={m.luma_mean:.2f}",
         f"audio={m.audio_class}",
         f"score={score:.3f}",
     ]
+    hint = ROLE_REASON_HINTS.get(role)
+    if hint:
+        bits.append(hint)
     if role in ("wash", "machine", "engine", "journey") and m.motion >= 0.35:
         bits.append("high-motion candidate")
-    if role in ("wheel", "interior", "detail", "polish", "after", "before") and m.sharpness >= 0.45:
+    if role in ("wheel", "interior", "detail", "polish", "after", "before", "hero") and m.sharpness >= 0.45:
         bits.append("sharp still detail")
+    if role in ("after", "polish", "hero") and m.luma_mean >= 0.55:
+        bits.append("bright payoff")
+    if role == "before" and m.luma_mean <= 0.45:
+        bits.append("low-luma dusty")
     if m.audio_class == "engine" and role in ("engine", "machine", "wash"):
         bits.append("engine audio")
+    if role_scores and len(role_scores) > 1:
+        ranked = sorted(role_scores.items(), key=lambda kv: (-kv[1], kv[0]))
+        runner = next((name for name, _ in ranked if name != role), None)
+        if runner is not None:
+            margin = role_scores[role] - role_scores[runner]
+            bits.append(f"margin_vs_{runner}={margin:.3f}")
     return "; ".join(bits)
 
 
@@ -243,6 +293,7 @@ def card_from_shot(
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
 ) -> dict:
+    scores = role_scores_for_shot(shot, roles, first_media_id=first_media_id, sizes=sizes)
     role, score = best_role_hint(shot, roles, first_media_id=first_media_id, sizes=sizes)
     return {
         "media_id": shot.media_id,
@@ -251,7 +302,8 @@ def card_from_shot(
         "role_hint": role,
         "score": round(float(score), 4),
         "keyframe_path": shot.keyframe,
-        "reason": reason_for(shot, role, score),
+        "reason": reason_for(shot, role, score, role_scores=scores),
+        "role_scores": scores,
         "shot_id": shot.id,
     }
 
@@ -326,17 +378,149 @@ def parent_shot_for_span(shots: list[Shot], in_s: float, out_s: float) -> Shot |
     return min(shots, key=lambda s: (abs((s.in_s + s.out_s) / 2 - mid), s.id))
 
 
-# Re-export boost for callers that import from understand.
+def _beat_from_card(
+    card: dict,
+    *,
+    shoot_day: int | str | None = None,
+    media_role: str | None = None,
+    source: str = "understand",
+) -> dict:
+    role = str(card.get("role_hint") or card.get("role") or "detail")
+    return {
+        "role": role,
+        "media_id": card.get("media_id"),
+        "in_s": round(float(card.get("in_s", 0.0)), 4),
+        "out_s": round(float(card.get("out_s", 0.0)), 4),
+        "score": round(float(card.get("score", 0.0)), 4),
+        "keyframe_path": card.get("keyframe_path") or card.get("keyframe") or "",
+        "reason": card.get("reason") or f"role={role}",
+        "role_scores": card.get("role_scores") or {},
+        "shoot_day": shoot_day,
+        "media_role": media_role,
+        "source": source,
+    }
+
+
+def _story_rank(role: str) -> int:
+    role = (role or "").strip().lower()
+    if role == "polish":
+        role = "after"
+    try:
+        return PROCESS_STORY_ORDER.index(role)
+    except ValueError:
+        return len(PROCESS_STORY_ORDER)
+
+
+def build_understand_timeline(
+    cards: list[dict],
+    *,
+    media_meta: dict[str, dict] | None = None,
+    top_per_role: int = 2,
+    roles: list[str] | None = None,
+) -> dict:
+    """Structured Director story cards: role-labeled beats in process order."""
+    meta = media_meta or {}
+    wanted = [r.strip().lower() for r in (roles or list(PROCESS_STORY_ORDER)) if r]
+    if not wanted:
+        wanted = list(PROCESS_STORY_ORDER)
+    by_role: dict[str, list[dict]] = {role: [] for role in wanted}
+    for card in cards:
+        role = str(card.get("role_hint") or card.get("role") or "").strip().lower()
+        if role == "polish":
+            role = "after"
+        if role not in by_role:
+            if roles is not None:
+                continue
+            by_role[role] = []
+        mid = str(card.get("media_id") or "")
+        info = meta.get(mid) or {}
+        beat = _beat_from_card(
+            {**card, "role_hint": role},
+            shoot_day=info.get("shoot_day"),
+            media_role=info.get("role"),
+            source=str(card.get("source") or "understand"),
+        )
+        by_role.setdefault(role, []).append(beat)
+
+    for role, rows in by_role.items():
+        rows.sort(key=lambda b: (-float(b["score"]), str(b.get("media_id") or ""), float(b["in_s"])))
+        if top_per_role > 0:
+            by_role[role] = rows[:top_per_role]
+
+    ordered_roles = [r for r in PROCESS_STORY_ORDER if r in by_role and by_role[r]]
+    for role in sorted(by_role.keys(), key=_story_rank):
+        if role not in ordered_roles and by_role[role]:
+            ordered_roles.append(role)
+
+    story: list[dict] = []
+    for role in ordered_roles:
+        story.extend(by_role[role])
+
+    return {
+        "beats": story,
+        "by_role": {role: by_role[role] for role in ordered_roles},
+        "roles_present": ordered_roles,
+        "order": list(PROCESS_STORY_ORDER),
+        "top_per_role": top_per_role,
+    }
+
+
+def cards_from_tagged_shots(
+    shots: list[Shot],
+    *,
+    media_meta: dict[str, dict] | None = None,
+) -> list[dict]:
+    """Fallback cards from understand:* shot tags when cache is empty."""
+    meta = media_meta or {}
+    cards: list[dict] = []
+    for shot in shots:
+        for tag in shot.tags or []:
+            text = str(tag)
+            if not text.startswith(UNDERSTAND_TAG_PREFIX):
+                continue
+            role = text[len(UNDERSTAND_TAG_PREFIX) :].strip().lower()
+            if not role:
+                continue
+            mid = shot.media_id
+            info = meta.get(mid) or {}
+            score_role = "after" if role == "polish" else role
+            try:
+                score = float(score_shot(shot, score_role))
+            except ValueError:
+                score = float(score_shot(shot, "site_detail"))
+            cards.append(
+                {
+                    "media_id": mid,
+                    "in_s": round(float(shot.in_s), 4),
+                    "out_s": round(float(shot.out_s), 4),
+                    "role_hint": role,
+                    "score": round(score, 4),
+                    "keyframe_path": shot.keyframe,
+                    "reason": reason_for(shot, role, score),
+                    "role_scores": {},
+                    "source": "shot_tag",
+                    "shoot_day": info.get("shoot_day"),
+                    "media_role": info.get("role"),
+                    "shot_id": shot.id,
+                }
+            )
+    return cards
+
+
+# Re-export boost / tag helpers for callers that import from understand.
 __all__ = [
     "DEFAULT_BUDGET_FRAMES",
     "DEFAULT_PROCESS_ROLES",
     "DEFAULT_REFINE_BUDGET",
     "MAX_BUDGET_FRAMES",
     "MIN_BUDGET_FRAMES",
+    "PROCESS_STORY_ORDER",
     "QUERY_PROCESS",
     "apply_understand_tags",
     "best_role_hint",
+    "build_understand_timeline",
     "card_from_shot",
+    "cards_from_tagged_shots",
     "candidate_priority",
     "clamp_budget",
     "coverage_indices",
@@ -344,8 +528,10 @@ __all__ = [
     "parent_shot_for_span",
     "refine_windows",
     "resolve_understand_roles",
+    "role_scores_for_shot",
     "score_role_for_shot",
     "select_candidate_shots",
+    "shot_has_any_understand_tag",
     "shot_has_understand_role",
     "understand_boost",
     "understand_path",
