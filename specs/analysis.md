@@ -2,13 +2,14 @@
 
 Source: index once at import, query at edit time. Analysis runs on the 360x640 source proxy and writes a shot manifest the agent can list, search, and rank without watching footage. No full-video VLM. Face / plate **hints in the shot index** remain out of scope for analysis v1; privacy blur on the timeline is SPEC-FX-11 (`clip_blur_*`).
 
-Agent workflow: **index → understand (optional) → understand_timeline → rank → story lock → timeline**.
+Agent workflow: **index → understand (optional) → understand_timeline → highlights_suggest (optional) → rank → story lock → timeline**.
 
 1. `import_folder` / `import_file` (indexes automatically; re-run `media_analyze` is a cache no-op)
 2. Optional `media_understand` for process/album span cards (then `media_understand_refine` on uncertain spans)
 3. Optional `understand_timeline` for Director role-labeled beats; optional `media_tag(shoot_day=…, role=before|wash|after|…)`
-4. `shots_rank` / `shots_search` / `media_list` to pick candidates from thumbs + scores (prefer understand-tagged spans)
-5. Story lock: choose day/role order, then `clip_add(media_id, in_s, out_s)`
+4. Optional `highlights_suggest(target_s, style=process|reel)` for ranked candidate beat sheets (suggest only; agent locks story)
+5. `shots_rank` / `shots_search` / `media_list` to pick candidates from thumbs + scores (prefer understand-tagged spans)
+6. Story lock: choose day/role order, then `clip_add(media_id, in_s, out_s)`
 
 ## SPEC-ANA-01: shot manifest
 
@@ -104,7 +105,7 @@ ffmpeg failure on one file: that file gets `ok: false` treatment (warning, no ma
 
 ## SPEC-ANA-09: MCP surface
 
-`media_analyze`, `media_understand`, `media_understand_refine`, `media_understand_spatial`, `understand_timeline`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags; default sort prefers understand-tagged). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day` (understand-tagged pool preferred). `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`, `spatial`. `media_understand_spatial` exposes `media_id`, `in_s`, `out_s`, `budget_frames`, `reason`. `understand_timeline` exposes `media_id`, `top_per_role`, `roles`, `refresh`.
+`media_analyze`, `media_understand`, `media_understand_refine`, `media_understand_spatial`, `understand_timeline`, `highlights_suggest`, `shots_list`, `shots_search`, `shots_rank`, `media_list` are registered in `TOOLS` with named fields (SPEC-SES-10). No `**kwargs` wrapper. `media_list` exposes `shoot_day`, `role`, `min_motion`. `shots_search` exposes the same day/role/motion filters (role also matches `understand:{role}` shot tags; default sort prefers understand-tagged). `shots_rank` exposes `role`, `top_k`, `sheet`, `shoot_day` (understand-tagged pool preferred). `media_understand` exposes `media_id`, `query`, `budget_frames`, `roles`, `shared_budget`, `selection`. `media_understand_refine` exposes `media_id`, `in_s`, `out_s`, `reason`, `budget_frames`, `spatial`. `media_understand_spatial` exposes `media_id`, `in_s`, `out_s`, `budget_frames`, `reason`. `understand_timeline` exposes `media_id`, `top_per_role`, `roles`, `refresh`. `highlights_suggest` exposes `target_s`, `style`, `media_id`, `refresh`.
 
 ## SPEC-ANA-10: performance budget
 
@@ -250,7 +251,26 @@ When a span is high-value but spatially ambiguous (busy frame, low subject domin
 
 `media_understand_spatial` is registered in `TOOLS` with named fields `media_id`, `in_s`, `out_s`, `budget_frames`, `reason`. `media_understand_refine` adds optional `spatial`.
 
-Out of scope for Train D: `highlights_suggest` auto-edit (E).
+Out of scope for Train D: `highlights_suggest` auto-edit (E / SPEC-ANA-16).
+
+## SPEC-ANA-16: auto-edit assist beat sheets (Train E)
+
+LC-native ranked candidate beat sheets from understand spans. Agent still locks the story. The tool **suggests**; it does **not** auto-export alone, does not force music, and does not require cloud or heavy VLM weights.
+
+### `highlights_suggest(target_s, style=process|reel, media_id?, refresh=false)`
+
+- Builds ranked `candidates[]` packed toward `target_s` (clamp ~8–180s; process default sense ~60s, reel ~28s when target omitted/invalid).
+- Prefers **transformation arcs**: `before` → process ASMR middle (`wash` / `engine` / `machine` / `wheel` / `interior` / `detail`) → `after` (optional `hero`). Rank complete arcs above thin or incomplete ones.
+- Prefer understand cache cards (Train A–C). Fall back to `understand:{role}` shot tags; if still empty, run `media_understand` once. `refresh=true` re-runs understand first.
+- Attach soft Train D `focus_hint` when spatial cache overlaps a suggested beat.
+- Detailing is often silent: speech / transcript peaks are a soft penalty for `style=process`, never a requirement. No virality / CapCut / transcript-first podcast clipping heuristics.
+- Response flags: `suggest_only: true`, `auto_export: false`. Does not mutate the timeline (version unchanged).
+
+Each candidate includes `rank`, `score`, `duration_s`, `arc`, `arc_complete`, `reason`, and `beats[]` with `role`, `section`, `media_id`, `in_s`, `out_s`, `duration_s`, `score`, `keyframe_path`, optional `focus_hint`.
+
+### MCP surface
+
+`highlights_suggest` is registered in `TOOLS` with named fields `target_s`, `style`, `media_id`, `refresh`.
 
 ## SPEC-QLT-01: source quality floor
 
@@ -267,4 +287,4 @@ Cover-upscaling a sub-720 source into a 1080-class hero destroys picture. Floor 
 
 ## Future work
 
-A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields. Later trains: `highlights_suggest`.
+A pluggable image embedder may fill `tags` behind the `analysis` extra. Optional keyframe-only face/plate hints. The manifest shape does not change for those later fields.
