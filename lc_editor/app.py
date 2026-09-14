@@ -97,6 +97,7 @@ from lc_editor.analysis.understand import (
     card_from_shot,
     cards_from_tagged_shots,
     clamp_budget,
+    diversify_process_album,
     load_understand_cache,
     parent_shot_for_span,
     refine_windows,
@@ -1750,6 +1751,8 @@ class Editor:
         sizes: dict[str, tuple[int, int]],
         query: str | None = None,
         selection: str = DEFAULT_SELECTION,
+        media_index: int | None = None,
+        media_count: int | None = None,
     ) -> tuple[list[dict], list[str], float]:
         warnings: list[str] = []
         path = self._manifest_for(item)
@@ -1784,6 +1787,7 @@ class Editor:
             sizes=sizes,
             embedder=optional_embedder(),
         )
+        source_path = item.original_path or item.path
         cards = [
             card_from_shot(
                 shot,
@@ -1791,6 +1795,10 @@ class Editor:
                 first_media_id=first_media_id,
                 sizes=sizes,
                 media_role=item.role,
+                source_path=source_path,
+                media_index=media_index,
+                media_count=media_count,
+                media_duration_s=duration,
             )
             for shot in candidates
         ]
@@ -1808,8 +1816,40 @@ class Editor:
             "cards_internal": cards,
         }
         write_understand_cache(self._understand_for(item), payload)
-        public = [{k: v for k, v in card.items() if k != "shot_id"} for card in cards]
-        return public, warnings, duration
+        # Keep shot_id for album diversify; stripped before public response.
+        return cards, warnings, duration
+
+    def _persist_diversified_spans(self, spans: list[dict]) -> list[dict]:
+        """Rewrite understand caches + tags after album diversify (Train G)."""
+        by_media: dict[str, list[dict]] = {}
+        for card in spans:
+            mid = str(card.get("media_id") or "")
+            if not mid:
+                continue
+            by_media.setdefault(mid, []).append(card)
+        public: list[dict] = []
+        for item in self.media:
+            cards = by_media.get(item.id)
+            if not cards:
+                continue
+            path = self._manifest_for(item)
+            if path.exists():
+                shots = load_manifest(path)
+                write_manifest(path, apply_understand_tags(shots, cards))
+            cached = load_understand_cache(self._understand_for(item)) or {}
+            public_cards = [{k: v for k, v in c.items() if k != "shot_id"} for c in cards]
+            cached.update(
+                {
+                    "media_id": item.id,
+                    "cards": public_cards,
+                    "cards_internal": cards,
+                    "diversified": True,
+                }
+            )
+            write_understand_cache(self._understand_for(item), cached)
+            public.extend(public_cards)
+        public.sort(key=lambda c: (-float(c["score"]), c["media_id"], c["in_s"]))
+        return public
 
     def media_understand(
         self,
@@ -1853,6 +1893,9 @@ class Editor:
             return result
         first = self.media[0].id if self.media else None
         sizes = {item.id: (item.width, item.height) for item in self.media}
+        album_visual = [item for item in self.media if item.kind != "audio"]
+        album_index = {item.id: i for i, item in enumerate(album_visual)}
+        album_count = len(album_visual)
 
         # Preload manifests so shared budget can weight by duration.
         per_budget: dict[str, int] = {}
@@ -1893,11 +1936,19 @@ class Editor:
                 sizes=sizes,
                 query=query,
                 selection=mode,
+                media_index=album_index.get(item.id),
+                media_count=album_count or None,
             )
             warnings.extend(local_warn)
             spans.extend(cards)
             frames_scored += len(cards)
             total_duration += duration
+        # Train G: stop wash/skip_face monopoly across the album when cues are weak.
+        if spans:
+            spans = diversify_process_album(spans)
+            spans = self._persist_diversified_spans(spans)
+        else:
+            spans = []
         spans.sort(key=lambda c: (-float(c["score"]), c["media_id"], c["in_s"]))
         metrics = understand_cost_metrics(
             frames_scored,
@@ -1984,7 +2035,13 @@ class Editor:
                 tags=list(parent.tags or []),
             )
             card = card_from_shot(
-                pseudo, roles, first_media_id=first, sizes=sizes, media_role=item.role
+                pseudo,
+                roles,
+                first_media_id=first,
+                sizes=sizes,
+                media_role=item.role,
+                source_path=item.original_path or item.path,
+                media_duration_s=float(item.duration_s or 0.0) or None,
             )
             if spatial:
                 card = annotate_span_spatial(card, keyframe)

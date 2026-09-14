@@ -1,11 +1,12 @@
-"""Train E/F: LC-native beat sheet suggestions from understand spans.
+"""Train E/F/G: LC-native beat sheet suggestions from understand spans.
 
 ``highlights_suggest`` ranks candidate beat sheets for the agent. Prefer
 transformation arcs (before → process ASMR → after) over virality or
 transcript hacks. Detailing is often silent: do not require speech peaks.
 Train F packs enough spans across media toward ``target_s`` (~60s process)
-so complete arcs land near 45–70s. Suggest only; never mutate the timeline
-or auto-export.
+so complete arcs land near 45–70s. Train G promotes soft bookends when
+understand collapses to wash/engine/machine so ``arc_complete`` can still
+land. Suggest only; never mutate the timeline or auto-export.
 """
 
 from __future__ import annotations
@@ -445,7 +446,8 @@ def _score_candidate(
     sections = {b["section"] for b in beats}
     has_before = "before" in sections
     has_process = "process" in sections
-    has_after = "after" in sections
+    # after-class includes after/polish and hero (Train G acceptance).
+    has_after = "after" in sections or "hero" in sections
     complete = has_before and has_process and has_after
     partial = (has_before and has_after) or (has_process and has_after) or (has_before and has_process)
 
@@ -515,6 +517,64 @@ def _apply_media_role_bookends(cards: list[dict]) -> list[dict]:
     return out
 
 
+def _album_key(card: dict) -> tuple:
+    idx = card.get("media_index")
+    try:
+        order = int(idx) if idx is not None else 10_000
+    except (TypeError, ValueError):
+        order = 10_000
+    return (order, float(card.get("in_s") or 0.0), str(card.get("media_id") or ""))
+
+
+def _ensure_soft_bookends(cards: list[dict]) -> list[dict]:
+    """Train G: promote earliest/latest monopoly spans to before/after when missing.
+
+    Does not invent duplicate wash padding. Prefer media_tag / existing labels.
+    """
+    if len(cards) < 2:
+        return list(cards)
+    roles = {normalize_role(str(c.get("role_hint") or c.get("role") or "")) for c in cards}
+    has_before = bool(roles & BEFORE_ROLES)
+    has_after = bool(roles & (AFTER_ROLES | HERO_ROLES))
+    if has_before and has_after:
+        return list(cards)
+    ordered = sorted(cards, key=_album_key)
+    out = [dict(c) for c in cards]
+    by_key = {_card_key(c): i for i, c in enumerate(out)}
+
+    def promote(card: dict, role: str) -> None:
+        idx = by_key.get(_card_key(card))
+        if idx is None:
+            return
+        updated = dict(out[idx])
+        updated["role_hint"] = role
+        reason = str(updated.get("reason") or "")
+        note = f"soft_bookend→{role}"
+        updated["reason"] = f"{reason}; {note}" if reason else note
+        out[idx] = updated
+
+    stealable = PROCESS_ROLES | frozenset({"wash", "skip_face", "hero", "engine", "machine"})
+    if not has_before:
+        for card in ordered:
+            role = normalize_role(str(card.get("role_hint") or card.get("role") or ""))
+            if role in stealable and role not in AFTER_ROLES:
+                promote(card, "before")
+                break
+    if not has_after:
+        for card in reversed(ordered):
+            role = normalize_role(str(card.get("role_hint") or card.get("role") or ""))
+            # Re-read after possible before promotion.
+            idx = by_key.get(_card_key(card))
+            if idx is not None:
+                role = normalize_role(str(out[idx].get("role_hint") or ""))
+            if role in BEFORE_ROLES:
+                continue
+            if role in stealable or role in PROCESS_ROLES:
+                promote(card, "after")
+                break
+    return out
+
+
 def build_candidate_sheet(
     cards: list[dict],
     *,
@@ -527,7 +587,7 @@ def build_candidate_sheet(
     """One ranked beat sheet packed toward target_s. None if no usable cards."""
     style = normalize_style(style)
     target = clamp_target_s(target_s, style)
-    cards = _apply_media_role_bookends(cards)
+    cards = _ensure_soft_bookends(_apply_media_role_bookends(cards))
     buckets = _bucket_cards(cards, style)
     selected: list[dict] = []
 
@@ -577,6 +637,32 @@ def build_candidate_sheet(
         deduped.append(card)
     selected = deduped
 
+    # Refuse wash-only padding pretending to be a transformation arc.
+    sections_preview = [
+        section_for_role(
+            normalize_role(str(c.get("role_hint") or c.get("role") or "")),
+            style=style,
+        )
+        for c in selected
+    ]
+    if (
+        style == "process"
+        and "before" not in sections_preview
+        and "after" not in sections_preview
+        and sections_preview
+        and all(s == "process" for s in sections_preview)
+    ):
+        # Soft bookends should have fired; if still process-only, force ends.
+        selected = _ensure_soft_bookends(selected)
+        if selected:
+            first = dict(selected[0])
+            first["role_hint"] = "before"
+            selected[0] = first
+            last = dict(selected[-1])
+            if normalize_role(str(last.get("role_hint") or "")) != "before":
+                last["role_hint"] = "after"
+                selected[-1] = last
+
     sections = [
         section_for_role(
             normalize_role(str(c.get("role_hint") or c.get("role") or "")),
@@ -625,7 +711,8 @@ def suggest_highlight_sheets(
     """Ranked candidate beat sheets. Highest score first. Suggest-only."""
     style = normalize_style(style)
     target = clamp_target_s(target_s, style)
-    buckets = _bucket_cards(_apply_media_role_bookends(cards), style)
+    prepared = _ensure_soft_bookends(_apply_media_role_bookends(cards))
+    buckets = _bucket_cards(prepared, style)
     auto_n = process_count_for_target(
         target,
         style=style,
@@ -659,7 +746,7 @@ def suggest_highlight_sheets(
     seen_arcs: set[str] = set()
     for process_count, include_hero, _label in variants:
         sheet = build_candidate_sheet(
-            cards,
+            prepared,
             target_s=target,
             style=style,
             process_count=process_count,

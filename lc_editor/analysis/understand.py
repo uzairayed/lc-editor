@@ -16,12 +16,17 @@ and soft ``focus_x``/``focus_y`` hints for busy high-value spans.
 Train F retunes PROCESS_ROLES scoring / mapping so silent detailing albums
 surface before/after/interior/wheel (not wash/skip_face monopolies) and
 feeds denser role hints into highlights packing.
+
+Train G adds soft priors (filename tokens, album order, temporal thirds) and
+an album diversify pass so wash/skip_face cannot monopolize silent detailing
+when visual cues are weak. Falls back to ``media_tag`` priors when tags exist.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from lc_editor.analysis.manifest import Shot
@@ -77,14 +82,36 @@ ROLE_REASON_HINTS = {
     "detail": "sharp still detail",
 }
 
-# Soft prior when media_tag(role=…) matches a process role (Train F).
-MEDIA_ROLE_PRIOR = 0.14
+# Soft prior when media_tag(role=…) matches a process role (Train F/G).
+MEDIA_ROLE_PRIOR = 0.32
+FILENAME_ROLE_PRIOR = 0.16
+ORDER_ROLE_PRIOR = 0.12
+TEMPORAL_ROLE_PRIOR = 0.12
 # Prefer story labels over monopoly roles when scores are within this margin.
 ROLE_MARGIN_PREFER = 0.06
+# Wider margin when a soft prior agrees with the story role (Train G).
+ROLE_MARGIN_PRIOR = 0.16
+# media_tag is an agent hint: prefer it when still competitive after prior.
+MEDIA_TAG_MARGIN = 0.2
 MONOPOLY_ROLES = frozenset({"wash", "skip_face", "hero"})
 # Close-score story roles that should beat wash/skip_face/hero monopolies.
 # Exclude machine/engine: they compete on motion and must win on their own score.
 STORY_DETAIL_ROLES = frozenset({"before", "after", "interior", "wheel"})
+PROCESS_WORK_ROLES = frozenset({"wash", "machine"})
+DETAIL_STILL_ROLES = frozenset({"interior", "wheel"})
+
+# Filename / path tokens → process role (word-boundary match, Train G).
+FILENAME_ROLE_TOKENS: dict[str, tuple[str, ...]] = {
+    "before": ("before", "prewash", "pre_wash", "dirty", "dusty", "arrival", "intake"),
+    "after": ("after", "done", "final", "reveal", "glossy", "shiny", "payoff", "finished"),
+    "wash": ("wash", "foam", "soap", "rinse", "wetwork", "wet_work", "suds"),
+    "interior": ("interior", "cabin", "dash", "seat", "inside", "cockpit"),
+    "wheel": ("wheel", "rim", "tire", "tyre", "alloy"),
+    "engine": ("engine", "motor", "bay"),
+    "machine": ("machine", "buffer", "polisher", "rotary", "tooling"),
+    "hero": ("hero", "beauty", "glamour"),
+    "detail": ("detail", "closeup", "close_up"),
+}
 
 
 def clamp_budget(budget_frames: int | None, default: int = DEFAULT_BUDGET_FRAMES) -> int:
@@ -174,6 +201,98 @@ def _normalize_media_role(media_role: str | None) -> str | None:
     return text or None
 
 
+def filename_role_priors(source_path: str | None) -> dict[str, float]:
+    """Soft boosts from filename / path tokens (Train G)."""
+    if not source_path:
+        return {}
+    text = str(source_path).replace("\\", "/").lower()
+    stem = Path(text).stem
+    blob = f"{stem} {text}"
+    out: dict[str, float] = {}
+    for role, tokens in FILENAME_ROLE_TOKENS.items():
+        for token in tokens:
+            if re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", blob):
+                out[role] = max(out.get(role, 0.0), FILENAME_ROLE_PRIOR)
+                break
+    return out
+
+
+def album_order_priors(media_index: int | None, media_count: int | None) -> dict[str, float]:
+    """Early album clips → before; late clips → after (Train G)."""
+    if media_index is None or media_count is None or media_count <= 1:
+        return {}
+    frac = float(media_index) / float(max(1, media_count - 1))
+    out: dict[str, float] = {}
+    if frac <= 0.25:
+        out["before"] = ORDER_ROLE_PRIOR
+    elif frac >= 0.75:
+        out["after"] = ORDER_ROLE_PRIOR
+    elif 0.35 <= frac <= 0.65:
+        out["wash"] = ORDER_ROLE_PRIOR * 0.35
+        out["machine"] = ORDER_ROLE_PRIOR * 0.35
+        out["interior"] = ORDER_ROLE_PRIOR * 0.25
+        out["wheel"] = ORDER_ROLE_PRIOR * 0.25
+    return out
+
+
+def temporal_third_priors(
+    shot: Shot,
+    *,
+    media_duration_s: float | None = None,
+) -> dict[str, float]:
+    """First third → before, mid → process, last third → after (Train G).
+
+    Only applies when media duration is known. Short indexed shots must not
+    invent a local third from their own tiny window.
+    """
+    if media_duration_s is None:
+        return {}
+    duration = float(media_duration_s)
+    if duration <= 1e-6:
+        return {}
+    mid = (float(shot.in_s) + float(shot.out_s)) / 2.0
+    frac = max(0.0, min(1.0, mid / duration))
+    out: dict[str, float] = {}
+    if frac < 1.0 / 3.0:
+        out["before"] = TEMPORAL_ROLE_PRIOR
+        out["after"] = -TEMPORAL_ROLE_PRIOR * 0.5
+    elif frac > 2.0 / 3.0:
+        out["after"] = TEMPORAL_ROLE_PRIOR
+        out["before"] = -TEMPORAL_ROLE_PRIOR * 0.5
+    else:
+        out["wash"] = TEMPORAL_ROLE_PRIOR * 0.3
+        out["machine"] = TEMPORAL_ROLE_PRIOR * 0.3
+        out["interior"] = TEMPORAL_ROLE_PRIOR * 0.35
+        out["wheel"] = TEMPORAL_ROLE_PRIOR * 0.35
+        out["skip_face"] = -TEMPORAL_ROLE_PRIOR * 0.4
+    return out
+
+
+def soft_role_priors(
+    shot: Shot,
+    *,
+    media_role: str | None = None,
+    source_path: str | None = None,
+    media_index: int | None = None,
+    media_count: int | None = None,
+    media_duration_s: float | None = None,
+) -> dict[str, float]:
+    """Combine media_tag + filename + album order + temporal thirds."""
+    merged: dict[str, float] = {}
+
+    def add(priors: dict[str, float]) -> None:
+        for role, boost in priors.items():
+            merged[role] = merged.get(role, 0.0) + float(boost)
+
+    prior = _normalize_media_role(media_role)
+    if prior:
+        add({prior: MEDIA_ROLE_PRIOR})
+    add(filename_role_priors(source_path))
+    add(album_order_priors(media_index, media_count))
+    add(temporal_third_priors(shot, media_duration_s=media_duration_s))
+    return merged
+
+
 def best_role_hint(
     shot: Shot,
     roles: list[str],
@@ -181,8 +300,12 @@ def best_role_hint(
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
     media_role: str | None = None,
+    source_path: str | None = None,
+    media_index: int | None = None,
+    media_count: int | None = None,
+    media_duration_s: float | None = None,
 ) -> tuple[str, float]:
-    """Pick the best process role for a span (Train F anti-monopoly mapping)."""
+    """Pick the best process role for a span (Train F/G anti-monopoly mapping)."""
     if not roles:
         return "detail", 0.0
     adjusted: dict[str, float] = {}
@@ -190,22 +313,36 @@ def best_role_hint(
         adjusted[role] = float(
             score_role_for_shot(shot, role, first_media_id=first_media_id, sizes=sizes)
         )
-    prior = _normalize_media_role(media_role)
-    if prior and prior in adjusted:
-        adjusted[prior] = adjusted[prior] + MEDIA_ROLE_PRIOR
+    priors = soft_role_priors(
+        shot,
+        media_role=media_role,
+        source_path=source_path,
+        media_index=media_index,
+        media_count=media_count,
+        media_duration_s=media_duration_s,
+    )
+    for role, boost in priors.items():
+        if role in adjusted:
+            adjusted[role] = adjusted[role] + boost
 
     ranked = sorted(adjusted.items(), key=lambda kv: (-kv[1], kv[0]))
     best_role, best_score = ranked[0]
+    prior = _normalize_media_role(media_role)
+    # Explicit media_tag: prefer tagged role when it remains competitive.
+    if prior and prior in adjusted and best_role != prior:
+        tagged_score = adjusted[prior]
+        if best_score - tagged_score <= MEDIA_TAG_MARGIN:
+            best_role, best_score = prior, tagged_score
     # When wash/skip_face/hero barely win, prefer a story role with close score.
     if best_role in MONOPOLY_ROLES and len(ranked) > 1:
         for role, score in ranked[1:]:
             if role not in STORY_DETAIL_ROLES:
                 continue
-            if best_score - score <= ROLE_MARGIN_PREFER:
+            margin = ROLE_MARGIN_PRIOR if priors.get(role, 0.0) > 0 else ROLE_MARGIN_PREFER
+            if best_score - score <= margin:
                 best_role, best_score = role, score
             break
     return best_role, best_score
-
 
 def reason_for(
     shot: Shot,
@@ -334,6 +471,10 @@ def card_from_shot(
     first_media_id: str | None = None,
     sizes: dict[str, tuple[int, int]] | None = None,
     media_role: str | None = None,
+    source_path: str | None = None,
+    media_index: int | None = None,
+    media_count: int | None = None,
+    media_duration_s: float | None = None,
 ) -> dict:
     scores = role_scores_for_shot(shot, roles, first_media_id=first_media_id, sizes=sizes)
     role, score = best_role_hint(
@@ -342,6 +483,10 @@ def card_from_shot(
         first_media_id=first_media_id,
         sizes=sizes,
         media_role=media_role,
+        source_path=source_path,
+        media_index=media_index,
+        media_count=media_count,
+        media_duration_s=media_duration_s,
     )
     margin = None
     if scores and len(scores) > 1:
@@ -349,6 +494,17 @@ def card_from_shot(
         runner = next((name for name, _ in ranked if name != role), None)
         if runner is not None:
             margin = scores[role] - scores[runner]
+    priors = soft_role_priors(
+        shot,
+        media_role=media_role,
+        source_path=source_path,
+        media_index=media_index,
+        media_count=media_count,
+        media_duration_s=media_duration_s,
+    )
+    reason = reason_for(shot, role, score, role_scores=scores)
+    if priors.get(role, 0.0) > 0:
+        reason = f"{reason}; soft_prior={role}:{priors[role]:.2f}"
     return {
         "media_id": shot.media_id,
         "in_s": round(float(shot.in_s), 4),
@@ -356,12 +512,131 @@ def card_from_shot(
         "role_hint": role,
         "score": round(float(score), 4),
         "keyframe_path": shot.keyframe,
-        "reason": reason_for(shot, role, score, role_scores=scores),
+        "reason": reason,
         "role_scores": scores,
         "shot_id": shot.id,
         "media_role": _normalize_media_role(media_role),
         "needs_confirmation": bool(margin is not None and margin <= ROLE_MARGIN_PREFER),
+        "media_index": media_index,
+        "source_path": source_path,
     }
+
+
+def _role_of(card: dict) -> str:
+    role = str(card.get("role_hint") or card.get("role") or "").strip().lower()
+    if role == "polish":
+        return "after"
+    return role
+
+
+def _card_album_key(card: dict) -> tuple:
+    idx = card.get("media_index")
+    try:
+        order = int(idx) if idx is not None else 10_000
+    except (TypeError, ValueError):
+        order = 10_000
+    return (order, float(card.get("in_s") or 0.0), str(card.get("media_id") or ""))
+
+
+def _score_for_role(card: dict, role: str) -> float:
+    scores = card.get("role_scores") or {}
+    if isinstance(scores, dict) and role in scores:
+        try:
+            return float(scores[role])
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(card.get("score") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _promote_card(card: dict, role: str, *, why: str) -> dict:
+    updated = dict(card)
+    updated["role_hint"] = role
+    reason = str(card.get("reason") or "")
+    note = f"diversify:{why}→{role}"
+    updated["reason"] = f"{reason}; {note}" if reason else note
+    # Keep score competitive so packing still prefers these bookends.
+    base = _score_for_role(card, role)
+    try:
+        cur = float(card.get("score") or 0.0)
+    except (TypeError, ValueError):
+        cur = 0.0
+    updated["score"] = round(max(cur, base + 0.05), 4)
+    return updated
+
+
+def diversify_process_album(cards: list[dict]) -> list[dict]:
+    """Ensure album histogram covers before / wash|machine / interior|wheel / after.
+
+    When visual cues collapse to wash/skip_face/engine/machine, promote the best
+    soft-prior candidates. If a class is still impossible (empty album), leave as-is;
+    agents can still recover via ``media_tag`` priors on a re-run.
+    """
+    if not cards:
+        return []
+    out = [dict(c) for c in cards]
+    targets: list[tuple[str, frozenset[str]]] = [
+        ("before", frozenset({"before"})),
+        ("wash", PROCESS_WORK_ROLES),
+        ("interior", DETAIL_STILL_ROLES),
+        ("after", frozenset({"after"})),
+    ]
+    reserved: set[int] = set()
+
+    def present_roles() -> set[str]:
+        return {_role_of(c) for c in out}
+
+    for preferred, acceptable in targets:
+        if present_roles() & acceptable:
+            continue
+        pool = [(i, c) for i, c in enumerate(out) if i not in reserved]
+        if not pool:
+            continue
+        pick_role = preferred
+        if preferred == "before":
+            pool.sort(key=lambda ic: (_card_album_key(ic[1]), -_score_for_role(ic[1], "before")))
+            pick_role = "before"
+            why = "early_bookend"
+        elif preferred == "after":
+            pool.sort(key=lambda ic: (_card_album_key(ic[1]), _score_for_role(ic[1], "after")))
+            pool.reverse()
+            pick_role = "after"
+            why = "late_bookend"
+        elif preferred == "interior":
+            pool.sort(
+                key=lambda ic: (
+                    -max(_score_for_role(ic[1], "interior"), _score_for_role(ic[1], "wheel")),
+                    _card_album_key(ic[1]),
+                )
+            )
+            best = pool[0][1]
+            pick_role = (
+                "wheel"
+                if _score_for_role(best, "wheel") > _score_for_role(best, "interior")
+                else "interior"
+            )
+            why = "detail_still"
+        else:
+            pool.sort(
+                key=lambda ic: (
+                    -max(_score_for_role(ic[1], "wash"), _score_for_role(ic[1], "machine")),
+                    _card_album_key(ic[1]),
+                )
+            )
+            best = pool[0][1]
+            pick_role = (
+                "machine"
+                if _score_for_role(best, "machine") > _score_for_role(best, "wash")
+                else "wash"
+            )
+            why = "process_work"
+        idx = pool[0][0]
+        out[idx] = _promote_card(out[idx], pick_role, why=why)
+        reserved.add(idx)
+
+    return out
 
 
 def apply_understand_tags(shots: list[Shot], cards: list[dict]) -> list[Shot]:
@@ -576,6 +851,7 @@ __all__ = [
     "MIN_BUDGET_FRAMES",
     "PROCESS_STORY_ORDER",
     "QUERY_PROCESS",
+    "album_order_priors",
     "apply_understand_tags",
     "best_role_hint",
     "build_understand_timeline",
@@ -584,6 +860,8 @@ __all__ = [
     "candidate_priority",
     "clamp_budget",
     "coverage_indices",
+    "diversify_process_album",
+    "filename_role_priors",
     "load_understand_cache",
     "parent_shot_for_span",
     "refine_windows",
@@ -593,6 +871,8 @@ __all__ = [
     "select_candidate_shots",
     "shot_has_any_understand_tag",
     "shot_has_understand_role",
+    "soft_role_priors",
+    "temporal_third_priors",
     "understand_boost",
     "understand_path",
     "understand_tag",
