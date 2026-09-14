@@ -11,8 +11,10 @@ CANVAS_H = 1920
 CANVAS_16_9_W = 1920
 CANVAS_16_9_H = 1080
 FPS = 30
+SUPPORTED_FPS = (23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0)
 DURATION_CAP_S = 60.0
 DURATION_CAP_MAX_S = 600.0
+YOUTUBE_DURATION_CAP_MAX_S = 43200.0
 DURATION_SOFT_MAX_S = 28.0
 DURATION_SOFT_MIN_S = 15.0
 LOCKED_STILL_MAX_S = 1.4
@@ -273,6 +275,18 @@ def even_dim(n: int) -> int:
     return max(2, int(n) - int(n) % 2)
 
 
+def ffmpeg_fps(fps: float | int) -> str:
+    value = float(fps)
+    for candidate, expression in (
+        (23.976, "24000/1001"),
+        (29.97, "30000/1001"),
+        (59.94, "60000/1001"),
+    ):
+        if abs(value - candidate) < 0.001:
+            return expression
+    return str(int(value)) if value.is_integer() else str(value)
+
+
 def safe_pad_color(color: str | None) -> str:
     raw = (color or "black").strip()
     if raw.startswith("0x") and len(raw) in (5, 8, 10) and all(c in "0123456789abcdefABCDEF" for c in raw[2:]):
@@ -517,6 +531,10 @@ class MediaItem(BaseModel):
     height: int = 0
     fps: float = FPS
     has_audio: bool = False
+    color_space: str = ""
+    color_transfer: str = ""
+    color_primaries: str = ""
+    field_order: str = ""
     burst_cover: bool = False
     burst_id: str = ""
     proxy_path: str = ""
@@ -534,7 +552,7 @@ class Project(BaseModel):
     aspect: str = ASPECT_9_16
     width: int = CANVAS_W
     height: int = CANVAS_H
-    fps: int = FPS
+    fps: float = FPS
     allow_music: bool = False
     grade_preset: GradePreset = "neutral"
     cube_path: str | None = None
@@ -552,6 +570,10 @@ class Project(BaseModel):
     root: str = ""
 
 
+def is_youtube_project(project: Project | None) -> bool:
+    return bool(project and project.preset == "youtube")
+
+
 def resolved_min_video_duration_s(project: Project | None) -> float:
     """Effective video hold floor. None or <= 0 means the default 5.0s."""
     raw = None if project is None else project.min_video_duration_s
@@ -565,7 +587,8 @@ def resolved_duration_cap_s(project: Project | None) -> float:
     raw = None if project is None else project.duration_cap_s
     if raw is None or raw <= 0:
         return DURATION_CAP_S
-    return min(float(raw), DURATION_CAP_MAX_S)
+    cap = YOUTUBE_DURATION_CAP_MAX_S if is_youtube_project(project) else DURATION_CAP_MAX_S
+    return min(float(raw), cap)
 
 
 def resolved_duration_soft_max_s(project: Project | None) -> float:

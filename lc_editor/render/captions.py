@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.fonts import face_for_caption
-from lc_editor.lint.captions import _font_at, fontsize_for, wrap_text
+from lc_editor.lint.captions import _font_at, caption_geometry, fontsize_for, wrap_text
 from lc_editor.models import (
     CANVAS_H,
     CANVAS_W,
@@ -15,6 +15,7 @@ from lc_editor.models import (
     STROKE,
     Caption,
     CaptionWord,
+    Project,
 )
 from lc_editor.render.paths import ffmpeg_path
 
@@ -50,22 +51,28 @@ def enter_exprs(caption: Caption, size: int) -> tuple[str, str]:
     return str(size), ""
 
 
-def drawtext_filter(caption: Caption, textfile: Path, fontfile: Path | None) -> str:
+def drawtext_filter(
+    caption: Caption,
+    textfile: Path,
+    fontfile: Path | None,
+    project: Project | None = None,
+) -> str:
+    geometry = caption_geometry(project)
     tf = ffmpeg_path(textfile)
     font = f":fontfile='{ffmpeg_path(fontfile)}'" if fontfile else ""
-    size = fontsize_for(caption)
+    size = fontsize_for(caption, project)
     size_expr, alpha = enter_exprs(caption, size)
     y = f"h*{caption.y_pct:.2f}-text_h/2"
     # Prefer canvas center; bias left so the glyph block stays in x 64-853.
-    x = (
-        f"max({CAPTION_SAFE_X0}\\,min((w-text_w)/2\\,{CAPTION_SAFE_X1}-text_w))"
-    )
+    safe_x0 = int(geometry["safe_x0"])
+    safe_x1 = int(geometry["safe_x1"])
+    x = f"max({safe_x0}\\,min((w-text_w)/2\\,{safe_x1}-text_w))"
     return (
         f"drawtext=textfile='{tf}':expansion=none{font}:"
         f"fontsize={size_expr}:fontcolor={SAND}:"
         f"bordercolor={STROKE}:borderw={stroke_w(caption)}:"
         f"shadowcolor=black@0.5:shadowx=2:shadowy=2:"
-        f"boxw={CAPTION_BOXW}:"
+        f"boxw={int(geometry['box_width'])}:"
         f"x={x}:y={y}{alpha}"
     )
 
@@ -75,8 +82,14 @@ def word_textfiles(caption: Caption) -> list[Path]:
     return [parent / f"{caption.id}_w{i}.txt" for i in range(len(caption.words))]
 
 
-def karaoke_filters(caption: Caption, word_files: list[Path], fontfile: Path | None) -> list[str]:
-    size = fontsize_for(caption)
+def karaoke_filters(
+    caption: Caption,
+    word_files: list[Path],
+    fontfile: Path | None,
+    project: Project | None = None,
+) -> list[str]:
+    geometry = caption_geometry(project)
+    size = fontsize_for(caption, project)
     font = _font_at("title", size)
     space = max(8, font.getbbox(" ")[2] - font.getbbox(" ")[0])
     widths: list[int] = []
@@ -84,8 +97,11 @@ def karaoke_filters(caption: Caption, word_files: list[Path], fontfile: Path | N
         box = font.getbbox(word.text or " ")
         widths.append(box[2] - box[0])
     total = sum(widths) + space * max(0, len(widths) - 1)
-    x0 = int(round((CANVAS_W - total) / 2))
-    x0 = max(CAPTION_SAFE_X0, min(x0, CAPTION_SAFE_X1 - total))
+    x0 = int(round((int(geometry["width"]) - total) / 2))
+    x0 = max(
+        int(geometry["safe_x0"]),
+        min(x0, int(geometry["safe_x1"]) - total),
+    )
     y = f"h*{caption.y_pct:.2f}-text_h/2"
     font_bit = f":fontfile='{ffmpeg_path(fontfile)}'" if fontfile else ""
     filters: list[str] = []
@@ -205,8 +221,15 @@ def pop_scale_tags(word: CaptionWord) -> str:
     return r"{\fscx128\fscy128\t(0,90,\fscx100\fscy100)}"
 
 
-def pop_margin_v(caption: Caption) -> int:
-    return max(422, min(900, int(round(CANVAS_H * caption.y_pct - 70))))
+def pop_margin_v(caption: Caption, project: Project | None = None) -> int:
+    geometry = caption_geometry(project)
+    return max(
+        int(geometry["safe_y0"]),
+        min(
+            int(geometry["safe_y1"]),
+            int(round(int(geometry["height"]) * caption.y_pct - 70)),
+        ),
+    )
 
 
 def ass_font_name(fontfile: Path | None) -> str:
@@ -220,14 +243,21 @@ def ass_font_name(fontfile: Path | None) -> str:
     return fontfile.stem.split("-")[0].replace("Display", " Display")
 
 
-def pop_ass_body(caption: Caption, clip_start_s: float = 0.0, fontfile: Path | None = None) -> str:
+def pop_ass_body(
+    caption: Caption,
+    clip_start_s: float = 0.0,
+    fontfile: Path | None = None,
+    project: Project | None = None,
+) -> str:
+    geometry = caption_geometry(project)
+    width, height = int(geometry["width"]), int(geometry["height"])
     font = ass_font_name(fontfile or fontfile_for(caption))
-    margin_v = pop_margin_v(caption)
+    margin_v = pop_margin_v(caption, project)
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
-        f"PlayResX: {CANVAS_W}",
-        f"PlayResY: {CANVAS_H}",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
         "WrapStyle: 2",
         "ScaledBorderAndShadow: yes",
         "",
@@ -254,16 +284,21 @@ def write_pop_ass(path: Path, caption: Caption, clip_start_s: float = 0.0) -> Pa
     return path
 
 
-def combined_pop_ass(captions: list[Caption], clip_start: dict[str, float], fontfile: Path | None = None) -> str:
+def combined_pop_ass(
+    captions: list[Caption],
+    clip_start: dict[str, float],
+    fontfile: Path | None = None,
+    project: Project | None = None,
+) -> str:
     bodies: list[Caption] = [c for c in captions if c.style == "pop" and c.words]
     if not bodies:
         return ""
     first = bodies[0]
     dialogue: list[str] = []
-    header = pop_ass_body(first.model_copy(update={"words": []}), 0.0, fontfile)
+    header = pop_ass_body(first.model_copy(update={"words": []}), 0.0, fontfile, project)
     header = header.rsplit("[Events]", 1)[0] + "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     for cap in bodies:
-        body = pop_ass_body(cap, clip_start.get(cap.clip_id, 0.0), fontfile)
+        body = pop_ass_body(cap, clip_start.get(cap.clip_id, 0.0), fontfile, project)
         for line in body.splitlines():
             if line.startswith("Dialogue:"):
                 dialogue.append(line)

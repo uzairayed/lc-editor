@@ -6,6 +6,7 @@ from lc_editor.models import (
     Project,
     Timeline,
     decorated_transition_count,
+    is_youtube_project,
     resolved_duration_cap_s,
     resolved_duration_soft_max_s,
     timeline_duration,
@@ -35,15 +36,23 @@ def invariant_warnings(timeline: Timeline, project: Project | None = None) -> li
     soft_max = resolved_duration_soft_max_s(project)
     if timeline.clips and dur > soft_max + 1e-9:
         warnings.append(f"SPEC-EDIT-15: duration {dur:.2f}s is over {soft_max:.2f}s target")
-    if timeline.clips and dur > DURATION_CAP_S and cap > DURATION_CAP_S + 1e-9:
+    if (
+        timeline.clips
+        and dur > DURATION_CAP_S
+        and cap > DURATION_CAP_S + 1e-9
+        and not is_youtube_project(project)
+    ):
         warnings.append(
             f"SPEC-EDIT-15: duration {dur:.2f}s is over {DURATION_CAP_S:.2f}s default (cap {cap:.2f}s)"
         )
-    if timeline.clips and dur < DURATION_SOFT_MIN_S:
+    if timeline.clips and dur < DURATION_SOFT_MIN_S and not is_youtube_project(project):
         warnings.append(f"SPEC-EDIT-15: duration {dur:.2f}s is under 15.00s target")
     decorated = decorated_transition_count(timeline)
-    if decorated > 3:
-        warnings.append(f"SPEC-EDIT-13: {decorated} decorated transitions (2-3 per reel)")
+    transition_cap = max(3, int((dur + 59.999) // 60) * 3) if is_youtube_project(project) else 3
+    if decorated > transition_cap:
+        warnings.append(
+            f"SPEC-EDIT-13: {decorated} decorated transitions (cap {transition_cap})"
+        )
     for clip in timeline.clips:
         if clip.is_still and clip.motion == "none" and clip.duration_s >= 3.0:
             warnings.append(f"SPEC-EDIT-12: clip {clip.id} is a locked still of {clip.duration_s:.2f}s")

@@ -1,0 +1,21 @@
+{
+  "id": "youtube",
+  "schema_version": 2,
+  "kind": "youtube",
+  "grade": "neutral",
+  "duration_cap_s": 43200,
+  "caption_contrast": "lenient",
+  "min_video_duration_s": 2.0,
+  "allow_music": false,
+  "loudnorm": "speech",
+  "canvas": {
+    "aspect": "16:9",
+    "width": 1920,
+    "height": 1080
+  },
+  "notes": [
+    "Standard SDR YouTube authoring defaults.",
+    "Videos longer than 15 minutes require a verified YouTube account.",
+    "Music remains owner opt-in."
+  ]
+}

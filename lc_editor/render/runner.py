@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -20,6 +21,10 @@ class Runner(Protocol):
 
 
 class FfmpegRunner:
+    def __init__(self, timeout_s: float | None = None) -> None:
+        configured = timeout_s or float(os.environ.get("LC_EDITOR_FFMPEG_TIMEOUT_S", 86400))
+        self.timeout_s = max(60.0, configured)
+
     def run(self, args: list[str]) -> RunResult:
         argv = list(args)
         if argv and "ffmpeg" in Path(argv[0]).name.lower() and "-nostdin" not in argv:
@@ -30,7 +35,7 @@ class FfmpegRunner:
                 capture_output=True,
                 text=True,
                 stdin=subprocess.DEVNULL,
-                timeout=3600,
+                timeout=self.timeout_s,
             )
         except subprocess.TimeoutExpired as exc:
             return RunResult(1, exc.stdout or "", exc.stderr or "ffmpeg timed out")
@@ -132,6 +137,11 @@ def _output_path(args: list[str]) -> Path | None:
         "-ar",
         "-ac",
         "-profile:a",
+        "-profile:v",
+        "-bf",
+        "-g",
+        "-keyint_min",
+        "-sc_threshold",
         "-frames:v",
         "-update",
         "-f",

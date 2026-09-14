@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -106,7 +107,12 @@ def _finish_hero_run(
                 tail = line
                 break
         detail = f" ({tail})" if tail else ""
-        spec = "SPEC-EXPORT-08: hero encode failed" if legal else "SPEC-EXPORT-10: share encode failed"
+        if legal:
+            spec = "SPEC-EXPORT-08: hero encode failed"
+        elif "youtube" in dest.name.lower():
+            spec = "SPEC-EXPORT-11: YouTube encode failed"
+        else:
+            spec = "SPEC-EXPORT-10: share encode failed"
         raise AssembleError(f"{spec}{detail}")
     check = full_args if full_args is not None else encode
     if legal and not hero_encode_legal(check):
@@ -121,9 +127,28 @@ def hero_export_lock(wait: bool = True):
         acquired = _HERO_THREAD_LOCK.acquire(blocking=wait)
         if not acquired:
             raise HeroExportBusy("hero_export_busy")
+        fd = os.open(str(HERO_LOCK_PATH), os.O_CREAT | os.O_RDWR)
         try:
-            yield
+            import msvcrt
+
+            if os.path.getsize(HERO_LOCK_PATH) == 0:
+                os.write(fd, b"\0")
+            while True:
+                try:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as exc:
+                    if not wait:
+                        raise HeroExportBusy("hero_export_busy") from exc
+                    time.sleep(0.1)
+            try:
+                yield
+            finally:
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         finally:
+            os.close(fd)
             _HERO_THREAD_LOCK.release()
         return
     fd = os.open(str(HERO_LOCK_PATH), os.O_CREAT | os.O_RDWR, 0o644)
@@ -210,12 +235,19 @@ def source_proxy_hash(path: Path) -> str:
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
-def source_proxy_vf() -> str:
+def source_proxy_dimensions(width: int = 0, height: int = 0) -> tuple[int, int]:
+    if width > height > 0:
+        return SOURCE_PROXY_H, SOURCE_PROXY_W
+    return SOURCE_PROXY_W, SOURCE_PROXY_H
+
+
+def source_proxy_vf(width: int = 0, height: int = 0) -> str:
+    proxy_w, proxy_h = source_proxy_dimensions(width, height)
     return (
-        f"scale={SOURCE_PROXY_W}:{SOURCE_PROXY_H}:force_original_aspect_ratio=increase,"
-        f"crop={SOURCE_PROXY_W}:{SOURCE_PROXY_H}:"
-        f"'{even_expr(f'(iw-{SOURCE_PROXY_W})/2')}':"
-        f"'{even_expr(f'(ih-{SOURCE_PROXY_H})/2')}'"
+        f"scale={proxy_w}:{proxy_h}:force_original_aspect_ratio=increase,"
+        f"crop={proxy_w}:{proxy_h}:"
+        f"'{even_expr(f'(iw-{proxy_w})/2')}':"
+        f"'{even_expr(f'(ih-{proxy_h})/2')}'"
     )
 
 
@@ -226,6 +258,8 @@ def source_proxy_args(
     *,
     kind: str,
     duration_s: float | None = None,
+    width: int = 0,
+    height: int = 0,
 ) -> list[str]:
     args = [ffmpeg, "-y"]
     if kind == "image":
@@ -234,7 +268,7 @@ def source_proxy_args(
         args += ["-i", str(src)]
     args += [
         "-vf",
-        source_proxy_vf(),
+        source_proxy_vf(width, height),
         "-c:v",
         "libx264",
         "-preset",
@@ -254,8 +288,9 @@ def source_proxy_args(
 
 def working_media(item: MediaItem) -> MediaItem:
     if item.proxy_path and Path(item.proxy_path).exists() and Path(item.proxy_path).stat().st_size > 0:
+        proxy_w, proxy_h = source_proxy_dimensions(item.width, item.height)
         return item.model_copy(
-            update={"path": item.proxy_path, "width": SOURCE_PROXY_W, "height": SOURCE_PROXY_H}
+            update={"path": item.proxy_path, "width": proxy_w, "height": proxy_h}
         )
     return item
 
@@ -266,13 +301,22 @@ def ensure_source_proxy(runner: Runner, store: Store, item: MediaItem) -> tuple[
     src = Path(item.path)
     if not src.exists():
         src = Path(item.original_path)
-    key = source_proxy_hash(src) if src.exists() else item.id
+    proxy_w, proxy_h = source_proxy_dimensions(item.width, item.height)
+    key = f"{source_proxy_hash(src) if src.exists() else item.id}_{proxy_w}x{proxy_h}"
     dest = store.proxies_dir / f"{key}.mp4"
     dest.parent.mkdir(parents=True, exist_ok=True)
     cached = dest.exists() and dest.stat().st_size > 0
     if not cached:
         ff = _ffmpeg(runner)
-        args = source_proxy_args(ff, src, dest, kind=item.kind, duration_s=item.duration_s)
+        args = source_proxy_args(
+            ff,
+            src,
+            dest,
+            kind=item.kind,
+            duration_s=item.duration_s,
+            width=item.width,
+            height=item.height,
+        )
         runner.run(args)
         if not dest.exists() or dest.stat().st_size == 0:
             dest.write_bytes(b"fake-proxy")
@@ -308,12 +352,16 @@ def prepare_caption_files(store: Store, timeline: Timeline) -> Timeline:
 def overlay_filters(project: Project, for_preview: bool) -> list[str]:
     filters: list[str] = []
     if for_preview and project.overlays.preview_guides:
-        filters.append("drawgrid=w=iw:h=ih*0.22:t=2:c=white@0.35")
-        filters.append("drawgrid=w=iw:h=ih*0.50:t=2:c=white@0.20")
-        filters.append("drawbox=x=64:y=ih*0.22:w=789:h=ih*0.28:color=white@0.08:t=fill")
-        filters.append("drawbox=x=853:y=0:w=227:h=ih:color=red@0.18:t=fill")
-        filters.append("drawbox=x=0:y=0:w=iw:h=270:color=black@0.22:t=fill")
-        filters.append("drawbox=x=0:y=1248:w=iw:h=672:color=black@0.22:t=fill")
+        if project.preset == "youtube" or project.width >= project.height:
+            filters.append("drawbox=x=iw*0.05:y=ih*0.10:w=iw*0.90:h=ih*0.80:color=white@0.08:t=2")
+            filters.append("drawgrid=w=iw/3:h=ih/3:t=1:c=white@0.18")
+        else:
+            filters.append("drawgrid=w=iw:h=ih*0.22:t=2:c=white@0.35")
+            filters.append("drawgrid=w=iw:h=ih*0.50:t=2:c=white@0.20")
+            filters.append("drawbox=x=64:y=ih*0.22:w=789:h=ih*0.28:color=white@0.08:t=fill")
+            filters.append("drawbox=x=853:y=0:w=227:h=ih:color=red@0.18:t=fill")
+            filters.append("drawbox=x=0:y=0:w=iw:h=270:color=black@0.22:t=fill")
+            filters.append("drawbox=x=0:y=1248:w=iw:h=672:color=black@0.22:t=fill")
     if for_preview and project.overlays.preview_platform:
         filters.append("drawbox=x=0:y=0:w=iw:h=ih*0.08:color=black@0.25:t=fill")
         filters.append("drawbox=x=0:y=ih*0.88:w=iw:h=ih*0.12:color=black@0.25:t=fill")
@@ -441,7 +489,7 @@ def _clip_encode_args(dest: Path, project: Project, *, preview: bool) -> list[st
         pw, ph = proxy_wh(project)
         return proxy_encode_args(dest, pw, ph)
     dw, dh = canvas_wh(project)
-    return hero_encode_args(dest, dw, dh)
+    return hero_encode_args(dest, dw, dh, project.fps)
 
 
 def _finish_clip_args(args: list[str], vf: str, encode: list[str], dest: Path, *, complex_graph: bool) -> list[str]:
@@ -571,7 +619,7 @@ def preview_stills(
                 underlay = working_media(media_by_id(items, clip.media_id)).path
             except KeyError:
                 underlay = None
-        write_phone_proof(store.output_dir / "phone_proof.jpg", cap, underlay)
+        write_phone_proof(store.output_dir / "phone_proof.jpg", cap, underlay, project)
     return paths
 
 
@@ -762,6 +810,81 @@ def verify_hero_av(runner: Runner, hero: Path) -> dict:
             "peak_db": peak,
         }
     return {"ok": True, "video_s": video_s, "audio_s": audio_s, "peak_db": peak}
+
+
+def verify_youtube_av(
+    runner: Runner,
+    path: Path,
+    *,
+    width: int,
+    height: int,
+    fps: float,
+) -> dict:
+    from lc_editor.render.youtube import YOUTUBE_MAX_DURATION_S, YOUTUBE_MAX_FILE_SIZE
+
+    if isinstance(runner, FakeRunner) or not path.exists() or path.stat().st_size < 32:
+        return {"ok": True, "skipped": True}
+    try:
+        probe = find_tool("ffprobe")
+    except FileNotFoundError:
+        return {"ok": True, "skipped": True}
+    result = runner.run(
+        [
+            probe,
+            "-v",
+            "error",
+            "-show_entries",
+            (
+                "stream=codec_type,codec_name,profile,width,height,pix_fmt,field_order,"
+                "sample_rate,channels,duration,avg_frame_rate,color_range,color_space,"
+                "color_transfer,color_primaries:format=format_name,duration,size"
+            ),
+            "-of",
+            "json",
+            str(path),
+        ]
+    )
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"ok": False, "warning": "SPEC-EXPORT-11: could not probe YouTube output"}
+    video = next((s for s in payload.get("streams", []) if s.get("codec_type") == "video"), {})
+    audio = next((s for s in payload.get("streams", []) if s.get("codec_type") == "audio"), {})
+    fmt = payload.get("format") or {}
+    failures: list[str] = []
+    if video.get("codec_name") != "h264" or str(video.get("profile", "")).lower() != "high":
+        failures.append("video must be H.264 High Profile")
+    if (int(video.get("width") or 0), int(video.get("height") or 0)) != (width, height):
+        failures.append(f"video must be {width}x{height}")
+    if video.get("pix_fmt") != "yuv420p":
+        failures.append("video must use yuv420p")
+    if str(video.get("field_order", "progressive")).lower() not in {"progressive", "unknown", ""}:
+        failures.append("video must be progressive")
+    for field in ("color_space", "color_transfer", "color_primaries"):
+        if video.get(field) not in {None, "", "bt709"}:
+            failures.append(f"{field} must be bt709")
+    if audio.get("codec_name") != "aac":
+        failures.append("audio must be AAC")
+    if int(audio.get("sample_rate") or 0) != 48000 or int(audio.get("channels") or 0) != 2:
+        failures.append("audio must be 48kHz stereo")
+    video_s = float(video.get("duration") or fmt.get("duration") or 0)
+    audio_s = float(audio.get("duration") or fmt.get("duration") or 0)
+    if not video_s or not audio_s or abs(video_s - audio_s) > max(0.05, 1 / max(1, fps)):
+        failures.append("audio/video durations are missing or out of sync")
+    if float(fmt.get("duration") or video_s) > YOUTUBE_MAX_DURATION_S + 0.01:
+        failures.append("duration exceeds 12 hours")
+    if int(fmt.get("size") or path.stat().st_size) > YOUTUBE_MAX_FILE_SIZE:
+        failures.append("file exceeds 256GB")
+    return {
+        "ok": not failures,
+        "warning": f"SPEC-EXPORT-11: {'; '.join(failures)}" if failures else None,
+        "video_s": video_s,
+        "audio_s": audio_s,
+        "width": int(video.get("width") or 0),
+        "height": int(video.get("height") or 0),
+        "fps": video.get("avg_frame_rate"),
+        "size_bytes": int(fmt.get("size") or path.stat().st_size),
+    }
 
 
 def contact_sheet(runner: Runner, thumbs: list[Path], dest: Path) -> Path:

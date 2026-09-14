@@ -2,7 +2,7 @@
 
 A local video editor for a computer use agent, made for grokbot. You drive the cut from an MCP client; there is no timeline UI to click. `lc-editor serve --web` opens a localhost desk for previewing and labeling clips. You send tool calls; ffmpeg renders the file.
 
-Built for short 9:16 reels (1080x1920, 30fps). Captions are stroke-and-shadow text, never a box. Sound is the owner's call, not the editor's: ask before assuming music or natural audio. This version composites multiple layers, applies a small effect pack, expands templates into ordinary timeline items, and can mix owner-imported music with beat sync. Engine rules live in `specs/craft.md`. Karachi episode structure is an optional preset, not the default.
+Built for short 9:16 reels and SDR YouTube upload masters. `project_create(preset="youtube")` defaults to 1920×1080 and `export(preset="youtube")` writes a verified H.264/AAC `youtube.mp4` plus upload metadata and optional SRT captions. Captions are stroke-and-shadow text, never a box. Sound is the owner's call, not the editor's: ask before assuming music or natural audio. This version composites multiple layers, applies a small effect pack, expands templates into ordinary timeline items, and can mix owner-imported music with beat sync. Engine rules live in `specs/craft.md`. Karachi episode structure is an optional preset, not the default.
 
 ## Needs
 

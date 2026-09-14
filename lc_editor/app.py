@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Annotated, Literal
@@ -144,6 +145,7 @@ from lc_editor.models import (
     DEFAULT_STILL_S,
     FPS,
     DURATION_CAP_MAX_S,
+    YOUTUBE_DURATION_CAP_MAX_S,
     DURATION_CAP_S,
     DURATION_SOFT_MIN_S,
     MIN_VIDEO_DURATION_S,
@@ -177,7 +179,9 @@ from lc_editor.models import (
     Timeline,
     Transform,
     envelope,
+    clip_media_ids,
     is_card_style,
+    is_youtube_project,
     is_spoken_style,
     recompute_starts,
     resolve_canvas,
@@ -246,7 +250,13 @@ from lc_editor.ops.timeline import (
 )
 from lc_editor.render.captions import expand_contractions
 from lc_editor.render.effects import validate_effect
-from lc_editor.render.graph import hero_encode_args, hero_encode_record, share_encode_args
+from lc_editor.render.graph import (
+    hero_encode_args,
+    hero_encode_record,
+    share_encode_args,
+    youtube_encode_args,
+    youtube_encode_legal,
+)
 from lc_editor.render.jobs import (
     assemble,
     AssembleError,
@@ -258,7 +268,15 @@ from lc_editor.render.jobs import (
     preview_stills,
     source_proxy_hash,
     verify_hero_av,
+    verify_youtube_av,
     working_media,
+)
+from lc_editor.render.youtube import (
+    YOUTUBE_MAX_DURATION_S,
+    YOUTUBE_UNVERIFIED_MAX_DURATION_S,
+    has_hdr_metadata,
+    validate_youtube_metadata,
+    write_youtube_srt,
 )
 from lc_editor.render.runner import FakeRunner, FfmpegRunner, Runner, find_tool
 from lc_editor.render.transitions import banned_transition
@@ -374,17 +392,24 @@ class Editor:
     def project_create(
         self,
         name: str = "reel",
-        aspect: str = "9:16",
+        aspect: Annotated[
+            Literal["9:16", "16:9"] | None,
+            Field(description="Canvas aspect. Defaults to 16:9 for youtube, otherwise 9:16."),
+        ] = None,
         width: int | None = None,
         height: int | None = None,
+        fps: Annotated[
+            Literal[23.976, 24, 25, 29.97, 30, 50, 59.94, 60],
+            Field(description="Project frame rate."),
+        ] = 30,
         project_dir: str | None = None,
         preset: Annotated[
-            Literal["karachi", "process"] | None,
-            Field(description="Optional project preset: karachi (series) or process (detailing/wash cards)."),
+            Literal["karachi", "process", "youtube"] | None,
+            Field(description="Optional project preset: karachi, process, or youtube."),
         ] = None,
         op_id: str | None = None,
     ) -> dict:
-        canvas = resolve_canvas(aspect, width, height)
+        canvas = resolve_canvas(aspect or ("16:9" if preset == "youtube" else "9:16"), width, height)
         if canvas is None:
             return {
                 "ok": False,
@@ -413,6 +438,7 @@ class Editor:
             aspect=aspect,
             width=canvas_w,
             height=canvas_h,
+            fps=fps,
             root=str(root),
             allow_music=fields.get("allow_music", False),
             preset=preset,
@@ -456,10 +482,11 @@ class Editor:
         allow_music: bool | None = None,
         name: str | None = None,
         preset: Annotated[
-            Literal["karachi", "process", ""] | None,
-            Field(description="karachi | process agent defaults; empty string clears preset name."),
+            Literal["karachi", "process", "youtube", ""] | None,
+            Field(description="karachi | process | youtube agent defaults; empty string clears preset name."),
         ] = None,
         loudnorm: str | None = None,
+        fps: Literal[23.976, 24, 25, 29.97, 30, 50, 59.94, 60] | None = None,
         min_video_duration_s: float | None = None,
         duration_cap_s: Annotated[
             float | None,
@@ -490,6 +517,10 @@ class Editor:
                     return envelope(False, store.timeline, [f"unknown preset {preset}"])
                 update["preset"] = preset
                 update.update(project_fields_from_preset(data))
+                update["reviewed_version"] = None
+        if fps is not None:
+            update["fps"] = fps
+            update["reviewed_version"] = None
         if loudnorm is not None:
             if loudnorm not in ("cinema", "speech"):
                 return envelope(False, store.timeline, ["loudnorm must be cinema or speech"])
@@ -505,11 +536,16 @@ class Editor:
         if duration_cap_s is not None:
             if duration_cap_s < 0:
                 return envelope(False, store.timeline, ["SPEC-EDIT-14: duration_cap_s must be >= 0"])
-            if duration_cap_s > DURATION_CAP_MAX_S:
+            max_duration_cap = (
+                YOUTUBE_DURATION_CAP_MAX_S
+                if (update.get("preset") or store.project.preset) == "youtube"
+                else DURATION_CAP_MAX_S
+            )
+            if duration_cap_s > max_duration_cap:
                 return envelope(
                     False,
                     store.timeline,
-                    [f"SPEC-EDIT-14: duration_cap_s must be <= {DURATION_CAP_MAX_S:.0f}"],
+                    [f"SPEC-EDIT-14: duration_cap_s must be <= {max_duration_cap:.0f}"],
                 )
             # 0 means "use default 60.0". Omit the argument to leave the stored cap unchanged.
             update["duration_cap_s"] = DURATION_CAP_S if duration_cap_s == 0 else float(duration_cap_s)
@@ -712,6 +748,10 @@ class Editor:
             height=info["height"],
             fps=info["fps"],
             has_audio=info["has_audio"],
+            color_space=info.get("color_space", ""),
+            color_transfer=info.get("color_transfer", ""),
+            color_primaries=info.get("color_primaries", ""),
+            field_order=info.get("field_order", ""),
             burst_id=burst_id,
             captured_at=info.get("captured_at"),
             captured_at_source=info.get("captured_at_source"),
@@ -2252,8 +2292,13 @@ class Editor:
         self,
         target_s: float,
         style: Annotated[
-            Literal["process", "reel"],
-            Field(description="process: detailing ASMR arc; reel: short-form target with same arc preference"),
+            Literal["process", "reel", "youtube"],
+            Field(
+                description=(
+                    "process: detailing ASMR arc; reel: short-form target; "
+                    "youtube: long-form target without the 180s clamp"
+                )
+            ),
         ] = "process",
         media_id: str | None = None,
         refresh: bool = False,
@@ -3077,6 +3122,7 @@ class Editor:
             box=box or bool(background) or banner or scrim,
             role=resolved_role,
             caption=probe_cap,
+            project=store.project,
         )
         if issues:
             return envelope(False, store.timeline, issues)
@@ -3135,7 +3181,14 @@ class Editor:
                     return envelope(False, store.timeline, [f"unknown font {font}; use {FONT_ALIAS_HELP}"])
         clip = self._clip(cap.clip_id)
         probe = cap.model_copy(update={"text": new_text, "y_pct": new_y, "font": new_font})
-        issues = caption_issues(new_text, y_pct=new_y, clip=clip, box=box, caption=probe)
+        issues = caption_issues(
+            new_text,
+            y_pct=new_y,
+            clip=clip,
+            box=box,
+            caption=probe,
+            project=store.project,
+        )
         if issues:
             return envelope(False, store.timeline, issues)
         lines = wrap_text(new_text) if cap.style != "pop" else [new_text]
@@ -3164,7 +3217,13 @@ class Editor:
         new_clip_id = clip_id or cap.clip_id
         new_y = cap.y_pct if y_pct is None else y_pct
         clip = self._clip(new_clip_id)
-        issues = caption_issues(cap.text, y_pct=new_y, clip=clip, caption=cap)
+        issues = caption_issues(
+            cap.text,
+            y_pct=new_y,
+            clip=clip,
+            caption=cap,
+            project=store.project,
+        )
         if issues:
             return envelope(False, store.timeline, issues)
 
@@ -3220,7 +3279,12 @@ class Editor:
             clip = clips.get(first.clip_id)
             item = media_map.get(clip.media_id) if clip else None
             dest = (store.output_dir / "phone_proof.jpg").resolve()
-            proof_path, proof_issues = write_phone_proof(dest, first, item.path if item else None)
+            proof_path, proof_issues = write_phone_proof(
+                dest,
+                first,
+                item.path if item else None,
+                store.project,
+            )
             if first.style != "pop":
                 errors.extend(proof_issues)
             for cap in store.timeline.captions:
@@ -3636,9 +3700,11 @@ class Editor:
             "mix_warnings": [e for e in errors if "SPEC-SND" in e or "SPEC-CRAFT-06" in e],
             "transition_count": envelope(True, store.timeline, [])["timeline_summary"]["transition_count"],
             "grade": store.project.grade_preset if store.project else None,
-            "in_target_length": DURATION_SOFT_MIN_S
-            <= dur
-            <= resolved_duration_soft_max_s(store.project),
+            "in_target_length": (
+                0 < dur <= resolved_duration_cap_s(store.project)
+                if is_youtube_project(store.project)
+                else DURATION_SOFT_MIN_S <= dur <= resolved_duration_soft_max_s(store.project)
+            ),
             "errors": errors,
             "warnings": warns,
             "zoom": {
@@ -3661,17 +3727,28 @@ class Editor:
         op_id: str | None = None,
         wait: bool = True,
         preset: Annotated[
-            Literal["reel", "share", "phone"],
-            Field(description="reel=1080 hero; share|phone=720 delivery sidecar."),
+            Literal["reel", "share", "phone", "youtube"],
+            Field(description="reel=hero; share|phone=720 delivery; youtube=YouTube SDR upload master."),
         ] = "reel",
+        caption_mode: Annotated[
+            Literal["burned", "sidecar", "both", "none"],
+            Field(description="YouTube caption delivery. Other export presets keep burned captions."),
+        ] = "burned",
+        youtube_title: str = "",
+        youtube_description: str = "",
+        youtube_chapters: list[dict] | None = None,
     ) -> dict:
         store = self._need()
         replay = store.replay(op_id)
         if replay is not None:
             return replay
         kind = (preset or "reel").strip().lower()
-        if kind not in {"reel", "share", "phone"}:
-            return envelope(False, store.timeline, ["SPEC-EXPORT-10: preset must be reel, share, or phone"])
+        if kind not in {"reel", "share", "phone", "youtube"}:
+            return envelope(
+                False,
+                store.timeline,
+                ["SPEC-EXPORT-10: preset must be reel, share, phone, or youtube"],
+            )
         if store.project.reviewed_version != store.timeline.version:
             return envelope(False, store.timeline, ["SPEC-EXPORT-03: export requires review_report on the current version"])
         floor_errors = video_duration_floor_errors(store.timeline, store.project, self.media)
@@ -3681,6 +3758,133 @@ class Editor:
         proxy = store.output_dir / "reel_proxy.mp4"
         sidecar = store.output_dir / "reel.json"
         share = store.output_dir / "reel_share.mp4"
+        if kind == "youtube":
+            duration = timeline_duration(store.timeline)
+            issues = validate_youtube_metadata(
+                title=youtube_title,
+                description=youtube_description,
+                chapters=youtube_chapters,
+                duration_s=duration,
+            )
+            if not store.timeline.clips:
+                issues.append("SPEC-EXPORT-11: YouTube export requires at least one clip")
+            if duration > YOUTUBE_MAX_DURATION_S + 1e-9:
+                issues.append("SPEC-EXPORT-11: YouTube duration exceeds 12 hours")
+            used_media = {
+                media_id
+                for clip in store.timeline.clips
+                for media_id in clip_media_ids(clip)
+            }
+            hdr = [
+                item.id
+                for item in self.media
+                if item.id in used_media and has_hdr_metadata(item.color_transfer, item.color_primaries)
+            ]
+            if hdr:
+                issues.append(
+                    "SPEC-EXPORT-11: HDR sources require an explicit SDR tone-map before YouTube export: "
+                    + ", ".join(hdr)
+                )
+            if issues:
+                return envelope(False, store.timeline, issues)
+            youtube = store.output_dir / "youtube.mp4"
+            youtube_tmp = store.output_dir / "youtube.tmp.mp4"
+            youtube_sidecar = store.output_dir / "youtube.json"
+            youtube_subtitles = store.output_dir / "youtube.srt"
+            render_timeline = store.timeline
+            if caption_mode in {"sidecar", "none"}:
+                render_timeline = render_timeline.model_copy(
+                    update={
+                        "captions": [],
+                        "layers": [layer for layer in render_timeline.layers if not layer.caption_id],
+                    }
+                )
+            encode_args = youtube_encode_args(
+                youtube_tmp,
+                store.project.width,
+                store.project.height,
+                store.project.fps,
+            )
+            if not youtube_encode_legal(encode_args):
+                return envelope(False, store.timeline, ["SPEC-EXPORT-11: illegal YouTube encode profile"])
+            try:
+                youtube_tmp.unlink(missing_ok=True)
+                with hero_export_lock(wait=wait):
+                    assemble(
+                        self.runner,
+                        store,
+                        store.project,
+                        render_timeline,
+                        self.media,
+                        youtube_tmp,
+                        proxy=False,
+                        encode_args=encode_args,
+                    )
+                    verify = verify_youtube_av(
+                        self.runner,
+                        youtube_tmp,
+                        width=store.project.width,
+                        height=store.project.height,
+                        fps=store.project.fps,
+                    )
+                    if not verify.get("ok", False):
+                        return envelope(
+                            False,
+                            store.timeline,
+                            [verify.get("warning") or "SPEC-EXPORT-11: YouTube verification failed"],
+                        )
+                    os.replace(youtube_tmp, youtube)
+            except HeroExportBusy:
+                return envelope(False, store.timeline, ["hero_export_busy"])
+            except AssembleError as exc:
+                return envelope(False, store.timeline, [str(exc)])
+            finally:
+                youtube_tmp.unlink(missing_ok=True)
+            subtitle_path = None
+            if caption_mode in {"sidecar", "both"}:
+                subtitle_path = write_youtube_srt(youtube_subtitles, store.timeline)
+            else:
+                youtube_subtitles.unlink(missing_ok=True)
+            warnings: list[str] = []
+            if duration > YOUTUBE_UNVERIFIED_MAX_DURATION_S:
+                warnings.append(
+                    "SPEC-EXPORT-11: videos over 15 minutes require a verified YouTube account"
+                )
+            if store.project.width <= store.project.height and duration <= 180:
+                warnings.append(
+                    "SPEC-EXPORT-11: square or vertical videos up to 3 minutes may be classified as Shorts"
+                )
+            payload = {
+                "version": store.timeline.version,
+                "duration_s": duration,
+                "project_preset": store.project.preset,
+                "export_preset": "youtube",
+                "video": str(youtube.resolve()),
+                "subtitles": str(subtitle_path.resolve()) if subtitle_path else None,
+                "caption_mode": caption_mode,
+                "metadata": {
+                    "title": youtube_title,
+                    "description": youtube_description,
+                    "chapters": youtube_chapters or [],
+                    "audience_selection_required": True,
+                    "end_screen_eligible": duration >= 25,
+                },
+                "encode": hero_encode_record(encode_args),
+                "verify": verify,
+            }
+            from lc_editor.store import atomic_write
+
+            atomic_write(youtube_sidecar, json.dumps(payload, indent=2))
+            result = envelope(True, store.timeline, warnings)
+            result["youtube"] = str(youtube.resolve())
+            result["sidecar"] = str(youtube_sidecar.resolve())
+            result["subtitles"] = str(subtitle_path.resolve()) if subtitle_path else None
+            result["encode"] = payload["encode"]
+            result["verify"] = verify
+            if op_id:
+                store.ledger[op_id] = result
+                store.persist()
+            return result
         if kind in {"share", "phone"}:
             share_args = share_encode_args(share, store.project.width, store.project.height)
             try:
@@ -3724,6 +3928,8 @@ class Editor:
             "duration_s": timeline_duration(store.timeline),
             "grade": store.project.grade_preset if store.project else None,
             "preset": store.project.preset if store.project else None,
+            "project_preset": store.project.preset if store.project else None,
+            "export_preset": "reel",
             "hero": str(hero.resolve()),
             "proxy": str(proxy.resolve()),
             "shots": [
@@ -3760,7 +3966,14 @@ class Editor:
             ],
             "beat_grid": store.timeline.beat_grid.model_dump() if store.timeline.beat_grid else None,
             "template_id": store.timeline.template_id,
-            "encode": hero_encode_record(hero_encode_args(hero, store.project.width, store.project.height)),
+            "encode": hero_encode_record(
+                hero_encode_args(
+                    hero,
+                    store.project.width,
+                    store.project.height,
+                    store.project.fps,
+                )
+            ),
         }
         verify = verify_hero_av(self.runner, hero)
         payload["verify"] = verify

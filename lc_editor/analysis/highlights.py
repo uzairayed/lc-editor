@@ -20,7 +20,7 @@ from lc_editor.models import (
     SHOT_MAX_S,
 )
 
-STYLES = ("process", "reel")
+STYLES = ("process", "reel", "youtube")
 
 BEFORE_ROLES = frozenset({"before"})
 PROCESS_ROLES = frozenset(
@@ -40,6 +40,7 @@ DEFAULT_TARGET_PROCESS_S = 60.0
 DEFAULT_TARGET_REEL_S = DURATION_SOFT_MAX_S
 MIN_TARGET_S = 8.0
 MAX_TARGET_S = 180.0
+MAX_TARGET_YOUTUBE_S = 43200.0
 MAX_CANDIDATES = 3
 
 # Speech / transcript-style peaks are a soft penalty for process arcs
@@ -67,7 +68,10 @@ def normalize_style(style: str | None) -> str:
 
 
 def clamp_target_s(target_s: float | None, style: str = "process") -> float:
-    default = DEFAULT_TARGET_PROCESS_S if style == "process" else DEFAULT_TARGET_REEL_S
+    if style == "youtube":
+        default = 600.0
+    else:
+        default = DEFAULT_TARGET_PROCESS_S if style == "process" else DEFAULT_TARGET_REEL_S
     if target_s is None:
         return default
     try:
@@ -76,7 +80,8 @@ def clamp_target_s(target_s: float | None, style: str = "process") -> float:
         return default
     if value <= 0:
         return default
-    return max(MIN_TARGET_S, min(MAX_TARGET_S, value))
+    maximum = MAX_TARGET_YOUTUBE_S if style == "youtube" else MAX_TARGET_S
+    return max(MIN_TARGET_S, min(maximum, value))
 
 
 def normalize_role(role: str | None) -> str:

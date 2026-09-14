@@ -5,6 +5,7 @@ from lc_editor.models import (
     CANVAS_W,
     FPS,
     KENBURNS_ZOOM,
+    ffmpeg_fps,
     PUNCH_FRAMES,
     PUNCH_ZOOM,
     ZOOM_HIT_AMOUNT,
@@ -109,6 +110,7 @@ def kenburns_filter(
     amount: float = KENBURNS_ZOOM,
     dest_w: int = CANVAS_W,
     dest_h: int = CANVAS_H,
+    fps: float = FPS,
 ) -> str:
     n = max(frames, 1)
     delta = amount - 1.0
@@ -129,7 +131,7 @@ def kenburns_filter(
         f"zoompan=z='{z}':"
         f"x='{even_expr('iw/2-(iw/zoom/2)')}':"
         f"y='{even_expr('ih/2-(ih/zoom/2)')}':"
-        f"d={n}:s={dest_w}x{dest_h}:fps={FPS}"
+        f"d={n}:s={dest_w}x{dest_h}:fps={ffmpeg_fps(fps)}"
     )
 
 
@@ -205,9 +207,15 @@ def zoom_pair_filter(
     return _scale_crop_zoom(z, dest_w, dest_h)
 
 
-def motion_chain(clip: Clip, frames: int, dest_w: int = CANVAS_W, dest_h: int = CANVAS_H) -> str:
+def motion_chain(
+    clip: Clip,
+    frames: int,
+    dest_w: int = CANVAS_W,
+    dest_h: int = CANVAS_H,
+    fps: float = FPS,
+) -> str:
     if clip.motion == "kenburns":
-        return kenburns_filter(frames, clip.kenburns_amount, dest_w, dest_h)
+        return kenburns_filter(frames, clip.kenburns_amount, dest_w, dest_h, fps)
     if clip.motion == "punch":
         return punch_filter(dest_w, dest_h)
     if clip.motion in ("zoom_in", "zoom_out"):

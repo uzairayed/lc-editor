@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lc_editor.models import DURATION_CAP_MAX_S, MIN_VIDEO_DURATION_S
+from lc_editor.models import (
+    DURATION_CAP_MAX_S,
+    MIN_VIDEO_DURATION_S,
+    YOUTUBE_DURATION_CAP_MAX_S,
+)
 
 PRESET_DIR = Path(__file__).resolve().parent
 
 # Project presets exposed on MCP create/set (templates like editorial stay template_apply).
-PROJECT_PRESET_NAMES = ("karachi", "process")
+PROJECT_PRESET_NAMES = ("karachi", "process", "youtube")
 
 
 def list_presets() -> list[str]:
@@ -36,7 +40,12 @@ def project_fields_from_preset(data: dict) -> dict:
             cap = float(data["duration_cap_s"])
         except (TypeError, ValueError):
             cap = -1.0
-        if 0 < cap <= DURATION_CAP_MAX_S:
+        max_cap = (
+            YOUTUBE_DURATION_CAP_MAX_S
+            if data.get("id") == "youtube"
+            else DURATION_CAP_MAX_S
+        )
+        if 0 < cap <= max_cap:
             update["duration_cap_s"] = cap
     contrast = data.get("caption_contrast")
     if contrast in ("strict", "lenient"):

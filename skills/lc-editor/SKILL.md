@@ -1,6 +1,6 @@
 # lc-editor
 
-Use this skill when asked to cut reels from raw video clips. The `lc-editor` MCP server gives you tool calls to build a timeline; ffmpeg does the rendering. Default canvas is 9:16; 16:9 product demos use `project_create(aspect="16:9")`.
+Use this skill when asked to cut reels or YouTube videos from raw video clips. The `lc-editor` MCP server gives you tool calls to build a timeline; ffmpeg does the rendering. Default canvas is 9:16; standard SDR YouTube videos use `project_create(preset="youtube")`, which defaults to 1920×1080.
 
 ## When to use
 
@@ -82,3 +82,9 @@ Every edit returns `{ ok, timeline_summary, warnings }`. Illegal requests fail o
 **Templates:** `template_list`, `template_apply`, `template_save`
 
 **Review & Export:** `review_report`, `export`
+
+For a standard YouTube upload master, author with `preset="youtube"`, run
+`review_report`, then call `export(preset="youtube")`. Choose
+`caption_mode="sidecar"` for an uploadable SRT without burned captions.
+The result is a local `youtube.mp4` plus `youtube.json`; this tool does not
+upload or publish. HDR sources must be tone-mapped outside this version.

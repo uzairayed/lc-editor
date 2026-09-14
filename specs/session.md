@@ -16,7 +16,7 @@ Illegal operations set `ok: false`, leave the timeline unchanged, and put the re
 
 ## SPEC-SES-02: project_create canvas
 
-`project_create` defaults to aspect `9:16` at 1080x1920, 30fps, `allow_music: false`. Aspect `16:9` makes 1920x1080. Optional `width` and `height` set a free even canvas. Unknown aspect is `ok: false`. The owner may later set `allow_music: true`. `project_get` exposes `aspect`, `width`, and `height`.
+`project_create` defaults to aspect `9:16` at 1080x1920, 30fps, `allow_music: false`. Aspect `16:9` makes 1920x1080. `preset="youtube"` defaults to 16:9 when aspect and dimensions are omitted. Optional `width` and `height` set a free even canvas; fps accepts 23.976, 24, 25, 29.97, 30, 50, 59.94, or 60, with NTSC rates encoded as exact 1001-denominator rationals. Unknown aspect is `ok: false`. The owner may later set `allow_music: true`. `project_get` exposes `aspect`, `width`, `height`, and `fps`.
 
 ## SPEC-SES-03: project_open / get / set / list
 
@@ -81,7 +81,7 @@ The package installs and the unit suite runs on Python 3.11 and 3.12.
 
 ## SPEC-SES-12: optional series / process preset
 
-`project_create(preset="karachi"|"process")` and `project_set(preset=…)` attach the matching file under `lc_editor/presets/`. `project_get` exposes `preset`. Default is `null` (short-form: 60s hard / 28s soft). A preset cannot set `allow_music` true or weaken SPEC-CRAFT rules. `preset="process"` also writes agent defaults (`duration_cap_s=180`, `caption_contrast=lenient`, `min_video_duration_s=5.0`, `loudnorm=cinema`, `allow_music=false`). `template_apply("editorial"|"karachi")` expands into ordinary layers and look; it does not hide runtime behavior.
+`project_create(preset="karachi"|"process"|"youtube")` and `project_set(preset=…)` attach the matching file under `lc_editor/presets/`. `project_get` exposes `preset`. Default is `null` (short-form: 60s hard / 28s soft). A preset cannot set `allow_music` true or weaken music ownership rules. `preset="process"` writes its 180s process defaults. `preset="youtube"` writes a 12-hour platform cap, 2s video floor, lenient contrast, speech loudness, neutral grade, and music off; its review rules scale transition budgets and remove reel-only target-length warnings. `template_apply("editorial"|"karachi")` expands into ordinary layers and look; it does not hide runtime behavior.
 
 ## SPEC-SES-13: preview files are paths
 

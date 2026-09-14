@@ -32,6 +32,8 @@ from lc_editor.models import (
     MediaItem,
     Project,
     Timeline,
+    canvas_wh,
+    is_youtube_project,
     is_spoken_style,
 )
 
@@ -113,13 +115,45 @@ def _measure(lines: list[str], role: str, size: int, font: str = "") -> tuple[fl
     return float(width + 2 * pad), float(height + 2 * pad)
 
 
-def fontsize_for(caption: Caption) -> int:
+def caption_geometry(project: Project | None = None) -> dict[str, int | float]:
+    width, height = canvas_wh(project)
+    if is_youtube_project(project) or width >= height:
+        return {
+            "width": width,
+            "height": height,
+            "safe_x0": round(width * 0.05),
+            "safe_x1": round(width * 0.95),
+            "safe_y0": round(height * 0.10),
+            "safe_y1": round(height * 0.90),
+            "band_y0": round(height * 0.10),
+            "band_y1": round(height * 0.90),
+            "box_width": round(width * 0.80),
+            "y_min": 0.10,
+            "y_max": 0.90,
+        }
+    return {
+        "width": width,
+        "height": height,
+        "safe_x0": CAPTION_SAFE_X0,
+        "safe_x1": CAPTION_SAFE_X1,
+        "safe_y0": CAPTION_SAFE_Y0,
+        "safe_y1": CAPTION_SAFE_Y1,
+        "band_y0": CAPTION_BAND_Y0,
+        "band_y1": CAPTION_BAND_Y1,
+        "box_width": CAPTION_BOXW,
+        "y_min": CAPTION_Y_MIN,
+        "y_max": CAPTION_Y_MAX,
+    }
+
+
+def fontsize_for(caption: Caption, project: Project | None = None) -> int:
     lines = caption.lines or wrap_text(caption.text)
     base = base_fontsize(caption)
     role = role_for_caption(caption.style, caption.role, caption.font)
+    box_width = int(caption_geometry(project)["box_width"])
     for size in range(base, CAPTION_SIZE_MIN - 1, -2):
         width, _ = _measure(lines, role, size, caption.font)
-        if width <= CAPTION_BOXW:
+        if width <= box_width:
             return size
     return CAPTION_SIZE_MIN
 
@@ -129,17 +163,21 @@ def _font(caption: Caption, size: int | None = None) -> ImageFont.FreeTypeFont |
     return _font_at(role, size or fontsize_for(caption), caption.font)
 
 
-def estimate_bbox(caption: Caption) -> dict:
+def estimate_bbox(caption: Caption, project: Project | None = None) -> dict:
+    geometry = caption_geometry(project)
     lines = caption.lines or wrap_text(caption.text)
-    size = fontsize_for(caption)
+    size = fontsize_for(caption, project)
     role = role_for_caption(caption.style, caption.role, caption.font)
     width, height = _measure(lines, role, size, caption.font)
-    cy = CANVAS_H * caption.y_pct
+    cy = int(geometry["height"]) * caption.y_pct
     y0 = cy - height / 2
     y2 = cy + height / 2
-    preferred_x0 = (CANVAS_W - width) / 2
-    if width <= CAPTION_BOXW:
-        x0 = min(max(preferred_x0, float(CAPTION_SAFE_X0)), float(CAPTION_SAFE_X1) - width)
+    preferred_x0 = (int(geometry["width"]) - width) / 2
+    if width <= int(geometry["box_width"]):
+        x0 = min(
+            max(preferred_x0, float(geometry["safe_x0"])),
+            float(geometry["safe_x1"]) - width,
+        )
     else:
         x0 = preferred_x0
     x2 = x0 + width
@@ -161,7 +199,10 @@ def luma_rgb(rgb: tuple[int, int, int]) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-def _open_still(path: str | Path | None) -> Image.Image | None:
+def _open_still(
+    path: str | Path | None,
+    project: Project | None = None,
+) -> Image.Image | None:
     if not path:
         return None
     src = Path(path)
@@ -171,13 +212,18 @@ def _open_still(path: str | Path | None) -> Image.Image | None:
         im = Image.open(src).convert("RGB")
     except OSError:
         return None
-    if im.size != (CANVAS_W, CANVAS_H):
-        im = im.resize((CANVAS_W, CANVAS_H))
+    canvas = canvas_wh(project)
+    if im.size != canvas:
+        im = im.resize(canvas)
     return im
 
 
-def sample_underlay_luma(path: str | Path | None, bbox: dict) -> float | None:
-    im = _open_still(path)
+def sample_underlay_luma(
+    path: str | Path | None,
+    bbox: dict,
+    project: Project | None = None,
+) -> float | None:
+    im = _open_still(path, project)
     if im is None:
         return None
     x0 = max(0, int(bbox["x"]))
@@ -197,11 +243,16 @@ def contrast_too_close(luma: float | None) -> bool:
     return luma is not None and 0.70 <= luma <= 1.0
 
 
-def _protect_overlap(bbox: dict, clip: Clip | None) -> bool:
+def _protect_overlap(
+    bbox: dict,
+    clip: Clip | None,
+    project: Project | None = None,
+) -> bool:
     if clip is None or not clip.protect:
         return False
-    fx = clip.focus_x * CANVAS_W
-    fy = clip.focus_y * CANVAS_H
+    width, height = canvas_wh(project)
+    fx = clip.focus_x * width
+    fy = clip.focus_y * height
     nearest_x = min(max(fx, bbox["x"]), bbox["x2"])
     nearest_y = min(max(fy, bbox["y"]), bbox["y2"])
     dist = ((fx - nearest_x) ** 2 + (fy - nearest_y) ** 2) ** 0.5
@@ -218,8 +269,10 @@ def caption_issues(
     role: str = "body",
     underlay_path: str | None = None,
     caption: Caption | None = None,
+    project: Project | None = None,
 ) -> list[str]:
     warnings: list[str] = []
+    geometry = caption_geometry(project)
     style = caption.style if caption is not None else "phrase"
     pop = style == "pop"
     if box:
@@ -237,8 +290,11 @@ def caption_issues(
             warnings.append("SPEC-CAP-02: wrapped line exceeds 28 characters")
         if any(line.strip() == "" for line in wrapped):
             warnings.append("SPEC-CAP-02: caption has an empty line")
-    if y_pct < CAPTION_Y_MIN or y_pct > CAPTION_Y_MAX:
-        warnings.append("SPEC-CAP-03: caption Y outside 22-50% safe zone")
+    if y_pct < float(geometry["y_min"]) or y_pct > float(geometry["y_max"]):
+        warnings.append(
+            f"SPEC-CAP-03: caption Y outside "
+            f"{float(geometry['y_min']) * 100:.0f}-{float(geometry['y_max']) * 100:.0f}% safe zone"
+        )
     if not pop and clip is not None and wrapped and len(wrapped) <= CAPTION_MAX_LINES:
         need = hold_s(text, wrapped)
         if clip.duration_s + 1e-9 < need:
@@ -256,27 +312,37 @@ def caption_issues(
         y_pct=y_pct,
         lines=wrapped,
     )
-    bbox = estimate_bbox(probe)
-    if bbox["x"] < 0 or bbox["y"] < 0 or bbox["x2"] > CANVAS_W or bbox["y2"] > CANVAS_H:
+    bbox = estimate_bbox(probe, project)
+    if (
+        bbox["x"] < 0
+        or bbox["y"] < 0
+        or bbox["x2"] > int(geometry["width"])
+        or bbox["y2"] > int(geometry["height"])
+    ):
         warnings.append(
-            "SPEC-CAP-03: caption bbox clips the 1080x1920 frame; "
+            f"SPEC-CAP-03: caption bbox clips the {geometry['width']}x{geometry['height']} frame; "
             "caption_move / wrap / smaller size. Never add a box."
         )
-    if bbox["y"] < CAPTION_BAND_Y0 or bbox["y2"] > CAPTION_BAND_Y1:
+    if bbox["y"] < int(geometry["band_y0"]) or bbox["y2"] > int(geometry["band_y1"]):
         warnings.append(
             "SPEC-CAP-03: caption block leaves the 22-50% band; "
             "caption_move / wrap / smaller size. Never add a box."
         )
-    if bbox["x"] < CAPTION_SAFE_X0 or bbox["y"] < CAPTION_SAFE_Y0 or bbox["y2"] > CAPTION_SAFE_Y1:
+    if (
+        bbox["x"] < int(geometry["safe_x0"])
+        or bbox["y"] < int(geometry["safe_y0"])
+        or bbox["y2"] > int(geometry["safe_y1"])
+    ):
         warnings.append("SPEC-CAP-03: caption bbox leaves the cross-post safe rect")
-    if bbox["x2"] > CAPTION_SAFE_X1:
+    if bbox["x2"] > int(geometry["safe_x1"]):
         warnings.append(
-            "SPEC-CAP-03: caption bbox crosses the right action column (x2 > 853); "
+            f"SPEC-CAP-03: caption bbox crosses the safe right edge "
+            f"(x2 > {geometry['safe_x1']}); "
             "wrap / smaller size. Never add a box."
         )
-    if _protect_overlap(bbox, clip):
+    if _protect_overlap(bbox, clip, project):
         warnings.append("SPEC-CAP-03: caption overlaps a protected focus point")
-    luma = sample_underlay_luma(underlay_path, bbox)
+    luma = sample_underlay_luma(underlay_path, bbox, project)
     if contrast_too_close(luma):
         warnings.append(
             "SPEC-CAP-06: underlay is too close to sand; caption_move to a darker band or recut. Never add a box."
@@ -357,6 +423,7 @@ def timeline_caption_issues(
                 role=cap.role,
                 underlay_path=item.path if item else None,
                 caption=cap,
+                project=project,
             )
         )
     if contrast_is_lenient(project):
@@ -387,6 +454,7 @@ def timeline_caption_warnings(
             role=cap.role,
             underlay_path=item.path if item else None,
             caption=cap,
+            project=project,
         ):
             if _is_cap06(msg):
                 warns.append(msg)
@@ -445,13 +513,17 @@ def card_report(
     }
 
 
-def draw_caption_card(im: Image.Image, caption: Caption) -> Image.Image:
+def draw_caption_card(
+    im: Image.Image,
+    caption: Caption,
+    project: Project | None = None,
+) -> Image.Image:
     canvas = im.copy()
     draw = ImageDraw.Draw(canvas)
-    size = fontsize_for(caption)
+    size = fontsize_for(caption, project)
     font = _font(caption, size)
     lines = caption.lines or wrap_text(caption.text)
-    bbox = estimate_bbox(caption)
+    bbox = estimate_bbox(caption, project)
     stroke = 4 if caption.role == "title" else 3
     y = bbox["y"] + _stroke_pad(caption.role)
     line_count = max(1, len(lines))
@@ -473,14 +545,20 @@ def draw_caption_card(im: Image.Image, caption: Caption) -> Image.Image:
     return canvas
 
 
-def phone_proof_issues(proof: Image.Image, caption: Caption) -> list[str]:
+def phone_proof_issues(
+    proof: Image.Image,
+    caption: Caption,
+    project: Project | None = None,
+) -> list[str]:
     issues: list[str] = []
-    if proof.size != (PHONE_PROOF_W, PHONE_PROOF_H):
-        issues.append("SPEC-CAP-08: phone proof is not 270x480")
+    width, height = canvas_wh(project)
+    expected = (max(1, width // 4), max(1, height // 4))
+    if proof.size != expected:
+        issues.append(f"SPEC-CAP-08: proof is not {expected[0]}x{expected[1]}")
         return issues
-    bbox = estimate_bbox(caption)
-    sx = PHONE_PROOF_W / CANVAS_W
-    sy = PHONE_PROOF_H / CANVAS_H
+    bbox = estimate_bbox(caption, project)
+    sx = proof.width / width
+    sy = proof.height / height
     x0 = bbox["x"] * sx
     y0 = bbox["y"] * sy
     x1 = bbox["x2"] * sx
@@ -517,13 +595,15 @@ def write_phone_proof(
     dest: Path,
     caption: Caption,
     underlay_path: str | Path | None = None,
+    project: Project | None = None,
 ) -> tuple[Path, list[str]]:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    base = _open_still(underlay_path)
+    width, height = canvas_wh(project)
+    base = _open_still(underlay_path, project)
     if base is None:
-        base = Image.new("RGB", (CANVAS_W, CANVAS_H), (26, 20, 16))
-    framed = draw_caption_card(base, caption)
-    proof = framed.resize((PHONE_PROOF_W, PHONE_PROOF_H), Image.Resampling.LANCZOS)
+        base = Image.new("RGB", (width, height), (26, 20, 16))
+    framed = draw_caption_card(base, caption, project)
+    proof = framed.resize((max(1, width // 4), max(1, height // 4)), Image.Resampling.LANCZOS)
     proof.save(dest, format="JPEG", quality=88)
-    issues = phone_proof_issues(proof, caption)
+    issues = phone_proof_issues(proof, caption, project)
     return dest, issues

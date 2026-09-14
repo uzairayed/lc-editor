@@ -14,17 +14,17 @@ from lc_editor.models import (
 )
 
 
-def fade_frames(duration_s: float | None = None) -> int:
+def fade_frames(duration_s: float | None = None, fps: float = FPS) -> int:
     if duration_s is None:
         return FADE_FRAMES_DEFAULT
-    n = int(round(float(duration_s) * FPS))
+    n = int(round(float(duration_s) * fps))
     return max(FADE_FRAMES_MIN, min(FADE_FRAMES_MAX, n))
 
 
-def whip_frames(duration_s: float | None = None) -> int:
+def whip_frames(duration_s: float | None = None, fps: float = FPS) -> int:
     if duration_s is None:
         return WHIP_FRAMES
-    n = int(round(float(duration_s) * FPS))
+    n = int(round(float(duration_s) * fps))
     return max(6, min(10, n))
 
 
@@ -47,11 +47,15 @@ def whip_filter(frames: int = WHIP_FRAMES, fps: int = FPS) -> str:
     )
 
 
-def punch_in_filter(frames: int = PUNCH_FRAMES) -> str:
+def punch_in_filter(
+    frames: int = PUNCH_FRAMES,
+    width: int = CANVAS_W,
+    height: int = CANVAS_H,
+) -> str:
     return (
-        f"scale=w='{CANVAS_W}*(1+{PUNCH_ZOOM - 1}*min(1,n/{frames}))':"
-        f"h='{CANVAS_H}*(1+{PUNCH_ZOOM - 1}*min(1,n/{frames}))':eval=frame,"
-        f"crop={CANVAS_W}:{CANVAS_H}"
+        f"scale=w='{width}*(1+{PUNCH_ZOOM - 1}*min(1,n/{frames}))':"
+        f"h='{height}*(1+{PUNCH_ZOOM - 1}*min(1,n/{frames}))':eval=frame,"
+        f"crop={width}:{height}"
     )
 
 
@@ -64,11 +68,11 @@ def flash_filter() -> str:
     return "drawbox=x=0:y=0:w=iw:h=ih:color=0xF6EBD4@0.35:t=fill:enable='lte(n,1)'"
 
 
-def match_filter() -> str:
+def match_filter(width: int = CANVAS_W, height: int = CANVAS_H) -> str:
     return (
         f"scale=w='iw*(1+0.02*(1-min(1,n/2)))':"
         f"h='ih*(1+0.02*(1-min(1,n/2)))':eval=frame,"
-        f"crop={CANVAS_W}:{CANVAS_H}"
+        f"crop={width}:{height}"
     )
 
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from lc_editor.models import (
+    CANVAS_16_9_H,
+    CANVAS_16_9_W,
     CANVAS_H,
     CANVAS_W,
     FPS,
@@ -14,6 +16,7 @@ from lc_editor.models import (
     Project,
     canvas_wh,
     even_dim,
+    ffmpeg_fps,
     proxy_wh,
 )
 from lc_editor.render.blurs import soft_mask_blur_chain
@@ -50,9 +53,11 @@ def clip_video_filters(
     if preview:
         return preview_video_filters(clip, media, project)
     dest_w, dest_h = canvas_wh(project)
-    frames = max(1, int(round(clip.duration_s * FPS)))
+    frames = max(1, int(round(clip.duration_s * project.fps)))
     parts: list[str] = []
     if not composed:
+        if media.field_order.lower() not in {"", "unknown", "progressive"}:
+            parts.append("bwdif=mode=send_frame:parity=auto:deint=interlaced")
         parts.append(canvas_fit_filters(clip, dest_w, dest_h))
     # Soft-mask privacy blur after fit so cover / fit_blur framing is correct,
     # and before motion so Ken Burns / zoom carries the blurred pixels.
@@ -60,7 +65,7 @@ def clip_video_filters(
     if blur:
         parts.append(blur)
     if clip.motion != "none":
-        parts.append(motion_chain(clip, frames, dest_w, dest_h))
+        parts.append(motion_chain(clip, frames, dest_w, dest_h, project.fps))
     elif composed:
         parts.append(f"scale={dest_w}:{dest_h}")
     for cap in captions:
@@ -69,10 +74,10 @@ def clip_video_filters(
         if cap.style == "karaoke" and cap.words:
             files = word_textfiles(cap)
             if files and all(path.exists() for path in files):
-                parts.extend(karaoke_filters(cap, files, fontfile_for(cap)))
+                parts.extend(karaoke_filters(cap, files, fontfile_for(cap), project))
                 continue
         if cap.textfile:
-            parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap)))
+            parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap), project))
     if last and project.overlays.end_card:
         parts.append("drawtext=textfile='endcard.txt':expansion=none:fontsize=48:x=(w-text_w)/2:y=h*0.8")
     if clip.speed != 1.0:
@@ -84,9 +89,9 @@ def clip_video_filters(
     if transition == "flash":
         parts.append(flash_filter())
     if transition == "match":
-        parts.append(match_filter())
+        parts.append(match_filter(dest_w, dest_h))
     if transition == "punch":
-        parts.append(punch_in_filter())
+        parts.append(punch_in_filter(width=dest_w, height=dest_h))
     if clip.cam_pip and not composed and not preview:
         pip = cam_pip_filters(clip, media)
         main = ",".join(parts) if parts else f"scale={dest_w}:{dest_h}"
@@ -170,10 +175,20 @@ def hero_encode_record(args: list[str]) -> dict:
         "width": int(width or CANVAS_W),
         "height": int(height or CANVAS_H),
         "pix_fmt": _flag_value(args, "-pix_fmt") or "yuv420p",
+        "fps": _flag_value(args, "-r") or str(FPS),
+        "video_codec": _flag_value(args, "-c:v") or "",
+        "video_profile": _flag_value(args, "-profile:v") or "",
+        "audio_codec": _flag_value(args, "-c:a") or "",
+        "audio_bitrate": _flag_value(args, "-b:a") or "",
     }
 
 
-def hero_encode_args(output: Path, width: int = CANVAS_W, height: int = CANVAS_H) -> list[str]:
+def hero_encode_args(
+    output: Path,
+    width: int = CANVAS_W,
+    height: int = CANVAS_H,
+    fps: float = FPS,
+) -> list[str]:
     # CRF 18 + tune grain: temporal grain noise boils into wavy macroblocks
     # at x264 defaults, especially across the two-pass intermediate+concat encode.
     dest_w, dest_h = even_dim(width), even_dim(height)
@@ -189,7 +204,7 @@ def hero_encode_args(output: Path, width: int = CANVAS_W, height: int = CANVAS_H
         "-pix_fmt",
         "yuv420p",
         "-r",
-        str(FPS),
+        ffmpeg_fps(fps),
         "-s",
         f"{dest_w}x{dest_h}",
         "-c:a",
@@ -253,6 +268,82 @@ def share_encode_args(output: Path, width: int = CANVAS_W, height: int = CANVAS_
     ]
 
 
+def youtube_encode_args(
+    output: Path,
+    width: int = CANVAS_16_9_W,
+    height: int = CANVAS_16_9_H,
+    fps: float = FPS,
+) -> list[str]:
+    """Quality-first SDR MP4 matching YouTube's recommended upload profile."""
+    dest_w, dest_h = even_dim(width), even_dim(height)
+    rate = max(1.0, float(fps))
+    gop = max(1, int(round(rate / 2)))
+    return [
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "high",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-bf",
+        "2",
+        "-g",
+        str(gop),
+        "-keyint_min",
+        str(gop),
+        "-sc_threshold",
+        "0",
+        "-color_range",
+        "tv",
+        "-colorspace",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-r",
+        ffmpeg_fps(rate),
+        "-s",
+        f"{dest_w}x{dest_h}",
+        "-c:a",
+        "aac",
+        "-profile:a",
+        "aac_low",
+        "-b:a",
+        "384k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+
+
+def youtube_encode_legal(args: list[str]) -> bool:
+    return (
+        "libx264" in args
+        and _flag_value(args, "-profile:v") == "high"
+        and _flag_value(args, "-pix_fmt") == "yuv420p"
+        and _flag_value(args, "-color_range") == "tv"
+        and _flag_value(args, "-colorspace") == "bt709"
+        and _flag_value(args, "-color_primaries") == "bt709"
+        and _flag_value(args, "-color_trc") == "bt709"
+        and _flag_value(args, "-c:a") == "aac"
+        and _flag_value(args, "-profile:a") == "aac_low"
+        and _flag_value(args, "-b:a") == "384k"
+        and _flag_value(args, "-ar") == "48000"
+        and _flag_value(args, "-ac") == "2"
+        and "+faststart" in args
+        and "-shortest" not in args
+    )
+
+
 def proxy_encode_args(output: Path, width: int | None = None, height: int | None = None) -> list[str]:
     from lc_editor.models import PROXY_H, PROXY_W
 
@@ -294,6 +385,7 @@ def clip_hash_payload(clip: Clip, captions: list[Caption], project: Project, *, 
         "fit": clip.fit,
         "fit_pad_color": clip.fit_pad_color,
         "canvas": [project.width, project.height],
+        "fps": project.fps,
         "speed": clip.speed,
         "wrap": clip.wrap,
         "kenburns_amount": clip.kenburns_amount,

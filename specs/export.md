@@ -96,3 +96,27 @@ The sidecar records `encode: {preset, crf, width, height, pix_fmt}`.
 Share takes the same process-wide lock as hero, sequentially: `export(preset="share")` waits if a 1080 hero is running (or `hero_export_busy` when `wait=false`). Never run share in parallel with another 1080. Call `export()` for the hero, then `export(preset="share")` to attach a chat-sized file.
 
 Target: about ≤40MB for a 60–90s reel. The review gate (SPEC-EXPORT-03) still applies.
+
+## SPEC-EXPORT-11: YouTube SDR upload master
+
+`export(preset="youtube")` writes `youtube.mp4` and `youtube.json` without
+replacing reel/share outputs. The project canvas is preserved; a YouTube
+project defaults to 1920×1080. The encode is MP4, H.264 High Profile,
+progressive yuv420p, closed GOP with two B-frames, BT.709 limited range,
+AAC-LC 48kHz stereo at 384kbps, and fast-start metadata.
+
+YouTube export supports `caption_mode="burned"|"sidecar"|"both"|"none"`.
+Sidecar captions are written as UTF-8 `youtube.srt`. Optional title,
+description, and chapters are validated against YouTube limits and recorded
+in `youtube.json`; export does not upload or publish.
+
+The output is encoded to `youtube.tmp.mp4`, verified with ffprobe, and
+atomically moved into place so failure cannot destroy a previous valid
+upload master. Verification checks streams, geometry, progressive scan,
+pixel/color format, 48kHz stereo audio, A/V sync, the 12-hour duration cap,
+and the 256GB file cap. Videos over 15 minutes warn that account verification
+is required. Square/vertical videos up to three minutes warn that YouTube may
+classify them as Shorts.
+
+HDR sources fail closed because this version has no explicit SDR tone-map or
+10-bit HDR output path. Interlaced sources are deinterlaced before conform.

@@ -20,6 +20,7 @@ from lc_editor.models import (
     Project,
     Timeline,
     canvas_wh,
+    ffmpeg_fps,
     timeline_duration,
 )
 from lc_editor.render.audio import denoise_chain, limiter_filter, loudnorm_hero, loudnorm_profile, resolve_denoise_profile
@@ -40,6 +41,7 @@ def media_map(items: list[MediaItem]) -> dict[str, MediaItem]:
 def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
     return {
         "schema": timeline.schema_version,
+        "canvas": [project.width, project.height, project.fps],
         "clips": [
             {
                 "id": c.id,
@@ -78,13 +80,16 @@ def assemble_fingerprint(timeline: Timeline, project: Project) -> dict:
 
 def _clip_base_filters(clip: Clip, media: MediaItem, captions, project: Project, *, last: bool, transition: str | None) -> str:
     dest_w, dest_h = canvas_wh(project)
-    frames = max(1, int(round(clip.duration_s * FPS)))
-    parts = [canvas_fit_filters(clip, dest_w, dest_h)]
+    frames = max(1, int(round(clip.duration_s * project.fps)))
+    parts = []
+    if media.field_order.lower() not in {"", "unknown", "progressive"}:
+        parts.append("bwdif=mode=send_frame:parity=auto:deint=interlaced")
+    parts.append(canvas_fit_filters(clip, dest_w, dest_h))
     blur = soft_mask_blur_chain(clip.blurs, dest_w, dest_h)
     if blur:
         parts.append(blur)
     if clip.motion != "none":
-        parts.append(motion_chain(clip, frames, dest_w, dest_h))
+        parts.append(motion_chain(clip, frames, dest_w, dest_h, project.fps))
     else:
         parts.append(f"scale={dest_w}:{dest_h}")
     extra = compile_effects(clip.effects)
@@ -99,7 +104,7 @@ def _clip_base_filters(clip: Clip, media: MediaItem, captions, project: Project,
         if getattr(cap, "style", "phrase") == "pop":
             continue
         if cap.textfile:
-            parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap)))
+            parts.append(drawtext_filter(cap, Path(cap.textfile), fontfile_for(cap), project))
     if last and project.overlays.end_card:
         parts.append("drawtext=textfile='endcard.txt':expansion=none:fontsize=48:x=(w-text_w)/2:y=h*0.8")
     if clip.speed != 1.0:
@@ -111,10 +116,10 @@ def _clip_base_filters(clip: Clip, media: MediaItem, captions, project: Project,
     if transition == "flash":
         parts.append(flash_filter())
     if transition == "match":
-        parts.append(match_filter())
+        parts.append(match_filter(dest_w, dest_h))
     if transition == "punch":
-        parts.append(punch_in_filter())
-    parts.append("setsar=1,fps=30,format=yuv420p")
+        parts.append(punch_in_filter(width=dest_w, height=dest_h))
+    parts.append(f"setsar=1,fps={ffmpeg_fps(project.fps)},format=yuv420p")
     return ",".join(parts)
 
 
@@ -160,7 +165,9 @@ def build_assemble_command(
         kind = timeline.transitions.get(clip.id)
         src = f"[{input_index}:v]"
         if preprocessed:
-            filter_parts.append(f"{src}setsar=1,fps=30,format=yuv420p[cv{input_index}]")
+            filter_parts.append(
+                f"{src}setsar=1,fps={ffmpeg_fps(project.fps)},format=yuv420p[cv{input_index}]"
+            )
         else:
             vf = _clip_base_filters(
                 clip,
@@ -194,7 +201,14 @@ def build_assemble_command(
         filter_parts.append(f"{video_labels[0]}copy[base]")
         current = "[base]"
     else:
-        current = _join_clips(timeline, video_labels, filter_parts, dest_w, dest_h)
+        current = _join_clips(
+            timeline,
+            video_labels,
+            filter_parts,
+            dest_w,
+            dest_h,
+            project.fps,
+        )
 
     layer_inputs: list[tuple[int, LayerItem]] = []
     for layer in sorted(timeline.layers, key=lambda item: (item.z, item.id)):
@@ -243,7 +257,10 @@ def build_assemble_command(
         clip_start = {clip.id: clip.start_s for clip in timeline.clips}
         ass_path = store_caption_dir / "pop.ass"
         ass_path.parent.mkdir(parents=True, exist_ok=True)
-        ass_path.write_text(combined_pop_ass(pop_caps, clip_start, fontfile_for(pop_caps[0])), encoding="utf-8")
+        ass_path.write_text(
+            combined_pop_ass(pop_caps, clip_start, fontfile_for(pop_caps[0]), project),
+            encoding="utf-8",
+        )
         font = title_font()
         fontsdir = font.parent if font else store_caption_dir
         from lc_editor.render.paths import ffmpeg_path
@@ -381,6 +398,7 @@ def _join_clips(
     filter_parts: list[str],
     dest_w: int = CANVAS_W,
     dest_h: int = CANVAS_H,
+    fps: float = FPS,
 ) -> str:
     from lc_editor.render.transitions import fade_frames, whip_frames
 
@@ -392,8 +410,8 @@ def _join_clips(
         nxt = labels[i]
         out = f"[j{i}]"
         if kind == "whip" and prev.duration_s > 0.1 and timeline.clips[i].duration_s > 0.1:
-            frames = whip_frames(dur_s)
-            whip_s = frames / FPS
+            frames = whip_frames(dur_s, fps)
+            whip_s = frames / fps
             if prev.duration_s > whip_s + 0.05 and timeline.clips[i].duration_s > whip_s + 0.05:
                 a_body = f"[ab{i}]"
                 a_edge = f"[ae{i}]"
@@ -417,8 +435,8 @@ def _join_clips(
             else:
                 filter_parts.append(f"{current}{nxt}concat=n=2:v=1:a=0{out}")
         elif kind == "fade" and prev.duration_s > 0.1 and timeline.clips[i].duration_s > 0.1:
-            frames = fade_frames(dur_s)
-            fade_s = frames / FPS
+            frames = fade_frames(dur_s, fps)
+            fade_s = frames / fps
             if prev.duration_s > fade_s + 0.05 and timeline.clips[i].duration_s > fade_s + 0.05:
                 a_body = f"[ab{i}]"
                 a_edge = f"[ae{i}]"

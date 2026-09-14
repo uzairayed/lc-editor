@@ -134,6 +134,10 @@ def parse_probe(payload: str, fallback_kind: str) -> dict:
         "fps": fps,
         "has_audio": audio is not None or kind == "audio",
         "kind": kind,
+        "color_space": str(video.get("color_space") or ""),
+        "color_transfer": str(video.get("color_transfer") or ""),
+        "color_primaries": str(video.get("color_primaries") or ""),
+        "field_order": str(video.get("field_order") or ""),
         "creation_time": creation_time_from_probe(data),
     }
 

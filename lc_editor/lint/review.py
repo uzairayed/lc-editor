@@ -30,6 +30,7 @@ from lc_editor.models import (
     Project,
     Timeline,
     decorated_transition_count,
+    is_youtube_project,
     resolved_min_video_duration_s,
     timeline_duration,
 )
@@ -68,10 +69,15 @@ def music_issues(timeline: Timeline, project: Project | None) -> list[str]:
     return errors
 
 
-def decorated_transition_issues(timeline: Timeline) -> list[str]:
+def decorated_transition_issues(
+    timeline: Timeline,
+    project: Project | None = None,
+) -> list[str]:
     count = decorated_transition_count(timeline)
-    if count > 3:
-        return [f"SPEC-EDIT-13: {count} decorated transitions (cap 3)"]
+    duration = timeline_duration(timeline)
+    cap = max(3, ceil(duration / 60) * 3) if is_youtube_project(project) else 3
+    if count > cap:
+        return [f"SPEC-EDIT-13: {count} decorated transitions (cap {cap})"]
     return []
 
 
@@ -183,7 +189,11 @@ def acknowledge_errors(
     errors: list[str] = []
     by_id = {item.id: item for item in (media or [])}
     for clip in timeline.clips:
-        floor = STILL_ACK_MIN_S if clip.is_still else SHOT_ACK_MIN_S
+        floor = (
+            0.5
+            if is_youtube_project(project)
+            else (STILL_ACK_MIN_S if clip.is_still else SHOT_ACK_MIN_S)
+        )
         source = by_id.get(clip.media_id)
         if clip.duration_s + 1e-6 < floor and not _holds_whole_source(clip, source):
             errors.append(
@@ -197,7 +207,13 @@ def acknowledge_errors(
     return errors
 
 
-def acknowledge_warnings(timeline: Timeline, media: list[MediaItem] | None) -> list[str]:
+def acknowledge_warnings(
+    timeline: Timeline,
+    media: list[MediaItem] | None,
+    project: Project | None = None,
+) -> list[str]:
+    if is_youtube_project(project):
+        return []
     warnings: list[str] = []
     by_id = {item.id: item for item in (media or [])}
     for clip in timeline.clips:
@@ -273,7 +289,7 @@ def review_blockers(
     errors.extend(music_issues(timeline, project))
     errors.extend(layer_issues(timeline, media))
     errors.extend(layout_issues(timeline, media))
-    errors.extend(decorated_transition_issues(timeline))
+    errors.extend(decorated_transition_issues(timeline, project))
     errors.extend(wipe_graph_issues(timeline))
     errors.extend(zoom_pair_issues(timeline))
     errors.extend(acknowledge_errors(timeline, media, allow_dense=allow_dense, project=project))
@@ -311,7 +327,7 @@ def review_warnings(
     warns.extend(outdoor_denoise_warnings(timeline))
     warns.extend(density_warnings(timeline, project))
     warns.extend(style_warnings(timeline))
-    warns.extend(acknowledge_warnings(timeline, media))
+    warns.extend(acknowledge_warnings(timeline, media, project))
     warns.extend(quality_warnings(timeline, project, media))
     warns.extend(video_duration_floor_warnings(timeline, project, media))
     if timeline.music:
