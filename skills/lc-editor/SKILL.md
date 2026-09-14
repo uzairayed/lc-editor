@@ -32,7 +32,7 @@ Do **not** fall back to raw ffmpeg while `lc-editor doctor` is green. This is th
 4. **Ask about sound before touching the timeline.** Sound is the owner's call, not yours. Ask: "Do you want music or natural audio only?" Do not assume either way.
    - If music: call `project_set(allow_music=true)`, import the track, `music_add`, `beat_analyze`, show `beat_sync_preview`, then `beat_sync_apply` only after the user confirms.
    - If natural audio: proceed without music tools.
-   - For reel UI SFX: prefer owner free files via `sfx_import` / `sfx_pack_add` (license `CC0` / `Mixkit` / `Pixabay`; Mixkit / Pixabay / Freesound sources only). Never CapCut rips. Imported keys show in `sfx_list` and win over built-ins in `sfx_place`.
+   - For reel UI SFX: after `project_create`, `sfx_pack_add` the checkout `packs/reel-sfx` folder (Mixkit License whoosh / swipe / pop / …). Then `sfx_import` any extra owner files (license `CC0` / `Mixkit` / `Pixabay`; Mixkit / Pixabay / Freesound only). Never CapCut rips. Never leave the Python-synth bundled whoosh on `whip` / `punch` — imported keys win in `sfx_list` / `sfx_place` / `sfx_transition_auto`.
 
 5. **Match subjects to scene cards.** When you look at keyframes or set clip durations/roles, consult `context/INDEX.md` and read only the matching scene cards. The process is in `context/HOW.md`.
 

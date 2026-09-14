@@ -167,7 +167,7 @@ Optional: `project_create(..., preset="karachi")` loads series branding. Other r
 | Effects | Registry: blur, sharpen, glow, grain, vignette, lut, color |
 | Text | Stroke-and-shadow only. Motion: fade, pop, slide, type-on |
 | Templates | `editorial`, `karachi`; apply expands to ordinary layers |
-| Sound | Natural audio, beds, SFX (ride kinds plus reel `sparkle`/`swipe`/`bubble`/`button`/`paper`/`cash`/`click`/`correct`/`success`). Owner free imports via `sfx_import` / `sfx_pack_add` into project `user-sfx/` (license `CC0` / `Mixkit` / `Pixabay`; Mixkit / Pixabay / Freesound; never CapCut). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
+| Sound | Natural audio, beds, SFX (ride kinds plus reel `sparkle`/`swipe`/`bubble`/`button`/`paper`/`cash`/`click`/`correct`/`success`). Agent pack: `sfx_pack_add` checkout `packs/reel-sfx` (Mixkit License). Extra owner imports via `sfx_import` / `sfx_pack_add` into project `user-sfx/` (license `CC0` / `Mixkit` / `Pixabay`; Mixkit / Pixabay / Freesound; never CapCut). Music is opt-in via `project_set(allow_music=true)` then `music_add` |
 | Beat sync | `beat_analyze`, `beat_edit`, dry-run `beat_sync_preview`, then `beat_sync_apply` |
 | Look | One adjustment layer (LUT, grain, vignette) after the cut |
 | Album cards | Propose / confirm per-media day + role + subjects. Capture-order guard. Folder-name hints |

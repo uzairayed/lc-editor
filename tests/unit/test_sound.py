@@ -243,3 +243,20 @@ def test_spec_snd_18_pack_add_folder(editor: Editor, tmp_path: Path) -> None:
     assert (editor.store.user_sfx_dir / "button.wav").exists()
     assert (editor.store.user_sfx_dir / "cash.mp3").exists()
     assert editor.sfx_place(kind="cash", at_s=0.0, gain_db=-12.0)["ok"] is True
+
+
+def test_spec_snd_18_reel_sfx_pack_imports(editor: Editor) -> None:
+    from lc_editor.models import CC0_SFX_KINDS
+
+    pack = Path(__file__).resolve().parents[2] / "packs" / "reel-sfx"
+    assert pack.is_dir()
+    added = editor.sfx_pack_add(str(pack))
+    assert added["ok"] is True, added
+    kinds = {i["kind"] for i in added["sfx"]}
+    assert kinds == set(CC0_SFX_KINDS)
+    listed = {i["kind"]: i for i in editor.sfx_list()["sfx"]}
+    whoosh = listed["whoosh"]
+    assert whoosh.get("imported") is True
+    assert whoosh.get("license") == "Mixkit"
+    assert (editor.store.user_sfx_dir / "whoosh.wav").stat().st_size > 10_000
+    assert editor.sfx_place(kind="whoosh", at_s=0.0, gain_db=-12.0)["ok"] is True

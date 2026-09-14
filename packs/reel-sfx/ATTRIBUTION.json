@@ -1,0 +1,104 @@
+{
+  "note": "Owner-imported free SFX only (Mixkit / Pixabay / Freesound). License must be CC0, Mixkit, or Pixabay. Do not ship CapCut rips or Python-synth generators. Third-party audio is never vendored inside the pip package. Import this folder with sfx_pack_add so reel whoosh/swipe replace bundled synth.",
+  "items": [
+    {
+      "kind": "whoosh",
+      "key": "whoosh",
+      "file": "whoosh.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Fast whoosh transition",
+      "source_url": "https://mixkit.co/free-sound-effects/whoosh/",
+      "mixkit_id": "1490"
+    },
+    {
+      "kind": "swipe",
+      "key": "swipe",
+      "file": "swipe.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Fast small sweep transition",
+      "source_url": "https://mixkit.co/free-sound-effects/transition/",
+      "mixkit_id": "166"
+    },
+    {
+      "kind": "pop",
+      "key": "pop",
+      "file": "pop.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Hard pop click",
+      "source_url": "https://mixkit.co/free-sound-effects/pop/",
+      "mixkit_id": "2364"
+    },
+    {
+      "kind": "click",
+      "key": "click",
+      "file": "click.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Cool interface click tone",
+      "source_url": "https://mixkit.co/free-sound-effects/click/",
+      "mixkit_id": "2568"
+    },
+    {
+      "kind": "sparkle",
+      "key": "sparkle",
+      "file": "sparkle.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Fairy magic sparkle",
+      "source_url": "https://mixkit.co/free-sound-effects/magic/",
+      "mixkit_id": "871"
+    },
+    {
+      "kind": "cash",
+      "key": "cash",
+      "file": "cash.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Clinking coins",
+      "source_url": "https://mixkit.co/free-sound-effects/cash/",
+      "mixkit_id": "1993"
+    },
+    {
+      "kind": "success",
+      "key": "success",
+      "file": "success.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Fantasy game success notification",
+      "source_url": "https://mixkit.co/free-sound-effects/success/",
+      "mixkit_id": "270"
+    },
+    {
+      "kind": "paper",
+      "key": "paper",
+      "file": "paper.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Page turn single",
+      "source_url": "https://mixkit.co/free-sound-effects/paper/",
+      "mixkit_id": "1104"
+    },
+    {
+      "kind": "bubble",
+      "key": "bubble",
+      "file": "bubble.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Bubble pop up alert notification",
+      "source_url": "https://mixkit.co/free-sound-effects/pop/",
+      "mixkit_id": "2357"
+    },
+    {
+      "kind": "button",
+      "key": "button",
+      "file": "button.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Light button",
+      "source_url": "https://mixkit.co/free-sound-effects/button/",
+      "mixkit_id": "2580"
+    },
+    {
+      "kind": "correct",
+      "key": "correct",
+      "file": "correct.wav",
+      "license": "Mixkit",
+      "source_name": "Mixkit Correct answer tone",
+      "source_url": "https://mixkit.co/free-sound-effects/correct/",
+      "mixkit_id": "2870"
+    }
+  ]
+}
